@@ -1,0 +1,19 @@
+<!-- macOS menu bar template icon: monochrome black with alpha.
+     Simplified V7-A — magnifying glass + Claude burst — sized to read at 18-22pt.
+     macOS auto-inverts black template images for dark menu bars. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
+  <!-- Lens: ring stroke around center (14.5, 14) with radius 9, stroke 2.6 -->
+  <circle cx="14.5" cy="14" r="9" fill="none" stroke="#000" stroke-width="2.6"/>
+
+  <!-- Handle: from lens lower-right tangent to (29, 28.5), thick rounded pill -->
+  <line x1="21.0" y1="20.5" x2="29.5" y2="29" stroke="#000" stroke-width="3.0" stroke-linecap="round"/>
+
+  <!-- Simplified Claude burst inside lens.
+       Only 4 lines = 8 spokes for legibility at small sizes (12 spokes turn into a blob @22px). -->
+  <g stroke="#000" stroke-width="1.5" stroke-linecap="round" transform="translate(14.5 14)">
+    <line x1="0" y1="-4.8" x2="0" y2="4.8"/>
+    <line transform="rotate(45)" x1="0" y1="-4.8" x2="0" y2="4.8"/>
+    <line transform="rotate(90)" x1="0" y1="-4.8" x2="0" y2="4.8"/>
+    <line transform="rotate(135)" x1="0" y1="-4.8" x2="0" y2="4.8"/>
+  </g>
+</svg>

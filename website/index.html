@@ -1,0 +1,1320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lens — Search, resume, and understand your AI coding sessions</title>
+<meta name="description" content="Cross-platform desktop browser for your local Claude Code and OpenAI Codex session history. Search, resume, and understand every conversation." />
+<meta property="og:title" content="Lens — Search, resume, and understand your AI coding sessions" />
+<meta property="og:description" content="Cross-platform desktop browser for your local Claude Code and OpenAI Codex history." />
+<meta property="og:image" content="./assets/hero.png" />
+<meta property="og:url" content="https://lens.maliming.net" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" type="image/png" href="./assets/logo.png" />
+<style>
+  /* ---------- Tokens ---------- */
+  :root {
+    --bg: #faf7f2;
+    --bg-tint: #f3ebdd;
+    --surface: #ffffff;
+    --surface-2: #fdfaf3;
+    --text: #1c1917;
+    --text-muted: #6b6258;
+    --border: #e9e3d8;
+    --border-soft: #f0e9dc;
+    --accent: #d97757;
+    --accent-soft: #fde6da;
+    --accent-deep: #b85f3f;
+    --purple: #7c3aed;
+    --pink: #ec4899;
+    --emerald: #10b981;
+    --amber: #f59e0b;
+    --shadow-card: 0 1px 3px rgba(28,25,23,0.04), 0 10px 25px -8px rgba(28,25,23,0.08);
+    --shadow-pop: 0 20px 50px -10px rgba(28,25,23,0.18);
+    --shadow-glow: 0 0 60px -10px rgba(217,119,87,0.4);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14110d;
+      --bg-tint: #1a1611;
+      --surface: #1c1815;
+      --surface-2: #221d18;
+      --text: #f5efe6;
+      --text-muted: #a8a094;
+      --border: #2a241e;
+      --border-soft: #221d18;
+      --accent: #f48a6f;
+      --accent-soft: #2a1e18;
+      --accent-deep: #ffa489;
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.4), 0 10px 25px -8px rgba(0,0,0,0.5);
+      --shadow-pop: 0 20px 50px -10px rgba(0,0,0,0.7);
+      --shadow-glow: 0 0 80px -10px rgba(244,138,111,0.35);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  a { color: var(--accent); text-decoration: none; transition: color 0.15s ease; }
+  a:hover { color: var(--accent-deep); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 0.88em;
+  }
+  img { max-width: 100%; height: auto; display: block; }
+
+  /* ---------- Decorative background ---------- */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -200px -200px auto auto;
+    width: 700px;
+    height: 700px;
+    background: radial-gradient(circle, var(--accent-soft) 0%, transparent 60%);
+    opacity: 0.5;
+    pointer-events: none;
+    z-index: -1;
+    animation: drift 30s ease-in-out infinite alternate;
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: auto auto -200px -200px;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(124,58,237,0.12) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: -1;
+    animation: drift 40s ease-in-out infinite alternate-reverse;
+  }
+  @keyframes drift {
+    from { transform: translate(0, 0); }
+    to { transform: translate(40px, -30px); }
+  }
+
+  /* ---------- Nav ---------- */
+  nav {
+    position: sticky;
+    top: 0;
+    backdrop-filter: blur(14px) saturate(1.2);
+    background: color-mix(in srgb, var(--bg) 75%, transparent);
+    border-bottom: 1px solid var(--border-soft);
+    z-index: 100;
+  }
+  .nav-inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--text);
+  }
+  .nav-brand img { width: 30px; height: 30px; border-radius: 7px; }
+  .nav-links {
+    display: flex;
+    gap: 28px;
+    font-size: 14px;
+    color: var(--text-muted);
+    align-items: center;
+  }
+  .nav-links a { color: inherit; font-weight: 500; }
+  .nav-links a:hover { color: var(--text); }
+  /* Nav CTA mirrors the hero download button at a smaller scale so the call
+     to action reads as the same product affordance throughout the page.
+     Pure-white text (not var(--bg), which is cream/beige and washes out) and
+     a vibrant accent→purple gradient give the contrast a chip-sized button
+     needs on a translucent backdrop. */
+  .nav-cta {
+    background: linear-gradient(135deg, var(--accent) 0%, #e64a89 60%, var(--purple) 100%);
+    color: #ffffff !important;
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 13.5px;
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 35%, transparent);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .nav-cta:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 45%, transparent), 0 2px 8px color-mix(in srgb, var(--purple) 25%, transparent);
+    color: #ffffff !important;
+  }
+  @media (max-width: 640px) {
+    .nav-links a:not(.nav-cta) { display: none; }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding: 84px 28px 24px;
+    text-align: center;
+    max-width: 1080px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .hero .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 28px;
+    box-shadow: var(--shadow-card);
+  }
+  .hero .eyebrow .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--emerald);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--emerald) 25%, transparent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity: 0.5; } }
+
+  .hero h1 {
+    font-size: clamp(40px, 6.5vw, 72px);
+    font-weight: 800;
+    line-height: 1.05;
+    margin-bottom: 22px;
+    letter-spacing: -0.025em;
+  }
+  .hero h1 .gradient {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 60%, var(--pink) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero p.lead {
+    font-size: clamp(17px, 1.9vw, 21px);
+    color: var(--text-muted);
+    max-width: 680px;
+    margin: 0 auto 40px;
+    line-height: 1.55;
+  }
+  .hero p.lead strong { color: var(--text); font-weight: 600; }
+
+  .cta-row {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 32px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 13px 24px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 15px;
+    transition: all 0.2s cubic-bezier(.2,.8,.2,1);
+    cursor: pointer;
+    border: 0;
+    text-decoration: none !important;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent) 0%, #e64a89 60%, var(--purple) 100%);
+    color: white;
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 45%, transparent);
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-primary::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent 40%);
+    pointer-events: none;
+  }
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 32px color-mix(in srgb, var(--accent) 55%, transparent), 0 6px 16px color-mix(in srgb, var(--purple) 35%, transparent);
+    color: white;
+  }
+  .btn-primary > * { position: relative; z-index: 1; }
+  /* In the dark final-cta block, give the button a brighter ring so it pops
+     against the near-black surround. */
+  .final-cta .btn-primary {
+    box-shadow: 0 6px 22px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 0 1px color-mix(in srgb, white 8%, transparent);
+  }
+  .final-cta .btn-primary:hover {
+    box-shadow: 0 14px 36px color-mix(in srgb, var(--accent) 65%, transparent), 0 0 0 1px color-mix(in srgb, white 12%, transparent);
+  }
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover {
+    background: var(--surface-2);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-card);
+    color: var(--text);
+  }
+
+  .platform-pills {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 60px;
+  }
+  .pill {
+    padding: 5px 14px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+  }
+  .pill svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+
+  /* ---------- Hero shot ---------- */
+  .hero-shot {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px 100px;
+    position: relative;
+  }
+  .hero-shot .frame {
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: var(--shadow-pop), var(--shadow-glow);
+    border: 1px solid var(--border);
+    position: relative;
+    background: var(--surface);
+  }
+  .hero-shot .frame img { display: block; width: 100%; }
+
+  /* ---------- Stats strip ---------- */
+  .stats {
+    max-width: 1080px;
+    margin: 0 auto 80px;
+    padding: 0 28px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 24px;
+  }
+  .stat {
+    text-align: center;
+    padding: 28px 16px;
+    border-radius: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+  }
+  .stat .n {
+    font-size: 36px;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .stat .l {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+
+  /* ---------- Why Lens ---------- */
+  .why {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+  .why::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(circle at 20% 30%, var(--accent-soft) 0%, transparent 35%),
+      radial-gradient(circle at 80% 70%, rgba(124,58,237,0.08) 0%, transparent 40%);
+    pointer-events: none;
+  }
+  .why-inner {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 100px 28px;
+    text-align: center;
+    position: relative;
+  }
+  .why h2 {
+    font-size: clamp(28px, 4vw, 38px);
+    font-weight: 800;
+    margin-bottom: 22px;
+    letter-spacing: -0.02em;
+  }
+  .why p.intro {
+    color: var(--text-muted);
+    font-size: 18px;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+  .why p.intro code { font-size: 0.85em; }
+  .why .pain-list {
+    list-style: none;
+    text-align: left;
+    max-width: 560px;
+    margin: 40px auto 32px;
+  }
+  .why .pain-list li {
+    padding: 16px 0;
+    padding-left: 36px;
+    position: relative;
+    color: var(--text);
+    font-size: 16px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .why .pain-list li:last-child { border-bottom: 0; }
+  .why .pain-list li:before {
+    content: "✕";
+    position: absolute;
+    left: 0;
+    top: 14px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--pink) 18%, transparent);
+    color: var(--pink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 11px;
+  }
+  .why .answer {
+    display: inline-block;
+    padding: 14px 28px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    color: white;
+    font-weight: 600;
+    font-size: 16px;
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  /* ---------- Feature sections (zigzag) ---------- */
+  .feature-section {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 100px 28px;
+  }
+  .feature-section .section-head {
+    text-align: center;
+    margin-bottom: 64px;
+  }
+  .feature-section .section-head h2 {
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 800;
+    margin-bottom: 14px;
+    letter-spacing: -0.02em;
+  }
+  .feature-section .section-head p {
+    color: var(--text-muted);
+    font-size: 17px;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+
+  .feature-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    align-items: center;
+    margin-bottom: 100px;
+  }
+  .feature-row:last-child { margin-bottom: 0; }
+  .feature-row.reverse .copy { order: 2; }
+  .feature-row.reverse .visual { order: 1; }
+  @media (max-width: 820px) {
+    .feature-row { grid-template-columns: 1fr; gap: 32px; }
+    .feature-row.reverse .copy,
+    .feature-row.reverse .visual { order: initial; }
+    .feature-section { padding: 60px 24px; }
+  }
+
+  .feature-row .copy .eyebrow {
+    display: inline-block;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 16px;
+    padding: 4px 12px;
+    background: var(--accent-soft);
+    border-radius: 999px;
+  }
+  .feature-row h3 {
+    font-size: clamp(24px, 3vw, 32px);
+    font-weight: 800;
+    line-height: 1.15;
+    margin-bottom: 18px;
+    letter-spacing: -0.015em;
+  }
+  .feature-row p {
+    color: var(--text-muted);
+    font-size: 16.5px;
+    margin-bottom: 14px;
+    line-height: 1.6;
+  }
+  .feature-row .bullets {
+    margin-top: 22px;
+    list-style: none;
+  }
+  .feature-row .bullets li {
+    padding: 7px 0 7px 26px;
+    font-size: 15px;
+    color: var(--text);
+    position: relative;
+  }
+  .feature-row .bullets li:before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    color: var(--emerald);
+    font-weight: 700;
+  }
+
+  .feature-row .visual .frame {
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: var(--shadow-card);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    transition: transform 0.4s cubic-bezier(.2,.8,.2,1), box-shadow 0.4s ease;
+  }
+  .feature-row .visual .frame:hover {
+    transform: translateY(-4px) scale(1.01);
+    box-shadow: var(--shadow-pop);
+  }
+  .feature-row .visual .frame img { width: 100%; display: block; }
+  .feature-row .visual .frame.tight { max-width: 360px; margin: 0 auto; }
+
+  /* ---------- Multi-tool callout ---------- */
+  .multi {
+    background: linear-gradient(135deg, var(--bg-tint) 0%, var(--bg) 100%);
+    border-top: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .multi-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 100px 28px;
+    text-align: center;
+  }
+  .multi h2 {
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 800;
+    margin-bottom: 16px;
+    letter-spacing: -0.02em;
+  }
+  .multi p.sub {
+    color: var(--text-muted);
+    font-size: 17px;
+    max-width: 600px;
+    margin: 0 auto 40px;
+  }
+  .multi-split {
+    display: grid;
+    grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+    gap: 40px;
+    align-items: center;
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  .multi .visual.multi-shot { width: 100%; }
+  .multi .visual.multi-shot .frame {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--bg);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  }
+  .multi .visual.multi-shot .frame img { width: 100%; display: block; }
+  .multi .vendors {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 720px) {
+    .multi-split { grid-template-columns: 1fr; gap: 28px; max-width: 480px; }
+  }
+  .vendor {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 32px 30px;
+    box-shadow: var(--shadow-card);
+    text-align: left;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .vendor:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-pop);
+  }
+  .vendor::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, currentColor, transparent);
+    opacity: 0.4;
+  }
+  .vendor.claude { color: var(--accent); }
+  .vendor.codex { color: var(--purple); }
+  .vendor .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .vendor .logo {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .vendor.claude .logo { background: var(--accent-soft); color: var(--accent-deep); }
+  .vendor.codex .logo { background: color-mix(in srgb, var(--purple) 15%, transparent); color: var(--purple); }
+  @media (prefers-color-scheme: dark) {
+    .vendor.codex .logo { background: color-mix(in srgb, var(--purple) 28%, transparent); color: #c4a8ff; }
+  }
+  .vendor .meta { min-width: 0; }
+  .vendor h4 {
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+    letter-spacing: -0.01em;
+  }
+  .vendor .path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: var(--bg-tint);
+    padding: 2px 8px;
+    border-radius: 5px;
+    display: inline-block;
+  }
+  .vendor p {
+    color: var(--text-muted);
+    font-size: 14.5px;
+    line-height: 1.6;
+    margin-top: 4px;
+  }
+  .vendor p code {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* ---------- Theme showcase ---------- */
+  .themes {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 100px 28px;
+  }
+  .themes .section-head { text-align: center; margin-bottom: 60px; }
+  .themes h2 {
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 800;
+    margin-bottom: 14px;
+    letter-spacing: -0.02em;
+  }
+  .themes p.sub { color: var(--text-muted); font-size: 17px; max-width: 560px; margin: 0 auto; }
+  .theme-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+  }
+  @media (max-width: 820px) { .theme-grid { grid-template-columns: 1fr; } }
+  .theme-card {
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: var(--shadow-card);
+    border: 1px solid var(--border);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .theme-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-pop); }
+  .theme-card img { width: 100%; display: block; }
+  .theme-card .label {
+    padding: 18px 22px;
+    background: var(--surface);
+    border-top: 1px solid var(--border-soft);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .theme-card .label .name { font-weight: 700; font-size: 15px; }
+  .theme-card .label .sub { font-size: 12.5px; color: var(--text-muted); }
+
+  .lang-strip {
+    margin-top: 60px;
+    padding: 36px 28px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 16px;
+    text-align: center;
+  }
+  .lang-strip h4 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 18px;
+  }
+  .lang-strip .langs {
+    display: flex;
+    gap: 18px;
+    justify-content: center;
+    flex-wrap: wrap;
+    font-size: 16px;
+    color: var(--text);
+  }
+  .lang-strip .langs span { font-weight: 500; }
+  .lang-strip .langs span + span:before {
+    content: "·";
+    margin-right: 18px;
+    color: var(--text-muted);
+  }
+
+  /* ---------- Final CTA ---------- */
+  /* Fixed near-black palette — does NOT track var(--text)/var(--bg) because
+     those flip in dark mode and would invert the CTA's intent (dark surround
+     contrasting the bright button). */
+  .final-cta {
+    background: linear-gradient(135deg, #1c1917 0%, #2a241e 100%);
+    color: #f5efe6;
+    margin-top: 60px;
+  }
+  .final-cta h2 { color: #f5efe6; }
+  .final-inner {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 100px 28px;
+    text-align: center;
+  }
+  .final-cta h2 {
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 800;
+    margin-bottom: 18px;
+    letter-spacing: -0.025em;
+  }
+  .final-cta h2 .gradient {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--pink) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .final-cta p {
+    color: rgba(245, 239, 230, 0.75);
+    font-size: 18px;
+    margin-bottom: 36px;
+    max-width: 540px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .final-cta .cta-row .btn-secondary {
+    background: transparent;
+    border-color: rgba(245, 239, 230, 0.25);
+    color: #f5efe6;
+  }
+  .final-cta .cta-row .btn-secondary:hover {
+    background: rgba(245, 239, 230, 0.08);
+    border-color: rgba(245, 239, 230, 0.4);
+    color: #f5efe6;
+  }
+
+  /* ---------- Footer ---------- */
+  footer.site-footer {
+    padding: 64px 28px 40px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13.5px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+  }
+  footer.site-footer .footer-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 16px;
+    font-size: 16px;
+  }
+  footer.site-footer .footer-brand img { width: 26px; height: 26px; }
+  footer.site-footer .links {
+    margin-bottom: 18px;
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  footer.site-footer .links a { color: var(--text-muted); }
+  footer.site-footer .links a:hover { color: var(--text); }
+  footer.site-footer .legal {
+    font-size: 12px;
+    opacity: 0.7;
+    max-width: 540px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* ---------- Image lightbox ---------- */
+  /* All screenshots inside `.frame` (hero + features) and `.theme-card`
+     (light/dark showcase) are click-to-zoom. The cursor hint and a tiny
+     "expand" badge on hover signal interactivity without adding chrome to
+     the resting state. */
+  .frame,
+  .theme-card {
+    cursor: zoom-in;
+    position: relative;
+  }
+  .frame::after,
+  .theme-card::after {
+    content: "⤢";
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.55);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 700;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+    z-index: 2;
+  }
+  .frame:hover::after,
+  .theme-card:hover::after { opacity: 1; }
+  .frame:focus-visible,
+  .theme-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+  }
+
+  /* Lightbox overlay — fixed full-viewport, click outside the image to close. */
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 11, 8, 0.92);
+    backdrop-filter: blur(10px);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    cursor: zoom-out;
+    animation: lb-fade 0.2s ease;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox img {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 12px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .lightbox .close {
+    position: absolute;
+    top: 20px;
+    right: 24px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: white;
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s ease;
+  }
+  .lightbox .close:hover { background: rgba(255,255,255,0.2); }
+  .lightbox .hint {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.55);
+    font-size: 12.5px;
+    letter-spacing: 0.04em;
+    pointer-events: none;
+  }
+  @keyframes lb-fade {
+    from { opacity: 0; backdrop-filter: blur(0); }
+    to { opacity: 1; backdrop-filter: blur(10px); }
+  }
+
+  /* ---------- Reveal animation ---------- */
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.7s ease, transform 0.7s cubic-bezier(.2,.8,.2,1);
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  /* All decorative motion is gated on reduced-motion preference so users with
+     vestibular sensitivity get a still page (drifting radial blobs, pulsing
+     dot, smooth-scroll all suppressed). The .reveal class above already does
+     the same gate by only setting the transition under no-preference. */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    body::before, body::after { animation: none !important; }
+    .hero .eyebrow .dot { animation: none !important; }
+  }
+
+  /* ---------- Mobile (≤640px) ----------
+     Existing per-section breakpoints handle column collapse (multi-split,
+     feature-row, theme-grid). This block tightens vertical/horizontal
+     padding, scales remaining fixed font sizes, and trims fixed-width
+     decorations so iPhone-class viewports render cleanly. */
+  @media (max-width: 640px) {
+    /* Top navigation */
+    .nav-inner { padding: 12px 18px; }
+    .nav-brand { font-size: 16px; }
+    .nav-brand img { width: 26px !important; height: 26px !important; }
+    .nav-cta { padding: 6px 12px; font-size: 13px; }
+
+    /* Hero — reduce top breathing room so the headline lands above the fold */
+    .hero { padding: 56px 18px 16px; }
+    .hero h1 br { display: none; }
+    .hero .lead { font-size: 16px; }
+    .cta-row { gap: 12px; flex-direction: column; align-items: stretch; }
+    .cta-row .btn { width: 100%; justify-content: center; padding: 14px 22px; font-size: 15px; }
+    .platform-pills { flex-wrap: wrap; gap: 8px; }
+    .hero-shot { margin: 36px 12px 0; }
+
+    /* Stats — narrower gutters, smaller number block */
+    .stats { padding: 0 18px; gap: 12px; margin-bottom: 48px; grid-template-columns: repeat(2, 1fr); }
+    .stat { padding: 20px 12px; }
+    .stat .n { font-size: 26px; }
+    .stat .l { font-size: 11.5px; letter-spacing: 0.04em; }
+
+    /* Generic section padding: 100px → 56px vertical, 28px → 18px horizontal */
+    .why,
+    .feature-section,
+    .multi,
+    .themes,
+    .final-cta { padding-left: 18px; padding-right: 18px; }
+    .why-inner,
+    .feature-row,
+    .multi-inner,
+    .themes > div,
+    .final-inner { padding-top: 56px !important; padding-bottom: 56px !important; }
+    .feature-section { padding: 56px 18px; }
+    .multi { padding: 56px 18px; }
+    .themes { padding: 56px 18px; }
+    .final-cta { padding: 56px 18px; }
+    .lang-strip { padding: 28px 18px; }
+
+    /* Frames + visuals shouldn't get a horizontal scrollbar */
+    .frame { border-radius: 12px; }
+    .feature-row .visual .frame.tight { max-width: 100%; }
+
+    /* Lightbox close button breathing room when address bar takes the top */
+    .lightbox button[aria-label="Close"] { top: 12px; right: 12px; }
+  }
+
+  /* ---------- Extra-narrow phones (≤380px) ---------- */
+  @media (max-width: 380px) {
+    .stats { grid-template-columns: 1fr; }
+    .nav-links a:not(.nav-cta) { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="nav-brand">
+      <img src="./assets/logo.png" alt="" />
+      <span>Lens</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#multi">Multi-tool</a>
+      <a href="https://github.com/maliming/Lens" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/maliming/Lens/releases/latest" target="_blank" rel="noopener" class="nav-cta">Download</a>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="eyebrow">
+    <span class="dot"></span>
+    Claude Code · OpenAI Codex · 100% local · No telemetry
+  </div>
+  <h1>Every <span class="gradient">Claude Code &amp; Codex</span><br/>session in one place.</h1>
+  <p class="lead">Lens is a cross-platform desktop browser for the two AI coding tools you actually use. Search, resume, and understand every conversation Claude Code and OpenAI Codex write to disk — without ever leaving your machine.</p>
+  <div class="cta-row" id="download">
+    <a class="btn btn-primary" href="https://github.com/maliming/Lens/releases/latest" target="_blank" rel="noopener">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download for your platform
+    </a>
+    <a class="btn btn-secondary" href="https://github.com/maliming/Lens" target="_blank" rel="noopener">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.79-.25.79-.55 0-.27-.01-1-.02-1.96-3.2.7-3.87-1.54-3.87-1.54-.52-1.32-1.28-1.68-1.28-1.68-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.08-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.18 1.18.92-.26 1.91-.39 2.9-.39.99 0 1.98.13 2.9.39 2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.11 3.04.74.8 1.19 1.82 1.19 3.08 0 4.41-2.69 5.39-5.25 5.67.41.36.78 1.06.78 2.14 0 1.55-.01 2.79-.01 3.17 0 .31.21.66.79.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
+      Star on GitHub
+    </a>
+  </div>
+  <div class="platform-pills">
+    <span class="pill">macOS 13+</span>
+    <span class="pill">Windows 10+</span>
+    <span class="pill">10 languages</span>
+  </div>
+</section>
+
+<div class="hero-shot">
+  <div class="frame reveal">
+    <img src="./assets/hero.png" alt="Lens main window — sessions list, conversation detail, code blocks, profile card" fetchpriority="high" />
+  </div>
+</div>
+
+<div class="stats reveal">
+  <div class="stat">
+    <div class="n">2</div>
+    <div class="l">AI tools supported</div>
+  </div>
+  <div class="stat">
+    <div class="n">10</div>
+    <div class="l">UI languages</div>
+  </div>
+  <div class="stat">
+    <div class="n">0</div>
+    <div class="l">Telemetry</div>
+  </div>
+  <div class="stat">
+    <div class="n">∞</div>
+    <div class="l">Sessions searchable</div>
+  </div>
+</div>
+
+<div class="why">
+  <div class="why-inner">
+    <h2>You have hundreds of sessions. Now what?</h2>
+    <p class="intro">
+      Claude Code and Codex stash every conversation as JSONL under
+      <code>~/.claude/projects/</code> and <code>~/.codex/sessions/</code>.
+      After a few weeks of heavy use, the problems compound:
+    </p>
+    <ul class="pain-list">
+      <li>You vaguely remember fixing an auth bug last Tuesday — but can't find that session</li>
+      <li>You hit your Anthropic quota and have no idea which project or model spent it</li>
+      <li>You want to continue yesterday's half-finished refactor, but the UUID is gone</li>
+      <li>You can't share a session with a teammate without copy-pasting the entire JSONL</li>
+    </ul>
+    <div class="answer">Lens is the local-only browser that closes the loop.</div>
+  </div>
+</div>
+
+<section class="feature-section" id="features">
+  <div class="section-head">
+    <h2>What you can do</h2>
+    <p>Six things you'll use every day — without ever opening a terminal to grep your JSONL files.</p>
+  </div>
+
+  <!-- Search -->
+  <div class="feature-row reveal">
+    <div class="copy">
+      <span class="eyebrow">Search</span>
+      <h3>Find any session in seconds</h3>
+      <p>Instant filter on title, project, branch, or model. When metadata isn't enough, drop into <strong>full-text grep</strong> across every JSONL body.</p>
+      <ul class="bullets">
+        <li>Timeline view groups results by day — remember when you fixed what</li>
+        <li>Card and list layouts persist per user</li>
+        <li>Search results sortable by relevance, recency, tokens, or messages</li>
+      </ul>
+    </div>
+    <div class="visual">
+      <div class="frame"><img src="./assets/search.png" alt="Search view with timeline grouping"  loading="lazy" /></div>
+    </div>
+  </div>
+
+  <!-- Resume -->
+  <div class="feature-row reverse reveal">
+    <div class="copy">
+      <span class="eyebrow">Resume</span>
+      <h3>One click. Right back to coding.</h3>
+      <p>Open the session in <strong>Terminal or iTerm</strong> at the original <code>cwd</code>, or copy the resume command to your clipboard.</p>
+      <ul class="bullets">
+        <li>No remembering UUIDs</li>
+        <li>No <code>cd</code>-ing into the right repo first</li>
+        <li>Works for both <code>claude --resume</code> and <code>codex resume</code></li>
+      </ul>
+    </div>
+    <div class="visual">
+      <div class="frame"><img src="./assets/resume.png" alt="Session header with Resume button highlighted"  loading="lazy" /></div>
+    </div>
+  </div>
+
+  <!-- Usage -->
+  <div class="feature-row reveal">
+    <div class="copy">
+      <span class="eyebrow">Usage</span>
+      <h3>See where your tokens went</h3>
+      <p>Per-tool dashboards with rolling <strong>5h / 24h / 7d / 30d</strong> buckets — broken down by model and project, with an activity heatmap and streak stats.</p>
+      <ul class="bullets">
+        <li>Live subscription quota — opt-in probe of your Claude Code OAuth token</li>
+        <li>Codex limits via local <code>codex app-server</code> probe (no consent needed)</li>
+        <li>Activity heatmap, longest streak, most active day</li>
+      </ul>
+    </div>
+    <div class="visual">
+      <div class="frame"><img src="./assets/usage.png" alt="Usage dashboard with hero metrics, live quota, heatmap"  loading="lazy" /></div>
+    </div>
+  </div>
+
+  <!-- Workspace -->
+  <div class="feature-row reverse reveal">
+    <div class="copy">
+      <span class="eyebrow">Workspace</span>
+      <h3>Map your agent's environment</h3>
+      <p>Browse <code>CLAUDE.md</code>, <code>AGENTS.md</code>, Skills, Commands, Hooks/Rules, Plugins, and Settings — everything that shapes how the agent behaves, in one view.</p>
+      <ul class="bullets">
+        <li>Read rendered Markdown or raw config side by side</li>
+        <li>Jump to any file in Finder with one click</li>
+        <li>Per-source split: Claude's plugins vs Codex's rules</li>
+      </ul>
+    </div>
+    <div class="visual">
+      <div class="frame"><img src="./assets/workspace.png" alt="Workspace browser showing CLAUDE.md content"  loading="lazy" /></div>
+    </div>
+  </div>
+</section>
+
+<div class="multi" id="multi">
+  <div class="multi-inner">
+    <h2>Two AI tools. One unified app.</h2>
+    <p class="sub">Flip between Claude Code and Codex from the sidebar. Sessions, usage charts, workspace browser, plan badge — everything rescopes to the active source.</p>
+    <div class="multi-split">
+    <div class="visual multi-shot">
+      <div class="frame"><img src="./assets/multi-source.png" alt="Sidebar source switcher between Claude Code and Codex" loading="lazy" /></div>
+    </div>
+    <div class="vendors">
+      <div class="vendor claude">
+        <div class="header">
+          <div class="logo" aria-hidden="true">
+            <svg viewBox="0 0 100 100" width="36" height="36">
+              <path fill="currentColor" d="m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z" />
+            </svg>
+          </div>
+          <div class="meta">
+            <h4>Claude Code</h4>
+            <div class="path">~/.claude/projects/</div>
+          </div>
+        </div>
+        <p>Anthropic's CLI for coding. Lens reads every JSONL it writes, surfaces the Anthropic OAuth quota, and resumes sessions via <code>claude --resume</code>.</p>
+      </div>
+      <div class="vendor codex">
+        <div class="header">
+          <div class="logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="34" height="34">
+              <path fill="currentColor" d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" />
+            </svg>
+          </div>
+          <div class="meta">
+            <h4>OpenAI Codex</h4>
+            <div class="path">~/.codex/sessions/</div>
+          </div>
+        </div>
+        <p>OpenAI's terminal coding agent. Lens parses its rollout files, pulls live limits from <code>codex app-server</code>, and resumes via <code>codex resume</code>.</p>
+      </div>
+    </div>
+    </div>
+  </div>
+</div>
+
+<section class="themes">
+  <div class="section-head">
+    <h2>Light, dark, ten languages</h2>
+    <p class="sub">System theme detection on first launch. Switch any time. Localized into ten languages — auto-detected from your OS.</p>
+  </div>
+  <div class="theme-grid">
+    <div class="theme-card reveal">
+      <img src="./assets/hero.png" alt="Lens in light theme" loading="lazy" />
+      <div class="label">
+        <span class="name">☀ Light</span>
+        <span class="sub">Default</span>
+      </div>
+    </div>
+    <div class="theme-card reveal">
+      <img src="./assets/dark.png" alt="Lens in dark theme"  loading="lazy" />
+      <div class="label">
+        <span class="name">🌙 Dark</span>
+        <span class="sub">Easy on the eyes</span>
+      </div>
+    </div>
+  </div>
+  <div class="lang-strip reveal">
+    <h4>Available in</h4>
+    <div class="langs">
+      <span>English</span><span>简体中文</span><span>Türkçe</span><span>日本語</span><span>한국어</span><span>Deutsch</span><span>Français</span><span>Español</span><span>Português</span><span>Русский</span>
+    </div>
+  </div>
+</section>
+
+<div class="final-cta">
+  <div class="final-inner">
+    <h2>Reclaim your <span class="gradient">AI coding history.</span></h2>
+    <p>Free, open source (MIT), 100% local. macOS, Windows, and Linux.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/maliming/Lens/releases/latest" target="_blank" rel="noopener">
+        ⬇  Download Lens
+      </a>
+      <a class="btn btn-secondary" href="https://github.com/maliming/Lens" target="_blank" rel="noopener">
+        Read the source
+      </a>
+    </div>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-brand">
+    <img src="./assets/logo.png" alt="" />
+    <span>Lens</span>
+  </div>
+  <div class="links">
+    <a href="https://github.com/maliming/Lens" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/maliming/Lens/releases" target="_blank" rel="noopener">Releases</a>
+    <a href="https://github.com/maliming/Lens/issues" target="_blank" rel="noopener">Report a bug</a>
+    <a href="https://github.com/maliming/Lens#license" target="_blank" rel="noopener">License (MIT)</a>
+  </div>
+  <div class="legal">
+    Lens is an independent third-party browser for local Claude Code and OpenAI Codex history files. Not affiliated with Anthropic or OpenAI.
+  </div>
+</footer>
+
+<!-- Lightbox lives outside any other section so its fixed positioning isn't
+     affected by stacking contexts on .frame's parents. -->
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Screenshot preview">
+  <button class="close" type="button" aria-label="Close preview" data-close>×</button>
+  <img alt="" id="lightbox-img" />
+  <div class="hint">Click anywhere or press Esc to close</div>
+</div>
+
+<script>
+  // Reveal-on-scroll: graceful no-op when IntersectionObserver isn't supported.
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); }
+      }
+    }, { rootMargin: '0px 0px -80px 0px', threshold: 0.05 });
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+  } else {
+    document.querySelectorAll('.reveal').forEach(el => el.classList.add('visible'));
+  }
+
+  // Image lightbox — click any screenshot inside a .frame to open it full-size.
+  // The hero `.frame` and every feature row image qualifies. Clicking the
+  // overlay backdrop OR the X button OR pressing Esc closes it. Scroll on the
+  // body is locked while open so the page doesn't drift behind the preview.
+  (function() {
+    const lb = document.getElementById('lightbox');
+    const lbImg = document.getElementById('lightbox-img');
+    if (!lb || !lbImg) return;
+
+    function open(src, alt) {
+      lbImg.src = src;
+      lbImg.alt = alt || '';
+      lb.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+    function close() {
+      lb.classList.remove('open');
+      // Clear src after the close transition so memory isn't pinned holding
+      // the high-res copy.
+      setTimeout(() => { lbImg.src = ''; }, 200);
+      document.body.style.overflow = '';
+    }
+
+    // All in-page screenshot wrappers — frame divs in hero/features and the
+    // theme-card row at the bottom showcasing light vs dark.
+    document.querySelectorAll('.frame, .theme-card').forEach(wrapper => {
+      const img = wrapper.querySelector('img');
+      if (!img) return;
+      wrapper.addEventListener('click', (e) => {
+        // Don't intercept clicks on the theme-card's footer label (it's not
+        // a screenshot, just chrome). Same future-proofing for inner links.
+        if (e.target.closest('.label')) return;
+        if (e.target.tagName === 'A') return;
+        open(img.currentSrc || img.src, img.alt);
+      });
+      // Keyboard support: focusable + Enter / Space to open.
+      wrapper.setAttribute('role', 'button');
+      wrapper.setAttribute('tabindex', '0');
+      wrapper.setAttribute('aria-label', `Open ${img.alt || 'screenshot'} full-size`);
+      wrapper.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open(img.currentSrc || img.src, img.alt);
+        }
+      });
+    });
+
+    lb.addEventListener('click', (e) => {
+      // Close when clicking the backdrop, the X button, or anywhere that isn't
+      // the image itself — letting users dismiss without aiming for the corner.
+      if (e.target === lbImg) return;
+      close();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && lb.classList.contains('open')) close();
+    });
+  })();
+</script>
+
+</body>
+</html>
