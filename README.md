@@ -137,7 +137,7 @@ Lens isn't signed with an Apple Developer ID — it's a free hobby project, macO
 Strip the quarantine flag once and Lens launches normally from then on:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/Lens"
+xattr -dr com.apple.quarantine "/Applications/Lens.app"
 ```
 
 App data lives at `~/Library/Application Support/Lens/`.
