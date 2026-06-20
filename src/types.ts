@@ -60,6 +60,71 @@ export type MessageItem = {
   // exceeded the per-session cap and some images were dropped from this or
   // later messages. UI surfaces a banner so the user knows what's missing.
   imagesTruncated?: boolean;
+  // tool_use blocks emitted in this assistant turn (one turn can carry several
+  // parallel calls). The renderer matches these against the subagent index to
+  // hang "open subagent / workflow" expanders on the originating call.
+  toolCalls?: ToolCallRef[];
+  // For a user turn carrying tool_result blocks: one entry per block, each the
+  // tool_use id it answers plus (for a Workflow launch result) the run id parsed
+  // from that block's text. Per-block so parallel Workflow results in one turn
+  // don't cross-link.
+  toolResults?: ToolResultRef[];
+};
+
+export type ToolCallRef = { toolName: string; toolUseId: string };
+export type ToolResultRef = { toolUseId: string; workflowRunId?: string };
+
+// One Task/Agent subagent: `<sessionId>/subagents/agent-<id>.jsonl`.
+export type SubagentTaskRef = {
+  agentId: string;
+  agentType: string | null;
+  description?: string;
+  toolUseId: string | null;
+  filePath: string | null;
+  fileSize: number;
+  mtime: number;
+};
+
+// One agent within a workflow run (from the run record's workflowProgress[]).
+export type WorkflowAgentRef = {
+  agentId: string | null;
+  label: string | null;
+  phaseIndex: number | null;
+  phaseTitle: string | null;
+  model: string | null;
+  state: string | null;
+  tokens: number;
+  toolCalls: number;
+  durationMs: number;
+  promptPreview?: string;
+  resultPreview?: string;
+  filePath: string | null;
+  fileSize: number;
+  mtime: number;
+};
+
+// One Workflow-tool run: `<sessionId>/workflows/<runId>.json` (+ the agent
+// transcripts under `<sessionId>/subagents/workflows/<runId>/`).
+export type WorkflowRunRef = {
+  runId: string;
+  taskId: string | null;
+  name: string | null;
+  summary?: string;
+  status: string | null;
+  durationMs: number;
+  totalTokens: number;
+  defaultModel: string | null;
+  startTime: number;
+  // True for a run we synthesized from an orphan transcript dir (no run record).
+  // Excluded from the linker's order-based fallback — links only via exact runId.
+  synthetic?: boolean;
+  phases: Array<{ title: string }>;
+  agents: WorkflowAgentRef[];
+};
+
+export type SessionSubagents = {
+  taskAgents: SubagentTaskRef[];
+  workflowRuns: WorkflowRunRef[];
 };
 
 export type View = 'sessions' | 'favorites' | 'excluded' | 'usage' | 'config' | 'settings' | 'search';
@@ -179,6 +244,7 @@ declare global {
       listSessions: (opts?: { force?: boolean }) => Promise<SessionMeta[]>;
       onSessionsUpdated: (cb: (sessions: SessionMeta[]) => void) => () => void;
       getSession: (filePath: string) => Promise<MessageItem[]>;
+      getSubagents: (filePath: string) => Promise<SessionSubagents>;
       deepSearch: (query: string, source?: 'claude' | 'codex') => Promise<Array<{
         id: string;
         source: 'claude' | 'codex';

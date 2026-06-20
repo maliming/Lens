@@ -93,6 +93,26 @@ function registerIpc(deps) {
     return await claude.getSessionMessages(real);
   });
 
+  // Index of subagent / workflow transcripts spawned by a parent session, for
+  // the detail view's inline-expand feature. Same path gate as sessions:get;
+  // the agent transcript files it points at all live under PROJECTS_DIR, so the
+  // renderer loads each one back through sessions:get. Codex has no subagent
+  // tree, so it returns empty.
+  ipcMain.handle('sessions:subagents', async (_e, filePath) => {
+    const empty = { taskAgents: [], workflowRuns: [] };
+    if (typeof filePath !== 'string') return empty;
+    let real;
+    try { real = await ensureInsideAny([PROJECTS_DIR, CODEX_SESSIONS_DIR], filePath); }
+    catch { return empty; }
+    if (!real.endsWith('.jsonl')) return empty;
+    let realCodexBase = CODEX_SESSIONS_DIR;
+    try { realCodexBase = await fsp.realpath(CODEX_SESSIONS_DIR); } catch {}
+    if (isInsideBase(real, realCodexBase)) return empty;
+    // Non-fatal: a scan error must never reject the detail-pane load.
+    try { return await claude.getSubagents(real); }
+    catch { return empty; }
+  });
+
   let _deepSearchInflight = null;
   ipcMain.handle('sessions:deepSearch', async (_e, payload) => {
     const query = payload?.query;

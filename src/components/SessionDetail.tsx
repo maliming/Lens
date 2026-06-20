@@ -1,12 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Play, Copy, FolderOpen, Star, GitBranch, FileText, SlidersHorizontal, Check, Code2, Search, X, Info, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { cleanDisplayText, fmtBytes, fmtTime, fmtTokens, shortCwd, visibleMessageCount } from '../lib/format';
 import { meaningfulBranch } from '../lib/sessionTitle';
 import { useTranslation } from '../lib/I18nProvider';
-import type { MessageItem, SessionMeta } from '../types';
+import type { MessageItem, SessionMeta, SessionSubagents } from '../types';
 import { Message } from './Message';
+import { UnlinkedSubagents } from './SubagentTranscript';
+import { linkSubagents, linkedFor, messageHasLinkedSubagent, linkedMatchesQuery, taskAgentMatches, workflowRunMatches } from '../lib/subagents';
 import { useDisplayPrefs, type DisplayPrefs } from '../lib/displayPrefs';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
 
@@ -61,9 +63,13 @@ type Props = {
   // `null` = no gating in effect; either size is fine or user already
   // accepted for this session.
   pendingLargeLoad?: { sizeBytes: number; onConfirm: () => void } | null;
+  // Index of subagent / workflow transcripts spawned by this session. Wired to
+  // the originating Agent / Workflow tool card for inline expand. `null` while
+  // it loads or for sources without a subagent tree (Codex).
+  subagents?: SessionSubagents | null;
 };
 
-export function SessionDetail({ session, messages, loading, refreshing, favorites, query, onToggleFavorite, onStatus, onOpenInfo, onRefreshMessages, pendingLargeLoad }: Props) {
+export function SessionDetail({ session, messages, loading, refreshing, favorites, query, onToggleFavorite, onStatus, onOpenInfo, onRefreshMessages, pendingLargeLoad, subagents }: Props) {
   const { t } = useTranslation();
   const [globalMode, setGlobalMode] = useState<'markdown' | 'raw'>('markdown');
   const [visibleCount, setVisibleCount] = useState<number>(INITIAL_VISIBLE);
@@ -190,18 +196,30 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
   // 0 in-session matches, which reads as a bug.
   const q = localSearch.trim().toLowerCase();
   const matchesQuery = (m: MessageItem) => !!q && (m.text || '').toLowerCase().includes(q);
+  // Tie subagent / workflow transcripts to the Agent / Workflow call that
+  // spawned them. Recomputed only when the messages or the index change.
+  const links = useMemo(() => linkSubagents(messages, subagents ?? null), [messages, subagents]);
   const filteredMessages = messages
     ? messages.filter(m => {
         const isTool = m.isToolUse || m.isToolResult;
         if (!isTool) return true;
         if (prefs.showTools) return true;
+        // An Agent / Workflow card carries the only entry point to its
+        // subagent transcripts — keep it visible even when tools are hidden,
+        // or the feature silently disappears with the "Show tools" toggle.
+        if (messageHasLinkedSubagent(m, links)) return true;
         return matchesQuery(m);
       })
     : null;
 
-  // When localSearch is active, further restrict to messages containing the query
+  // When localSearch is active, further restrict to messages containing the
+  // query — OR whose Agent/Workflow card spawned a subagent whose index fields
+  // match (lightweight: index only, no transcript read). Keeps the card in view
+  // so the matched preview rendered inside it is reachable.
+  const matchesMessageOrSubagent = (m: MessageItem) =>
+    matchesQuery(m) || linkedMatchesQuery(linkedFor(m, links), q);
   const searchScoped = q && filteredMessages
-    ? filteredMessages.filter(matchesQuery)
+    ? filteredMessages.filter(matchesMessageOrSubagent)
     : filteredMessages;
 
   const totalMsgs = searchScoped?.length || 0;
@@ -594,8 +612,20 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
                   query={effectiveQuery}
                   prefs={prefs}
                   source={session.source}
+                  linked={linkedFor(m, links)}
                 />
               ))}
+              {/* Orphan subagents / workflow runs we couldn't anchor to a
+                 specific tool call still surface here rather than vanishing.
+                 In search mode, narrow to the ones whose index fields match so
+                 the region doesn't read as an unrelated block. */}
+              <UnlinkedSubagents
+                taskAgents={q ? links.unlinkedTaskAgents.filter(a => taskAgentMatches(a, q)) : links.unlinkedTaskAgents}
+                runs={q ? links.unlinkedWorkflowRuns.filter(r => workflowRunMatches(r, q)) : links.unlinkedWorkflowRuns}
+                query={effectiveQuery}
+                source={session.source}
+                prefs={prefs}
+              />
             </div>
           </>
         )}

@@ -2,7 +2,7 @@
 // AND the demo-mode flag is set in localStorage — packaged builds can never
 // switch this on from the UI (the toggle isn't even rendered there).
 
-import type { SessionMeta, MessageItem, UsageSummary, RateLimits, AuthStatus } from '../types';
+import type { SessionMeta, MessageItem, UsageSummary, RateLimits, AuthStatus, SessionSubagents } from '../types';
 
 const DAY = 86400 * 1000;
 const HOUR = 3600 * 1000;
@@ -155,6 +155,12 @@ export const DEMO_SESSIONS: SessionMeta[] = [
   ...CODEX_SEEDS.map((seed, i) => buildSession(seed, i, 'codex')),
 ];
 
+// tool_use ids that tie the template's Agent / Workflow calls to the demo
+// subagent index below, so the inline-expand feature has something to show in
+// screenshots.
+const DEMO_TASK_AGENT_TOOLUSE_ID = 'demo_toolu_explore';
+const DEMO_WORKFLOW_TOOLUSE_ID = 'demo_toolu_workflow';
+
 // One realistic-looking conversation reused for all demo sessions. Markdown body
 // shows mixed code / list / quote so screenshots cover the formatting surface.
 const DEMO_MSG_TEMPLATE: MessageItem[] = [
@@ -284,6 +290,31 @@ Worth adding a Vitest case that hits the endpoint twice in parallel to lock in t
     timestamp: new Date(NOW - 18 * 60 * 1000).toISOString(),
     model: null,
     usage: null,
+  },
+  {
+    kind: 'assistant',
+    text: 'Before we lock this in, let me sweep the rest of the auth module for the same rotation race and weigh a couple of hardening approaches in parallel.',
+    timestamp: new Date(NOW - 17 * 60 * 1000).toISOString(),
+    model: 'claude-opus-4-7',
+    usage: { input_tokens: 130, output_tokens: 41, cache_read_input_tokens: 29000, cache_creation_input_tokens: 0 },
+  },
+  {
+    kind: 'assistant',
+    isToolUse: true,
+    text: '[Tool: Agent]\n{\n  "subagent_type": "Explore",\n  "description": "Audit auth module for token-rotation races"\n}',
+    timestamp: new Date(NOW - 17 * 60 * 1000 + 2000).toISOString(),
+    model: 'claude-opus-4-7',
+    usage: null,
+    toolCalls: [{ toolName: 'Agent', toolUseId: DEMO_TASK_AGENT_TOOLUSE_ID }],
+  },
+  {
+    kind: 'assistant',
+    isToolUse: true,
+    text: '[Tool: Workflow]\n{\n  "description": "Draft + score 2 retry-hardening approaches in parallel"\n}',
+    timestamp: new Date(NOW - 16 * 60 * 1000).toISOString(),
+    model: 'claude-opus-4-7',
+    usage: null,
+    toolCalls: [{ toolName: 'Workflow', toolUseId: DEMO_WORKFLOW_TOOLUSE_ID }],
   },
 ];
 
@@ -551,6 +582,77 @@ export const DEMO_MESSAGES: Record<string, MessageItem[]> = Object.fromEntries(
     anchorTemplate(s.id === REFRESH_TOKEN_ID ? DEMO_MSG_TEMPLATE : TEMPLATES[hashIdx(s.id)], s.lastTs),
   ])
 );
+
+// Subagent / workflow transcripts for the refresh-token session, so the inline
+// "open subagent / workflow" feature has something to show in screenshots. The
+// Explore subagent links by toolUseId; the workflow run links to the Workflow
+// call by message order (see linkSubagents). Transcript bodies are keyed by a
+// synthetic `demo://` filePath — AgentTranscript resolves them from
+// DEMO_SUBAGENT_TRANSCRIPTS instead of hitting the real getSession IPC when
+// demo mode is on.
+export const DEMO_SUBAGENTS: Record<string, SessionSubagents> = {
+  [REFRESH_TOKEN_ID]: {
+    taskAgents: [
+      {
+        agentId: 'demoexplore',
+        agentType: 'Explore',
+        description: 'Audit auth module for token-rotation races',
+        toolUseId: DEMO_TASK_AGENT_TOOLUSE_ID,
+        filePath: 'demo://agent/explore-auth',
+        fileSize: 18 * 1024,
+        mtime: NOW,
+      },
+    ],
+    workflowRuns: [
+      {
+        runId: 'wf_demo01',
+        taskId: 'demo_task_1',
+        name: 'harden-retry',
+        summary: 'Draft + score 2 retry-hardening approaches in parallel',
+        status: 'completed',
+        durationMs: 41200,
+        totalTokens: 184000,
+        defaultModel: 'claude-opus-4-7',
+        startTime: NOW - 16 * 60 * 1000,
+        phases: [{ title: 'Draft' }, { title: 'Judge' }],
+        agents: [
+          { agentId: 'a1', label: 'draft:mutex', phaseIndex: 1, phaseTitle: 'Draft', model: 'claude-opus-4-7', state: 'done', tokens: 52000, toolCalls: 6, durationMs: 14200, promptPreview: 'Draft a mutex-style single-flight refresh guard.', resultPreview: 'Single-flight via a shared in-flight promise; N parallel 401s collapse to one refresh.', filePath: 'demo://agent/wf-draft-mutex', fileSize: 22 * 1024, mtime: NOW },
+          { agentId: 'a2', label: 'draft:queue', phaseIndex: 1, phaseTitle: 'Draft', model: 'claude-opus-4-7', state: 'done', tokens: 49000, toolCalls: 5, durationMs: 13800, promptPreview: 'Draft a request-queue approach that parks 401s.', resultPreview: 'Queue pending requests behind one refresh, then replay; more moving parts.', filePath: 'demo://agent/wf-draft-queue', fileSize: 21 * 1024, mtime: NOW },
+          { agentId: 'a3', label: 'judge', phaseIndex: 2, phaseTitle: 'Judge', model: 'claude-opus-4-7', state: 'done', tokens: 83000, toolCalls: 2, durationMs: 13200, promptPreview: 'Score both drafts on simplicity and correctness.', resultPreview: 'Mutex wins — same guarantees, fewer moving parts and no queue to drain on failure.', filePath: 'demo://agent/wf-judge', fileSize: 26 * 1024, mtime: NOW },
+        ],
+      },
+    ],
+  },
+};
+
+function demoPrompt(text: string): MessageItem {
+  return { kind: 'user', text, timestamp: new Date(NOW - 16 * 60 * 1000).toISOString(), model: null, usage: null };
+}
+function demoAssistant(text: string, out = 220): MessageItem {
+  return { kind: 'assistant', text, timestamp: new Date(NOW - 15 * 60 * 1000).toISOString(), model: 'claude-opus-4-7', usage: { input_tokens: 9000, output_tokens: out, cache_read_input_tokens: 31000, cache_creation_input_tokens: 0 } };
+}
+
+export const DEMO_SUBAGENT_TRANSCRIPTS: Record<string, MessageItem[]> = {
+  'demo://agent/explore-auth': [
+    demoPrompt('Audit the auth module for other places that read-then-rotate a refresh token without dedup. Report file:line for each.'),
+    demoAssistant('I\'ll grep for refresh-token reads and rotation calls, then cross-reference the ones that aren\'t single-flighted.'),
+    { kind: 'assistant', isToolUse: true, text: '[Tool: Grep]\n{\n  "pattern": "getRefresh|storeRefresh",\n  "glob": "src/auth/**"\n}', timestamp: new Date(NOW - 15 * 60 * 1000 + 3000).toISOString(), model: 'claude-opus-4-7', usage: null },
+    { kind: 'user', isToolResult: true, text: 'src/auth/interceptor.ts:10  const old = getRefresh();\nsrc/auth/session.ts:44  const t = getRefresh();\nsrc/auth/storage.ts:8  export function storeRefresh(...)', timestamp: new Date(NOW - 15 * 60 * 1000 + 4000).toISOString(), model: null, usage: null },
+    demoAssistant('Two call sites read the refresh token outside the new single-flight guard:\n\n- **`session.ts:44`** — the silent-renew timer reads `getRefresh()` directly; if it fires while an interceptor refresh is in flight it hits the same race.\n- `interceptor.ts:10` is the one you just fixed.\n\nRecommend routing both through the shared `refresh()` promise.', 260),
+  ],
+  'demo://agent/wf-draft-mutex': [
+    demoPrompt('Draft a mutex-style single-flight refresh guard. Keep it to ~15 lines, no new deps.'),
+    demoAssistant('A shared in-flight promise is enough — no real mutex needed in a single-threaded runtime:\n\n```ts\nlet inflight: Promise<Tokens> | null = null;\nexport function refresh() {\n  return (inflight ??= doRefresh().finally(() => { inflight = null; }));\n}\n```\n\nN parallel 401s all await the same promise; first resolution wins, the rest reuse it.', 300),
+  ],
+  'demo://agent/wf-draft-queue': [
+    demoPrompt('Draft a request-queue approach that parks 401s until one refresh completes, then replays them.'),
+    demoAssistant('Workable but heavier: you hold a `pending[]` array, pause failed requests, fire one refresh, then replay each with the new token. Needs careful failure draining so a rejected refresh doesn\'t strand the queue. More moving parts than the single-flight promise.', 250),
+  ],
+  'demo://agent/wf-judge': [
+    demoPrompt('Score both drafts on simplicity and correctness. Pick one.'),
+    demoAssistant('Both are correct under concurrent 401s. **Mutex/single-flight wins**: identical guarantees with no queue to drain on a failed refresh, and it\'s ~5 lines vs ~40. Ship the single-flight promise; keep the queue idea only if you later need to preserve strict request ordering.', 280),
+  ],
+};
 
 // Aggregated demo usage matching the DEMO_SESSIONS array.
 const totalIn = DEMO_SESSIONS.reduce((s, x) => s + x.tokensIn, 0);

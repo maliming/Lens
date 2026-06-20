@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('sessions:updated', listener);
   },
   getSession: (filePath) => ipcRenderer.invoke('sessions:get', filePath),
+  getSubagents: (filePath) => ipcRenderer.invoke('sessions:subagents', filePath),
   deepSearch: (query, source) => ipcRenderer.invoke('sessions:deepSearch', { query, source }),
   copyResumeCommand: (id, filePath, source) => ipcRenderer.invoke('sessions:copyResumeCommand', { id, filePath, source }),
   revealInFinder: (filePath) => ipcRenderer.invoke('sessions:revealInFinder', filePath),

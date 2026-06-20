@@ -21,6 +21,7 @@ const path = require('path');
 
 const { PROJECTS_DIR, CODEX_SESSIONS_DIR } = require('./lib/paths.cjs');
 const { MAX_SESSION_FILE_SIZE, forEachJsonlLine } = require('./lib/jsonl.cjs');
+const { listClaudeSubagentTranscriptFiles } = require('./lib/claude-subagents.cjs');
 
 // Per-level lstat helper — refuse to follow symlinks so a stray link inside
 // ~/.claude or ~/.codex can't redirect the scanner outside those roots.
@@ -105,19 +106,14 @@ async function listSearchTargets(source) {
         sessionDirs.push(entry);
       }
     }
-    // Pass two: each session dir's `subagents/` children. Attribute back to
-    // the parent session id so the renderer sees one hit per conversation,
-    // not one per subagent file.
+    // Pass two: each session dir's subagent transcripts — Task agents AND
+    // Workflow-tool agents (subagents/workflows/<runId>/). Attribute back to
+    // the parent session id so the renderer sees one hit per conversation, not
+    // one per subagent file.
     for (const sid of sessionDirs) {
-      const subDir = path.join(projectPath, sid, 'subagents');
-      if (!(await isPlainDir(subDir))) continue;
-      let subEntries;
-      try { subEntries = await fsp.readdir(subDir); } catch { continue; }
-      for (const sf of subEntries) {
-        if (!sf.endsWith('.jsonl')) continue;
-        const fp = path.join(subDir, sf);
-        if (!(await isPlainFile(fp))) continue;
-        targets.push({ filePath: fp, projectDir, parentSessionId: sid });
+      const sessionDir = path.join(projectPath, sid);
+      for (const sf of await listClaudeSubagentTranscriptFiles(sessionDir)) {
+        targets.push({ filePath: sf.filePath, projectDir, parentSessionId: sid });
       }
     }
   }

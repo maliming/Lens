@@ -17,6 +17,8 @@ const { CLAUDE_IMAGE_CACHE_ROOT, PROJECTS_DIR } = require('../lib/paths.cjs');
 const { isInsideBase } = require('../lib/fs-safety.cjs');
 const { forEachJsonlLine, MAX_SESSION_FILE_SIZE } = require('../lib/jsonl.cjs');
 const { mapPool } = require('../lib/concurrency.cjs');
+const { readJsonFileSafe } = require('../lib/json-io.cjs');
+const { listClaudeSubagentTranscriptFiles } = require('../lib/claude-subagents.cjs');
 const {
   MAX_INLINE_IMAGE_B64,
   MAX_IMAGES_PER_MESSAGE,
@@ -68,6 +70,17 @@ function extractMessageText(message) {
   }
   return '';
 }
+
+// The text of a single tool_result block (one user turn can answer several
+// parallel tool calls, each its own block). Used to read a Workflow result's
+// embedded run id per-block, so parallel Workflow calls don't get cross-linked.
+function toolResultPartText(p) {
+  if (typeof p.content === 'string') return p.content;
+  if (Array.isArray(p.content)) return p.content.map(x => (x && typeof x.text === 'string') ? x.text : '').join(' ');
+  return '';
+}
+// The Workflow launch tool_result embeds "Run ID: wf_…" in its text.
+const WF_RUNID_RE = /Run ID:\s*(wf_[A-Za-z0-9_-]+)/;
 
 // Patterns Claude Code itself injects into the JSONL as `user` rows even
 // though no human typed them — slash commands, command output captures,
@@ -158,6 +171,227 @@ async function loadClaudeImageCacheImages(text, budget) {
     } catch {}
   }
   return out;
+}
+
+// ===========================================================================
+// Subagent / workflow transcript index. Powers the detail view's inline
+// "open subagent" feature: a session can spawn Task/Agent subagents and
+// Workflow-tool agents, each writing a full transcript next to the parent.
+// We surface a lightweight index (one entry per agent + per workflow run) so
+// the renderer can wire each transcript to the originating tool call and load
+// it lazily. Whitelisted fields only — the raw `wf_<runId>.json` carries the
+// workflow's script source, full logs, and result, none of which the renderer
+// needs (and which we don't want to ship into it wholesale).
+// ===========================================================================
+
+// Cap on the preview strings we pass to the renderer (descriptions, prompt /
+// result previews). The run record already truncates these, but a hand-edited
+// or older record could carry more — keep the IPC payload bounded.
+const SUBAGENT_PREVIEW_MAX = 1000;
+function capPreview(s) {
+  if (typeof s !== 'string') return undefined;
+  return s.length > SUBAGENT_PREVIEW_MAX ? s.slice(0, SUBAGENT_PREVIEW_MAX) + '…' : s;
+}
+
+// Workflow run records inline the script source, full logs, and result, so the
+// 16 MB default userdata cap can drop a long run wholesale. Allow more for the
+// record specifically (still bounded — it's JSON.parsed into memory). Agent
+// `.meta.json` stays on the default cap (it's tiny).
+const MAX_WORKFLOW_RECORD_SIZE = 64 * 1024 * 1024;
+
+// readJsonFileSafe returns the raw UTF-8 string (or null) — callers parse it
+// themselves. Wrap it so a corrupt record degrades to null instead of throwing.
+async function readJsonParsed(filePath, maxBytes) {
+  const raw = await readJsonFileSafe(filePath, maxBytes);
+  if (raw == null) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+// lstat a path and return its stats only when it's a real (non-symlink) entry
+// of the requested kind. `~/.claude/projects` is tool-owned; a symlink inside
+// the subagent tree is either misconfiguration or an attempt to redirect the
+// reader outside the base, so we reject it at every level we descend.
+async function realStat(p, kind /* 'file' | 'dir' */) {
+  let st;
+  try { st = await fsp.lstat(p); } catch { return null; }
+  if (st.isSymbolicLink()) return null;
+  if (kind === 'dir' && !st.isDirectory()) return null;
+  if (kind === 'file' && !st.isFile()) return null;
+  return st;
+}
+
+// Top-level Task/Agent subagents: `<sessionId>/subagents/agent-<id>.jsonl`
+// (+ `.meta.json`). The `workflows/` subdir and `journal.jsonl` belong to the
+// workflow path and are skipped here.
+async function scanTaskAgents(subagentsDir) {
+  if (!(await realStat(subagentsDir, 'dir'))) return [];
+  let entries;
+  try { entries = await fsp.readdir(subagentsDir); } catch { return []; }
+  const out = [];
+  // Drive off the transcript file (`agent-<id>.jsonl`), not the meta — an agent
+  // that wrote its transcript but no `.meta.json` (e.g. crashed mid-write) still
+  // surfaces, just without agentType/description/toolUseId. `journal.jsonl` and
+  // the `workflows/` subdir don't match `agent-*.jsonl`, so they're skipped.
+  for (const name of entries) {
+    if (!name.startsWith('agent-') || !name.endsWith('.jsonl')) continue;
+    const agentId = name.slice('agent-'.length, -'.jsonl'.length);
+    if (!agentId) continue;
+    const jsonlPath = path.join(subagentsDir, name);
+    const st = await realStat(jsonlPath, 'file');
+    if (!st) continue;
+    let meta = await readJsonParsed(path.join(subagentsDir, `agent-${agentId}.meta.json`));
+    if (!meta || typeof meta !== 'object') meta = {};
+    out.push({
+      agentId,
+      agentType: typeof meta.agentType === 'string' ? meta.agentType : null,
+      description: capPreview(meta.description),
+      toolUseId: typeof meta.toolUseId === 'string' ? meta.toolUseId : null,
+      filePath: jsonlPath,
+      fileSize: st.size,
+      mtime: st.mtimeMs,
+    });
+  }
+  return out;
+}
+
+// Workflow runs. Run records live at `<sessionId>/workflows/<runId>.json`;
+// the matching agent transcripts at `<sessionId>/subagents/workflows/<runId>/
+// agent-<agentId>.jsonl`. Driven by the run records (they carry the rich
+// per-agent metadata); each progress entry is resolved to its transcript file
+// when present. A half-written run (record but no transcript, or vice versa)
+// degrades gracefully — the agent just gets `filePath: null`.
+async function scanWorkflowRuns(sessionDir, subagentsDir) {
+  const workflowsDir = path.join(sessionDir, 'workflows');
+  const wfAgentsRoot = path.join(subagentsDir, 'workflows');
+  const out = [];
+  // Pass 1: run records (rich metadata) — only if the records dir exists. The
+  // orphan pass below runs regardless, so a session that has transcript dirs
+  // but never wrote any `workflows/<runId>.json` still surfaces.
+  let entries = [];
+  if (await realStat(workflowsDir, 'dir')) {
+    try { entries = await fsp.readdir(workflowsDir); } catch { entries = []; }
+  }
+  for (const name of entries) {
+    if (!name.endsWith('.json')) continue; // skip the `scripts/` subdir
+    const recPath = path.join(workflowsDir, name);
+    if (!(await realStat(recPath, 'file'))) continue;
+    const rec = await readJsonParsed(recPath, MAX_WORKFLOW_RECORD_SIZE);
+    if (!rec || typeof rec !== 'object' || typeof rec.runId !== 'string') continue;
+    const runId = rec.runId;
+    const agentDir = path.join(wfAgentsRoot, runId);
+    const hasAgentDir = !!(await realStat(agentDir, 'dir'));
+    const progress = Array.isArray(rec.workflowProgress) ? rec.workflowProgress : [];
+    const agents = [];
+    for (const p of progress) {
+      // workflowProgress mixes `workflow_phase` markers with `workflow_agent`
+      // rows; only the latter are agents.
+      if (!p || typeof p !== 'object' || p.type !== 'workflow_agent') continue;
+      const agentId = typeof p.agentId === 'string' ? p.agentId : null;
+      let filePath = null, fileSize = 0, mtime = 0;
+      if (agentId && hasAgentDir) {
+        const fp = path.join(agentDir, `agent-${agentId}.jsonl`);
+        const st = await realStat(fp, 'file');
+        if (st) { filePath = fp; fileSize = st.size; mtime = st.mtimeMs; }
+      }
+      agents.push({
+        agentId,
+        label: typeof p.label === 'string' ? p.label : null,
+        phaseIndex: typeof p.phaseIndex === 'number' ? p.phaseIndex : null,
+        phaseTitle: typeof p.phaseTitle === 'string' ? p.phaseTitle : null,
+        model: typeof p.model === 'string' ? p.model : null,
+        state: typeof p.state === 'string' ? p.state : null,
+        tokens: typeof p.tokens === 'number' ? p.tokens : 0,
+        toolCalls: typeof p.toolCalls === 'number' ? p.toolCalls : 0,
+        durationMs: typeof p.durationMs === 'number' ? p.durationMs : 0,
+        promptPreview: capPreview(p.promptPreview),
+        resultPreview: capPreview(p.resultPreview),
+        filePath, fileSize, mtime,
+      });
+    }
+    out.push({
+      runId,
+      taskId: typeof rec.taskId === 'string' ? rec.taskId : null,
+      name: typeof rec.workflowName === 'string' ? rec.workflowName : null,
+      summary: capPreview(rec.summary),
+      status: typeof rec.status === 'string' ? rec.status : null,
+      durationMs: typeof rec.durationMs === 'number' ? rec.durationMs : 0,
+      totalTokens: typeof rec.totalTokens === 'number' ? rec.totalTokens : 0,
+      defaultModel: typeof rec.defaultModel === 'string' ? rec.defaultModel : null,
+      startTime: typeof rec.startTime === 'number' ? rec.startTime : 0,
+      phases: Array.isArray(rec.phases)
+        ? rec.phases.map(ph => ({ title: ph && typeof ph.title === 'string' ? ph.title : '' }))
+        : [],
+      agents,
+    });
+  }
+  // Orphan transcript dirs: `subagents/workflows/<runId>/` has agent files but
+  // no `workflows/<runId>.json` run record (the run crashed before writing it).
+  // Synthesize a bare run so the transcripts aren't silently dropped — no rich
+  // metadata, just the agent files keyed by their filename id.
+  const covered = new Set(out.map(r => r.runId));
+  if (await realStat(wfAgentsRoot, 'dir')) {
+    let runDirs = [];
+    try { runDirs = await fsp.readdir(wfAgentsRoot); } catch { runDirs = []; }
+    for (const runId of runDirs) {
+      if (covered.has(runId)) continue;
+      const agentDir = path.join(wfAgentsRoot, runId);
+      const dirSt = await realStat(agentDir, 'dir');
+      if (!dirSt) continue;
+      let files = [];
+      try { files = await fsp.readdir(agentDir); } catch { files = []; }
+      const agents = [];
+      for (const f of files) {
+        if (!f.startsWith('agent-') || !f.endsWith('.jsonl')) continue;
+        const agentId = f.slice('agent-'.length, -'.jsonl'.length);
+        const fp = path.join(agentDir, f);
+        const st = await realStat(fp, 'file');
+        if (!st) continue;
+        let meta = await readJsonParsed(path.join(agentDir, `agent-${agentId}.meta.json`));
+        if (!meta || typeof meta !== 'object') meta = {};
+        agents.push({
+          agentId,
+          label: typeof meta.label === 'string' ? meta.label : null,
+          phaseIndex: null, phaseTitle: null,
+          model: null, state: null, tokens: 0, toolCalls: 0, durationMs: 0,
+          promptPreview: undefined, resultPreview: undefined,
+          filePath: fp, fileSize: st.size, mtime: st.mtimeMs,
+        });
+      }
+      if (!agents.length) continue;
+      out.push({
+        runId, taskId: null, name: null, summary: undefined,
+        status: null, durationMs: 0, totalTokens: 0, defaultModel: null,
+        // `synthetic`: no run record, so we have no real ordering signal. The
+        // linker excludes these from the order-based fallback (they can only
+        // link via an exact runId match) so a dir mtime never mis-attributes a
+        // transcript to the wrong Workflow card.
+        startTime: dirSt.mtimeMs, synthetic: true, phases: [], agents,
+      });
+    }
+  }
+  // Chronological so the renderer's order-based fallback (Nth Workflow call ↔
+  // Nth run) lines up when the result-text link can't be resolved.
+  out.sort((a, b) => a.startTime - b.startTime);
+  return out;
+}
+
+// Index every subagent / workflow transcript belonging to one parent session.
+// `parentFilePath` must already be containment-checked + realpath-resolved by
+// the caller (the IPC gate). Best-effort throughout: a missing dir or a single
+// corrupt record is skipped locally so the index never fails the IPC.
+async function scanSessionSubagents(parentFilePath) {
+  const empty = { taskAgents: [], workflowRuns: [] };
+  if (typeof parentFilePath !== 'string' || !parentFilePath.endsWith('.jsonl')) return empty;
+  const dir = path.dirname(parentFilePath);
+  const sessionId = path.basename(parentFilePath, '.jsonl');
+  const sessionDir = path.join(dir, sessionId);
+  if (!(await realStat(sessionDir, 'dir'))) return empty;
+  const subagentsDir = path.join(sessionDir, 'subagents');
+  const [taskAgents, workflowRuns] = await Promise.all([
+    scanTaskAgents(subagentsDir),
+    scanWorkflowRuns(sessionDir, subagentsDir),
+  ]);
+  return { taskAgents, workflowRuns };
 }
 
 // ===========================================================================
@@ -320,25 +554,15 @@ function createParser({ fileMetaCache, userdata }) {
           if (/^[A-Za-z0-9_-]{8,}$/.test(entry)) sessionDirs.push(entry);
         }
       }
-      // Second pass: collect <sessionId>/subagents/*.jsonl per known session.
+      // Second pass: collect each session's subagent transcripts — Task agents
+      // AND Workflow-tool agents (subagents/workflows/<runId>/) — via the shared
+      // enumerator so Usage/Heatmap rolls in workflow tokens too, and the rule
+      // stays in sync with deep search.
       const subagentsBySessionId = new Map(); // sessionId → [{filePath}]
       for (const sid of sessionDirs) {
-        const subDir = path.join(projectPath, sid, 'subagents');
-        let sub;
-        try { sub = await fsp.lstat(subDir); } catch { continue; }
-        if (sub.isSymbolicLink() || !sub.isDirectory()) continue;
-        let subEntries;
-        try { subEntries = await fsp.readdir(subDir); } catch { continue; }
-        const list = [];
-        for (const sf of subEntries) {
-          if (!sf.endsWith('.jsonl')) continue;
-          const fp = path.join(subDir, sf);
-          let lst;
-          try { lst = await fsp.lstat(fp); } catch { continue; }
-          if (lst.isSymbolicLink() || !lst.isFile()) continue;
-          list.push({ filePath: fp });
-        }
-        if (list.length) subagentsBySessionId.set(sid, list);
+        const sessionDir = path.join(projectPath, sid);
+        const subFiles = await listClaudeSubagentTranscriptFiles(sessionDir);
+        if (subFiles.length) subagentsBySessionId.set(sid, subFiles.map(s => ({ filePath: s.filePath })));
       }
       for (const f of topLevel) {
         const sid = f.entry.replace(/\.jsonl$/, '');
@@ -544,16 +768,40 @@ function createParser({ fileMetaCache, userdata }) {
       const images = [...inlineImages, ...cacheImages];
       const text = stripImagePlaceholders(rawText);
 
-      const isToolResult = role === 'user' && Array.isArray(obj.message?.content) &&
-        obj.message.content.some(p => p?.type === 'tool_result');
-      const isToolUse = role === 'assistant' && Array.isArray(obj.message?.content) &&
-        obj.message.content.some(p => p?.type === 'tool_use');
+      const parts = Array.isArray(obj.message?.content) ? obj.message.content : null;
+      const isToolResult = role === 'user' && !!parts && parts.some(p => p?.type === 'tool_result');
+      const isToolUse = role === 'assistant' && !!parts && parts.some(p => p?.type === 'tool_use');
+      // Surface tool-call identity so the renderer can wire subagent / workflow
+      // transcripts to the exact Agent/Workflow call. A single assistant turn
+      // can carry several tool_use blocks (parallel tools), so this is a list,
+      // not one field. tool_result rows carry the id(s) they answer so the
+      // renderer can walk back from a Workflow result (whose text holds the run
+      // id) to the originating Workflow call.
+      let toolCalls, toolResults;
+      if (isToolUse) {
+        toolCalls = parts
+          .filter(p => p?.type === 'tool_use' && typeof p.id === 'string')
+          .map(p => ({ toolName: typeof p.name === 'string' ? p.name : '', toolUseId: p.id }));
+        if (!toolCalls.length) toolCalls = undefined;
+      }
+      if (isToolResult) {
+        // Per-block so a Workflow result's run id stays attached to the exact
+        // tool_use it answers (parallel Workflow calls land in one user turn).
+        toolResults = parts
+          .filter(p => p?.type === 'tool_result' && typeof p.tool_use_id === 'string')
+          .map(p => {
+            const m = toolResultPartText(p).match(WF_RUNID_RE);
+            return m ? { toolUseId: p.tool_use_id, workflowRunId: m[1] } : { toolUseId: p.tool_use_id };
+          });
+        if (!toolResults.length) toolResults = undefined;
+      }
       messages.push({
         kind: role, text, isToolResult, isToolUse,
         timestamp: obj.timestamp || null,
         model: obj.message?.model || null,
         usage: obj.message?.usage || null,
         images: images.length > 0 ? images : undefined,
+        toolCalls, toolResults,
       });
     });
     return capSessionImages(messages);
@@ -565,6 +813,7 @@ function createParser({ fileMetaCache, userdata }) {
     statAllJsonl,
     buildSession,
     getSessionMessages,
+    getSubagents: scanSessionSubagents,
   };
 }
 
@@ -578,6 +827,7 @@ module.exports = {
   IMAGE_CACHE_MARKER,
   PATH_EXT_TO_MIME,
   loadClaudeImageCacheImages,
+  scanSessionSubagents,
   // Factory.
   createParser,
 };

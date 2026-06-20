@@ -3,10 +3,10 @@ import { SessionList } from './SessionList';
 import { SessionDetail } from './SessionDetail';
 import { Resizer } from './Resizer';
 import { sessionTimestamp, visibleMessageCount } from '../lib/format';
-import { DEMO_MESSAGES } from '../lib/demoData';
+import { DEMO_MESSAGES, DEMO_SUBAGENTS } from '../lib/demoData';
 import { useCurrentSource, srcKey } from '../lib/sources';
 import { useTranslation } from '../lib/I18nProvider';
-import type { MessageItem, SessionMeta, UsageSummary, View } from '../types';
+import type { MessageItem, SessionMeta, SessionSubagents, UsageSummary, View } from '../types';
 
 // SessionsView (History / Favorites / Excluded) does only a lightweight
 // metadata-driven filter on the search input. Deep full-text search lives in
@@ -85,6 +85,7 @@ function asViewKey(v: string): ViewKey {
 export function SessionsView({ view, sessions, favorites, excluded, manualExcluded, excludeRules, onExcludeRulesChange, demoMode, loading, activeId, onActiveIdChange, onToggleFavorite, onToggleExclude, onStatus, onOpenInfo }: Props) {
   const { t } = useTranslation();
   const [messages, setMessages] = useState<MessageItem[] | null>(null);
+  const [subagents, setSubagents] = useState<SessionSubagents | null>(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
   // Big-session confirmation. Detail-view loads slurp the full JSONL into
   // memory (the IPC returns one MessageItem[] for the renderer to keep
@@ -253,6 +254,7 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
       // momentarily); without the reset the detail pane stays stuck on the
       // "Loading messages…" placeholder forever.
       setMessages(null);
+      setSubagents(null);
       setLoadingMessages(false);
       setRefreshingMessages(false);
       lastReqKeyRef.current = null;
@@ -287,6 +289,7 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
       && largeConfirmedKey !== reqKey;
     if (tooBig) {
       setMessages(null);
+      setSubagents(null);
       setLoadingMessages(false);
       setRefreshingMessages(false);
       setPendingLargeKey(reqKey);
@@ -295,6 +298,7 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
     setPendingLargeKey(null);
     if (!isRefresh) {
       setMessages(null);
+      setSubagents(null);
       setLoadingMessages(true);
     } else {
       setRefreshingMessages(true);
@@ -302,6 +306,7 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
     if (demoMode) {
       const demo = DEMO_MESSAGES[activeSession.id] || [];
       setMessages(demo);
+      setSubagents(DEMO_SUBAGENTS[activeSession.id] || null);
       setLoadingMessages(false);
       setRefreshingMessages(false);
       return;
@@ -324,6 +329,17 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
       onStatus(t('status.loadError', { error: e.message }));
       setLoadingMessages(false);
       setRefreshingMessages(false);
+    });
+    // Subagent / workflow index runs in parallel — same stale guard. It only
+    // reads small meta + run-record JSON (the heavy transcripts load lazily on
+    // expand), so it never blocks the message render. A failure is non-fatal:
+    // the detail pane just shows no subagent expanders.
+    window.api.getSubagents(activeSession.filePath).then(idx => {
+      if (cancelled || activeReqRef.current !== reqKey) return;
+      setSubagents(idx);
+    }).catch(() => {
+      if (cancelled || activeReqRef.current !== reqKey) return;
+      setSubagents(null);
     });
     return () => { cancelled = true; };
     // Depend on identity-stable primitives (id + filePath) not the activeSession
@@ -361,6 +377,7 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
       <SessionDetail
         session={activeSession}
         messages={messages}
+        subagents={subagents}
         loading={loadingMessages}
         refreshing={refreshingMessages}
         favorites={favorites}

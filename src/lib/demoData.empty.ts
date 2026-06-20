@@ -10,11 +10,13 @@
 // imports compile.
 
 import type {
-  SessionMeta, MessageItem, UsageSummary, RateLimits, AuthStatus,
+  SessionMeta, MessageItem, UsageSummary, RateLimits, AuthStatus, SessionSubagents,
 } from '../types';
 
 export const DEMO_SESSIONS: SessionMeta[] = [];
 export const DEMO_MESSAGES: Record<string, MessageItem[]> = {};
+export const DEMO_SUBAGENTS: Record<string, SessionSubagents> = {};
+export const DEMO_SUBAGENT_TRANSCRIPTS: Record<string, MessageItem[]> = {};
 
 const emptyBucket = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, sessions: 0, msgs: 0 };
 const emptyWindow = { ...emptyBucket, oldestTs: null as number | null };

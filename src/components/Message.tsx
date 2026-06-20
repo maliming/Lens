@@ -5,11 +5,13 @@ import { cn } from '../lib/utils';
 import { renderMarkdown, escapeHtml } from '../lib/markdown';
 import { highlightDom } from '../lib/highlight';
 import { fmtTokens, fmtModel, cleanDisplayText } from '../lib/format';
-import { ChevronDown, ChevronUp, Copy, Check, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, Check, X, CornerDownRight } from 'lucide-react';
 import { getSource } from '../lib/sources';
 import { useProfile } from '../lib/profile';
 import { CodeBlock } from './CodeBlock';
+import { SubagentSection } from './SubagentTranscript';
 import type { MessageItem } from '../types';
+import type { LinkedSubagents } from '../lib/subagents';
 import type { DisplayPrefs } from '../lib/displayPrefs';
 
 const COLLAPSE_THRESHOLD = 1500;
@@ -96,7 +98,7 @@ function MessageTimestamp({ iso }: { iso: string }) {
   );
 }
 
-export function Message({ message, defaultMode, query, prefs, source = 'claude' }: { message: MessageItem; defaultMode: 'markdown' | 'raw'; query: string; prefs: DisplayPrefs; source?: 'claude' | 'codex' }) {
+export function Message({ message, defaultMode, query, prefs, source = 'claude', linked, promptStyle = false }: { message: MessageItem; defaultMode: 'markdown' | 'raw'; query: string; prefs: DisplayPrefs; source?: 'claude' | 'codex'; linked?: LinkedSubagents | null; promptStyle?: boolean }) {
   const { t } = useTranslation();
   // Read the per-source profile so a USER message renders the operator's
   // uploaded avatar image (if any) instead of the hardcoded "M" letter, and
@@ -165,6 +167,12 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
 
   if (isTool) {
     const truncText = showTrunc ? text.slice(0, 2000) + '\n…' : text;
+    // When tools are hidden but this card is kept visible only because it spawned
+    // a subagent (SessionDetail's carve-out), show just the header + subagent
+    // section, not the raw tool_use JSON — otherwise "Show tools: off" leaks the
+    // body for these cards. A query hit inside the body keeps it visible so the
+    // match stays reachable.
+    const showToolBody = prefs.showTools || !linked || queryHit;
     return (
       <div ref={bodyRef} className={cn('group relative rounded-lg bg-emerald-50 dark:bg-emerald-950/30 overflow-hidden pl-3.5', prefs.compact ? 'p-2 pl-3.5' : 'p-3 pl-3.5')}>
         <span className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald-400 to-teal-600" />
@@ -177,7 +185,7 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
             {prefs.showTimestamps && message.timestamp && <MessageTimestamp iso={message.timestamp} />}
           </div>
         </div>
-        {text.trim() && <CodeBlock text={truncText} maxHeight={showTrunc ? 180 : undefined} />}
+        {showToolBody && text.trim() && <CodeBlock text={truncText} maxHeight={showTrunc ? 180 : undefined} />}
         {/* Screenshots and image attachments live inside tool_result content
            on the Claude side — render them under the codeblock so they aren't
            swallowed by the text-only path. */}
@@ -207,17 +215,23 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
           </div>
         )}
         <ImageLightbox src={viewerSrc} onClose={() => setViewerSrc(null)} />
-        {tooLong && (
+        {showToolBody && tooLong && (
           <button onClick={() => setExpanded(!expanded)} className="mt-2 text-[11px] text-accent flex items-center gap-1 hover:underline">
             {expanded ? <><ChevronUp className="w-3 h-3" /> Collapse</> : <><ChevronDown className="w-3 h-3" /> Show full ({text.length} chars)</>}
           </button>
         )}
+        {linked && <SubagentSection linked={linked} source={source} prefs={prefs} query={query} />}
       </div>
     );
   }
 
   const isUser = message.kind === 'user';
   const isSummary = message.kind === 'summary';
+  // Inside a subagent transcript every "user" turn is the prompt the parent /
+  // orchestrator handed the agent — never the human operator. Render it as a
+  // left-aligned PROMPT card (emerald, no operator avatar) so it doesn't read
+  // as the user talking.
+  const promptMode = promptStyle && isUser;
 
   // User stays as a tinted bubble (right-aligned, easy to scan).
   // Assistant goes flat — no card bg, just the orange Claude mark + body text, so
@@ -225,13 +239,17 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
   // Summary keeps a subtle amber wash so it still stands out.
   // Conversation entries: subtle tinted bg + thin left stripe in role color.
   // Calm, neutral — closer to GitHub PR threads than chat bubbles.
-  const cardClass = isUser
+  const cardClass = promptMode
+    ? 'bg-emerald-50/50 dark:bg-emerald-950/15 border border-emerald-200/60 dark:border-emerald-900/40 pl-4'
+    : isUser
     ? 'bg-violet-50/50 dark:bg-violet-950/15 border border-violet-100 dark:border-violet-900/40 pl-4'
     : isSummary
     ? 'bg-amber-100/70 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-900/50 pl-4'
     : 'bg-surface dark:bg-[hsl(var(--surface))] border border-border-soft pl-4';
 
-  const stripeGradient = isUser
+  const stripeGradient = promptMode
+    ? 'bg-emerald-500'
+    : isUser
     ? 'bg-violet-500'
     : isSummary
     ? 'bg-gradient-to-b from-amber-400 to-orange-500'
@@ -252,7 +270,7 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
       isSummary && 'pl-4',
       cardClass,
       prefs.compact ? 'p-3' : 'p-4',
-      isUser ? 'max-w-[78%] ml-auto' : 'w-full',
+      isUser && !promptMode ? 'max-w-[78%] ml-auto' : 'w-full',
     )}>
       <span className={cn('absolute left-0 top-0 bottom-0 w-1', stripeGradient)} />
       {/* msg-head: chrome only — name, model, token counts, timestamp, MD/Raw
@@ -270,7 +288,7 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
             // USER lane shows the operator's uploaded avatar image when set,
             // otherwise falls back to their configured profile initial on the
             // accent purple chip. Assistant + summary lanes are unchanged.
-            if (isUser && profile.avatarImage) {
+            if (isUser && !promptMode && profile.avatarImage) {
               return (
                 <img
                   src={profile.avatarImage}
@@ -280,19 +298,19 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
                 />
               );
             }
-            const bg = isUser ? '#7c5cff' : isSummary ? '#f59e0b' : def.accent;
+            const bg = promptMode ? '#10b981' : isUser ? '#7c5cff' : isSummary ? '#f59e0b' : def.accent;
             const initial = (profile.avatarInitial || 'M').slice(0, 2).toUpperCase();
             return (
               <div
                 className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 text-white text-[10px] font-bold"
                 style={{ background: bg }}
               >
-                {isUser ? initial : isSummary ? 'S' : <Glyph color="#ffffff" className="w-3 h-3" />}
+                {promptMode ? <CornerDownRight color="#ffffff" className="w-3 h-3" /> : isUser ? initial : isSummary ? 'S' : <Glyph color="#ffffff" className="w-3 h-3" />}
               </div>
             );
           })()}
           <span className="text-[10.5px] uppercase tracking-[0.08em] font-bold text-text-muted truncate">
-            {isUser ? t('msg.role.user') : isSummary ? t('msg.role.summary') : t('msg.role.assistant')}
+            {promptMode ? t('subagent.promptLabel') : isUser ? t('msg.role.user') : isSummary ? t('msg.role.summary') : t('msg.role.assistant')}
           </span>
           {(() => {
             const m = fmtModel(message.model);
