@@ -9,12 +9,12 @@ contextBridge.exposeInMainWorld('api', {
   },
   getSession: (filePath) => ipcRenderer.invoke('sessions:get', filePath),
   deepSearch: (query, source) => ipcRenderer.invoke('sessions:deepSearch', { query, source }),
-  copyResumeCommand: (cwd, id, filePath, source) => ipcRenderer.invoke('sessions:copyResumeCommand', { cwd, id, filePath, source }),
+  copyResumeCommand: (id, filePath, source) => ipcRenderer.invoke('sessions:copyResumeCommand', { id, filePath, source }),
   revealInFinder: (filePath) => ipcRenderer.invoke('sessions:revealInFinder', filePath),
   revealSourceDir: (source) => ipcRenderer.invoke('app:revealSourceDir', source),
-  openInVSCode: (cwd) => ipcRenderer.invoke('sessions:openInVSCode', cwd),
-  openInTerminal: (cwd, id, filePath, source) => ipcRenderer.invoke('sessions:openInTerminal', { cwd, id, filePath, source }),
-  openInITerm: (cwd, id, filePath, source) => ipcRenderer.invoke('sessions:openInITerm', { cwd, id, filePath, source }),
+  openInVSCode: (id, filePath, source) => ipcRenderer.invoke('sessions:openInVSCode', { id, filePath, source }),
+  openInTerminal: (id, filePath, source) => ipcRenderer.invoke('sessions:openInTerminal', { id, filePath, source }),
+  openInITerm: (id, filePath, source) => ipcRenderer.invoke('sessions:openInITerm', { id, filePath, source }),
   listFavorites: () => ipcRenderer.invoke('favorites:list'),
   toggleFavorite: (source, id) => ipcRenderer.invoke('favorites:toggle', { source, id }),
   listExcludes: () => ipcRenderer.invoke('excludes:list'),
@@ -35,5 +35,6 @@ contextBridge.exposeInMainWorld('api', {
   // compromise can't smuggle 'granted' through the generic prefs path.
   setRateLimitsConsent: (v) => ipcRenderer.invoke('rateLimits:setConsent', v),
   openLogsFolder: () => ipcRenderer.invoke('app:openLogsFolder'),
+  openUserDataFolder: () => ipcRenderer.invoke('app:openUserDataFolder'),
   setTitleBarTheme: (theme) => ipcRenderer.invoke('win:setTitleBarTheme', theme),
 });

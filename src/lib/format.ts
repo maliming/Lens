@@ -17,6 +17,16 @@ export function sessionTimestamp(s: { lastTs?: string | null; mtime?: number }):
   return s.mtime && Number.isFinite(s.mtime) ? Math.min(s.mtime, Date.now()) : 0;
 }
 
+// What's the right "N messages" to surface? Tool turns are already excluded
+// from the parser's `assistantMsgs` count, so it's a straight sum of the
+// per-role counters. Kept as a helper so every display site reads from the
+// same definition rather than open-coding the sum.
+export function visibleMessageCount(
+  s: { userMsgs?: number; assistantMsgs?: number },
+): number {
+  return (s.userMsgs || 0) + (s.assistantMsgs || 0);
+}
+
 // Relative time formatter. Pass the i18n translator (`t` from useTranslation)
 // to localise the unit suffixes — "just now" / "5m ago" / "2h ago" / "3d ago".
 // Without t, falls back to English for non-React callers (debug logs, IPC
@@ -26,9 +36,8 @@ export function fmtTime(iso: string | null | undefined, t?: (key: any, vars?: Re
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const now = Date.now();
-  // Future timestamps (clock skew between the JSONL writer and Lens) used to
-  // render as "just now" — misleading. Show the absolute timestamp instead;
-  // the caller can also normalise via `sessionTimestamp` when sorting.
+  // Clock-skew defense: show the absolute timestamp for any future date
+  // rather than "just now". Sorting can also normalise via sessionTimestamp.
   if (d.getTime() > now) {
     return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }

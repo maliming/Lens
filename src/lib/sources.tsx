@@ -9,8 +9,8 @@ import type { ReactNode, ComponentType } from 'react';
 //  it wants surfaced wherever something is "source-aware": Workspace overview
 //  blurb, KIND meta for the resource sections, Settings copy, etc.
 //
-//  Anything that used to be a ternary (`source === 'codex' ? X : Y`) inside a
-//  component should be a field on this def. New components read it via
+//  Per-source variations belong on this def — not as `source === 'codex' ? X
+//  : Y` ternaries inside components. New components read it via
 //  `getSource(currentSource)` — no branching needed.
 // ===========================================================================
 
@@ -38,7 +38,6 @@ export type SourceDef = {
   // Two consumers: AISourceSelector dropdown row, Sidebar Workspace nav icon,
   // Message avatar. Each consumer sizes via className.
   Glyph: ComponentType<{ className?: string; color?: string }>;
-  beta?: boolean;
   // Workspace strings — used by ConfigView's overview header so the page
   // adapts without per-source branching inside the component.
   workspaceRoot: string;       // e.g. "~/.claude" — header title

@@ -1,6 +1,6 @@
 {
   "name": "lens",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Search, resume, and understand your AI coding sessions",
   "main": "electron/main.cjs",
   "type": "module",
@@ -37,7 +37,7 @@
     "copyright": "Copyright © 2026 maliming",
     "compression": "maximum",
     "electronLanguages": [
-      "en"
+      "en-US"
     ],
     "directories": {
       "buildResources": "build",

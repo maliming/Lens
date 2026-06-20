@@ -60,6 +60,10 @@ export default {
         slideRight: { '0%': { opacity: '0', transform: 'translateX(-6px)' }, '100%': { opacity: '1', transform: 'translateX(0)' } },
         pulse: { '0%, 100%': { opacity: '1' }, '50%': { opacity: '0.4' } },
         shimmer: { '0%': { backgroundPosition: '-200% 0' }, '100%': { backgroundPosition: '200% 0' } },
+        progressSweep: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(400%)' },
+        },
       },
       animation: {
         in: 'in 0.15s ease-out',
@@ -71,6 +75,7 @@ export default {
         'slide-right': 'slideRight 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
         'pulse-soft': 'pulse 2s ease-in-out infinite',
         shimmer: 'shimmer 2s linear infinite',
+        'progress-sweep': 'progressSweep 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite',
       },
     },
   },

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Star, GitBranch, Play, Filter, Clock, X, ChevronDown, List as ListIcon, LayoutGrid, Calendar } from 'lucide-react';
+import { Search, Star, GitBranch, Play, Filter, Clock, X, ChevronDown, List as ListIcon, LayoutGrid, Calendar, ArrowRightLeft } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { cleanDisplayText, fmtTime, fmtTokens, sessionTimestamp } from '../lib/format';
+import { cleanDisplayText, fmtTime, fmtTokens, sessionTimestamp, visibleMessageCount } from '../lib/format';
 import { deriveDisplayTitle, projectShortName, meaningfulBranch } from '../lib/sessionTitle';
 import { useTranslation } from '../lib/I18nProvider';
-import { useCurrentSource, srcKey } from '../lib/sources';
+import { useCurrentSource, srcKey, getSource, type SessionSource } from '../lib/sources';
 import { useDisplayPrefs } from '../lib/displayPrefs';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
 import type { SessionMeta } from '../types';
+import type { TKey } from '../lib/i18n';
 
 type TimeFilter = 'all' | 'today' | '7' | '30' | 'year';
 type Sort = 'relevance' | 'recent' | 'oldest' | 'tokens' | 'messages';
@@ -39,12 +40,18 @@ const SORT_KEYS: Record<Sort, string> = {
   messages: 'search.sort.messages',
 };
 
-const SUGGESTED_PROMPTS = [
-  'Search by error message',
-  'Search by file name',
-  'Search by feature',
-  'Search by repository',
-  'Search by branch',
+// Suggested-prompt chips shown on the empty Search page. `labelKey` carries
+// the i18n key for the visible "Search by X" button; `seed` is the literal
+// substring fed into the search input when clicked. Seeds stay English by
+// design — most JSONL content (code, errors, repo paths) is English even
+// for non-English UI users, so a localized label that seeds an English grep
+// is the most useful pairing.
+const SUGGESTED_PROMPTS: Array<{ labelKey: TKey; seed: string }> = [
+  { labelKey: 'search.suggested.errorMessage', seed: 'error' },
+  { labelKey: 'search.suggested.fileName',     seed: '.ts' },
+  { labelKey: 'search.suggested.feature',      seed: 'feature' },
+  { labelKey: 'search.suggested.repository',   seed: 'github.com' },
+  { labelKey: 'search.suggested.branch',       seed: 'branch' },
 ];
 
 type Props = {
@@ -55,6 +62,12 @@ type Props = {
   onSelectSession: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onStatus: (msg: string) => void;
+  // App keeps every view mounted and swaps display via ViewSlot so state +
+  // detail-pane fetches survive nav switches. SearchView is the only view
+  // with a mount-time focus side-effect (search input), so it has to know
+  // whether it's actually visible — otherwise it'd steal focus from the
+  // currently visible view on first render.
+  isActive?: boolean;
 };
 
 type DeepSources = { user: number; assistant: number; summary: number; tool: number };
@@ -86,9 +99,9 @@ function loadRecent(source: string): string[] {
   return [];
 }
 
-export function SearchView({ sessions, favorites, excluded, loading = false, onSelectSession, onToggleFavorite, onStatus }: Props) {
+export function SearchView({ sessions, favorites, excluded, loading = false, onSelectSession, onToggleFavorite, onStatus, isActive = true }: Props) {
   const { t } = useTranslation();
-  const [currentSource] = useCurrentSource();
+  const [currentSource, setCurrentSource] = useCurrentSource();
   // Result layout — list (default, dense rows), card (2-column tiles), or
   // timeline (rows grouped by day). Persisted per-user so re-opening Search
   // keeps the chosen mode.
@@ -114,6 +127,19 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
   const [recent, setRecent] = useState<string[]>(() => loadRecent(currentSource));
   const [deepHits, setDeepHits] = useState<Map<string, { snippet: string; matchCount: number; coverage?: number; sources?: DeepSources }>>(new Map());
   const [deepLoading, setDeepLoading] = useState(false);
+  // Cross-source hint: when the current source returns 0 hits we fire a
+  // background probe against the OTHER source so the user finds out their
+  // content was over there. The "search broken" report was almost always
+  // "wrong source selected" — the toggle is small enough that users forget
+  // which side they're on. Null = not probed or current source has hits;
+  // number ≥ 0 = count found in the OTHER source.
+  const [crossSourceHits, setCrossSourceHits] = useState<number | null>(null);
+  // Surface excluded matches: when deep search hits a session the user
+  // manually excluded, filteredRows silently drops it. Without this toggle
+  // the user can search for content they remember writing and find nothing,
+  // not realising they hid the session months ago. Reset on every new submit
+  // (different query → different excluded matches → don't carry stale state).
+  const [showExcludedMatches, setShowExcludedMatches] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const inputRef = useRef<HTMLInputElement>(null);
   // Monotonic counter so the latest submitDeep wins if the user re-queries or
@@ -145,23 +171,77 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
     setRecent(loadRecent(currentSource));
     recentSourceRef.current = currentSource;
   }, [currentSource]);
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  // Focus search input only when Search is the active view. Without the
+  // isActive guard the always-mounted SearchView would steal focus from
+  // whichever view the user is actually on at startup.
+  useEffect(() => { if (isActive) inputRef.current?.focus(); }, [isActive]);
+
+  // Latest submitDeep reference — submitDeep is rebuilt on every render and
+  // closes over `currentSource`/state, so the auto-submit listener has to
+  // call through a ref to avoid grep'ing against a stale source after a
+  // Claude↔Codex flip.
+  const submitDeepRef = useRef<(q: string) => Promise<void>>(() => Promise.resolve());
+
+  // History pane's empty-state dispatches `search:autoSubmit` so a "Search
+  // content for X" click lands here with the query already running. Without
+  // this the user would have to type the same query again after the view
+  // swap, which is exactly the friction the jump is meant to remove.
+  useEffect(() => {
+    const h = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { q?: string };
+      const q = (detail?.q || '').trim();
+      if (!q) return;
+      setQuery(q);
+      submitDeepRef.current(q);
+    };
+    window.addEventListener('search:autoSubmit', h);
+    return () => window.removeEventListener('search:autoSubmit', h);
+  }, []);
 
   // Reset pagination whenever the result set could change.
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [query, project, timeFilter, sort, favOnly, deepHits]);
 
+  // When the cross-source hint switches `currentSource`, we want to re-run
+  // the SAME query against the new source instead of dropping it. A ref
+  // survives the source-flip effect's state reset, so the effect can commit
+  // it back into `query` and run submitDeep — no setTimeout, no
+  // visible-clear-then-refill flicker.
+  const pendingCrossSourceQueryRef = useRef<string | null>(null);
+
   // Source switch: the user's pending query, deep hits, and project filter
   // were all against the OLD source's sessions. Wipe so the Search page
-  // starts clean on the new source rather than showing stale state.
+  // starts clean on the new source rather than showing stale state. EXCEPT
+  // when a cross-source switch has queued a carry-over query — then restore
+  // it and let submitDeep run synchronously against the new source.
   useEffect(() => {
     ++deepSeqRef.current;
     latestQueryRef.current = '';
-    setQuery('');
-    setSubmitted('');
-    setProject('');
-    setDeepHits(new Map());
-    setDeepLoading(false);
-    setVisibleCount(PAGE_SIZE);
+    const carry = pendingCrossSourceQueryRef.current;
+    pendingCrossSourceQueryRef.current = null;
+    if (carry) {
+      // Skip the wipe — keep the query visible, drop only the prior source's
+      // results so we don't briefly render mismatched hits before submitDeep
+      // resolves on the new source.
+      setQuery(carry);
+      setSubmitted('');
+      setProject('');
+      setDeepHits(new Map());
+      setDeepLoading(false);
+      setVisibleCount(PAGE_SIZE);
+      // submitDeepRef holds the latest closure (rebound every render — see
+      // the assignment line near submitDeep). After React commits this
+      // effect's setState calls, the next render's submitDeep will close
+      // over the new `currentSource`; firing through the ref ensures we
+      // call the post-commit version, not the stale one captured here.
+      Promise.resolve().then(() => submitDeepRef.current(carry));
+    } else {
+      setQuery('');
+      setSubmitted('');
+      setProject('');
+      setDeepHits(new Map());
+      setDeepLoading(false);
+      setVisibleCount(PAGE_SIZE);
+    }
   }, [currentSource]);
 
   const projectOptions = useMemo(() => {
@@ -187,6 +267,14 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
       return;
     }
     setSubmitted(trimmed);
+    // Reset cross-source hint — a fresh probe runs after the main search
+    // settles, but in the meantime we shouldn't keep showing stale "other
+    // source had X matches" copy from a previous query.
+    setCrossSourceHits(null);
+    // Reset the excluded-reveal toggle so each new query starts from the
+    // default "hide excluded" stance. Keeping it on across queries would mean
+    // the user's excluded session appears in unrelated searches.
+    setShowExcludedMatches(false);
     // Clean the query before saving to recent chips — a pasted string with
     // control / bidi chars would otherwise corrupt the visible chip later.
     const recentEntry = cleanDisplayText(trimmed).slice(0, 200);
@@ -213,15 +301,37 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
       const m = new Map<string, { snippet: string; matchCount: number; coverage?: number; sources?: DeepSources }>();
       for (const h of hits) m.set(`${h.source}:${h.id}`, { snippet: h.snippet, matchCount: h.matchCount, coverage: h.coverage, sources: h.sources });
       setDeepHits(m);
+      // Cross-source probe — only when this side returned 0. Most "search
+      // broken" reports turn out to be "wrong source selected"; surfacing the
+      // other tool's hit count + a one-click swap turns a confused 0-result
+      // page into a productive jump. Reuses the same stale-guard tokens so a
+      // later submit (or a source flip) can still invalidate this result.
+      if (hits.length === 0) {
+        const otherSource: SessionSource = reqSource === 'claude' ? 'codex' : 'claude';
+        try {
+          const otherHits = await window.api.deepSearch(trimmed, otherSource);
+          if (reqSeq !== deepSeqRef.current || reqSource !== currentSourceRef.current || trimmed !== latestQueryRef.current) return;
+          setCrossSourceHits(otherHits.length);
+        } catch {
+          // Probe failure is silent — the cross-source hint is a UX nicety,
+          // not a correctness requirement. If the other source's backend
+          // hiccups we just don't show the hint.
+        }
+      }
     } catch (e: any) {
       if (reqSeq !== deepSeqRef.current || reqSource !== currentSourceRef.current) return;
-      onStatus('Search failed: ' + e.message);
+      onStatus(t('status.searchFailed', { error: e.message }));
     } finally {
       if (reqSeq === deepSeqRef.current && reqSource === currentSourceRef.current) {
         setDeepLoading(false);
       }
     }
   };
+
+  // Keep the ref in sync with the latest closure so the auto-submit listener
+  // (set up once on mount with empty deps) always invokes the freshest
+  // submitDeep — captures current source / state / handlers.
+  submitDeepRef.current = submitDeep;
 
   const onSubmit = (e: React.FormEvent) => { e.preventDefault(); submitDeep(query); };
 
@@ -232,6 +342,13 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
     latestQueryRef.current = '';
     setQuery(''); setSubmitted(''); setDeepHits(new Map());
     setProject(''); setTimeFilter('all'); setSort('relevance'); setFavOnly(false);
+    // Both panels are query-shaped: the cross-source nudge is bound to
+    // "this query had 0 hits here", and the excluded reveal is bound to
+    // "this query's deepHits include excluded sessions". Clearing the
+    // query without clearing them would leave either visibly applied to
+    // the next, unrelated query.
+    setCrossSourceHits(null);
+    setShowExcludedMatches(false);
   };
 
   const cutoffMs = useMemo(() => {
@@ -246,37 +363,48 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
     return null;
   }, [timeFilter]);
 
-  // Tokenize the SUBMITTED query, not the live input. The previously-
-  // submitted deep hits stay rendered while the user starts typing the next
-  // query — and the row filter should agree with what those hits match
-  // (otherwise editing `foo` to `bar` would silently empty the list even
-  // though the foo-search hits are still on screen).
-  const queryTerms = useMemo(() => tokenizeQuery(submitted || query), [submitted, query]);
+  // When the user has submitted X and is now editing the input to Y, the
+  // old design pinned filterRows to X (so they could browse while drafting).
+  // In practice that read as "search is broken — I typed Y and nothing
+  // changes". Now: as soon as live input diverges from submitted, switch to
+  // a live shallow filter against the new term (title / project / branch /
+  // firstUser) and stop honoring the X-era deep hits — Enter still triggers
+  // a fresh deep search on Y. Empty input keeps the submitted view (user
+  // didn't ask to reset; "Clear search" button is the explicit reset).
+  const liveQuery = query.trim();
+  const userEditingPastSubmit = !!submitted && !!liveQuery && liveQuery !== submitted;
+  const effectiveQuery = userEditingPastSubmit ? liveQuery : (submitted || liveQuery);
+  const queryTerms = useMemo(() => tokenizeQuery(effectiveQuery), [effectiveQuery]);
 
   const filteredRows: ResultRowData[] = useMemo(() => {
     const rows: ResultRowData[] = [];
     for (const s of sessions) {
       const k = `${s.source}:${s.id}`;
-      if (excluded.has(k)) continue;
+      // Excluded sessions are normally invisible to search — they were hidden
+      // for a reason. But the user has to be able to opt-in temporarily;
+      // otherwise content they wrote (and excluded the session for unrelated
+      // reasons) becomes unfindable. `showExcludedMatches` flips this.
+      if (excluded.has(k) && !showExcludedMatches) continue;
       if (favOnly && !favorites.has(k)) continue;
       if (project && s.projectDir !== project) continue;
       const lastMs = sessionTimestamp(s);
       if (cutoffMs != null && lastMs < cutoffMs) continue;
       const projName = projectShortName(s.projectCwd || s.decodedCwd);
-      const rawTitle = s.alias || s.summary || s.firstUser || '(no human message)';
+      const rawTitle = s.alias || s.summary || s.firstUser || t('list.noHumanMessage');
       const title = deriveDisplayTitle(rawTitle).primary;
       const branchName = meaningfulBranch(s.gitBranch);
       if (queryTerms.length > 0) {
         const haystack = (title + ' ' + projName + ' ' + (branchName || '') + ' ' + (s.firstUser || '')).toLowerCase();
-        const hit = deepHits.get(`${s.source}:${s.id}`);
-        // OR semantics: any term hitting the shallow haystack counts. deepHit
-        // (already OR-matched on backend) also keeps the row in.
+        // Only fall back on deep hits when the live input still represents
+        // the query they were submitted for — otherwise the rows would show
+        // snippets / counts for a term the user has already moved on from.
+        const hit = userEditingPastSubmit ? undefined : deepHits.get(`${s.source}:${s.id}`);
         const shallowHit = queryTerms.some(t => haystack.includes(t));
         if (!shallowHit && !hit) continue;
       }
       const tokens = (s.tokensIn || 0) + (s.tokensOut || 0) + (s.tokensCacheRead || 0) + (s.tokensCacheCreate || 0);
-      const msgs = (s.userMsgs || 0) + (s.assistantMsgs || 0);
-      const hit = deepHits.get(`${s.source}:${s.id}`);
+      const msgs = visibleMessageCount(s);
+      const hit = userEditingPastSubmit ? undefined : deepHits.get(`${s.source}:${s.id}`);
       rows.push({ session: s, title, project: projName, branch: branchName, tokens, msgs, snippet: hit?.snippet, matchCount: hit?.matchCount, coverage: hit?.coverage, sources: hit?.sources });
     }
     rows.sort((a, b) => {
@@ -301,15 +429,39 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
       }
     });
     return rows;
-  }, [sessions, excluded, favOnly, favorites, project, cutoffMs, queryTerms, submitted, deepHits, sort]);
+  }, [sessions, excluded, favOnly, favorites, project, cutoffMs, queryTerms, submitted, deepHits, sort, showExcludedMatches, userEditingPastSubmit]);
 
+  // How many of the deep hits point at excluded sessions? Drives the "N
+  // excluded matched — show?" hint. Computed against the full session list
+  // so we count even when the row was filtered out by the project/time
+  // dimensions too.
+  const excludedMatchCount = useMemo(() => {
+    if (deepHits.size === 0) return 0;
+    let n = 0;
+    for (const s of sessions) {
+      const k = `${s.source}:${s.id}`;
+      if (excluded.has(k) && deepHits.has(k)) n++;
+    }
+    return n;
+  }, [sessions, excluded, deepHits]);
+
+  // Cross-source and excluded panels are tied to the LAST submitted query.
+  // Once the user starts editing the input again, both are stale — gate
+  // their visibility on "live input still equals the submitted query" so
+  // they vanish mid-edit without nuking the underlying state (an actual
+  // re-submit re-evaluates against the fresh query and brings them back).
+  const submittedMatchesLive = !!submitted && submitted === query.trim();
   const hasFilters = !!query || !!project || timeFilter !== 'all' || sort !== 'relevance' || favOnly;
   // Loading state — sessions are still being scanned from disk. We show a
   // skeleton list rather than blanking; "blank for a moment" was the v0 bug
   // because both empty-states' conditions were unreachable while loading.
   const isLoading = loading && sessions.length === 0;
   const showHint = !hasFilters && !submitted && filteredRows.length === 0 && !isLoading;
-  const noResults = hasFilters && filteredRows.length === 0 && !isLoading;
+  // Mid-grep should NOT flash "No results" — a 1-3s deep search would
+  // otherwise show the empty state for the entire scan and then snap to
+  // results. We still render the deep-loading overlay so the user gets
+  // active feedback.
+  const noResults = hasFilters && filteredRows.length === 0 && !isLoading && !deepLoading;
 
   const displayRows = useMemo(() => filteredRows.slice(0, visibleCount), [filteredRows, visibleCount]);
   const hasMore = filteredRows.length > visibleCount;
@@ -327,7 +479,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
           <div className="relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />
             <input
-              id="search-input"
+              id="deep-search-input"
               ref={inputRef}
               value={query}
               onChange={e => setQuery(e.target.value)}
@@ -336,7 +488,17 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
             />
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
               {query && (
-                <button type="button" onClick={() => { ++deepSeqRef.current; latestQueryRef.current = ''; setQuery(''); setSubmitted(''); setDeepHits(new Map()); }} className="p-1 rounded text-text-muted hover:bg-muted" title={t('common.clear')}>
+                <button type="button" onClick={() => {
+                  ++deepSeqRef.current;
+                  latestQueryRef.current = '';
+                  setQuery('');
+                  setSubmitted('');
+                  setDeepHits(new Map());
+                  // Both nudges are tied to the prior query; clearing it
+                  // must clear them too so the next query starts clean.
+                  setCrossSourceHits(null);
+                  setShowExcludedMatches(false);
+                }} className="p-1 rounded text-text-muted hover:bg-muted" title={t('common.clear')}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
@@ -366,7 +528,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
             onChange={setProject}
             options={[{ value: '', label: t('search.allProjects') }, ...projectOptions.map(([dir, info]) => ({
               value: dir,
-              label: `${projectShortName(info.cwd) || info.cwd} (${info.count})`,
+              label: `${projectShortName(info.cwd) || cleanDisplayText(info.cwd)} (${info.count})`,
             }))]}
           />
           <SelectChip
@@ -425,21 +587,70 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
               viewMode={viewMode}
               onViewMode={setViewMode}
             />
+            {/* Excluded-match nudge — appears whenever deep search found
+                content in sessions the user previously excluded, so they can
+                opt-in to see them without going to Settings → Excluded.
+                Hidden while the user is editing past the submitted query
+                so the count + label match what's actually being displayed. */}
+            {excludedMatchCount > 0 && submittedMatchesLive && (
+              <button
+                onClick={() => setShowExcludedMatches(v => !v)}
+                className={cn(
+                  'mb-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[11.5px] border transition',
+                  showExcludedMatches
+                    ? 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700/40 dark:text-amber-300'
+                    : 'bg-muted/40 border-border-soft text-text-muted hover:text-text hover:border-border'
+                )}
+              >
+                <X className="w-3 h-3" />
+                {showExcludedMatches
+                  ? t('search.excludedHide', { n: excludedMatchCount })
+                  : t('search.excludedShow', { n: excludedMatchCount })}
+              </button>
+            )}
             {displayRows.length === 0 ? (
+              // First-search-or-zero-prior-results path: no rows to dim, so
+              // the dim-and-overlay strategy used in the populated branch
+              // doesn't apply. Render the loading overlay alone over a
+              // dedicated empty container so the user still sees active
+              // feedback during the scan instead of a blank pane.
+              deepLoading ? (
+                <div className="relative min-h-[200px]">
+                  <DeepLoadingOverlay />
+                </div>
+              ) :
               showHint ? <EmptyState onPick={(q) => { setQuery(q); inputRef.current?.focus(); }} /> :
-              noResults ? <NoResults /> : null
+              noResults ? <NoResults currentSource={currentSource} crossSourceHits={submittedMatchesLive ? crossSourceHits : null} query={submitted || query} onSwitchSource={(s) => {
+                // Stage the query on a ref BEFORE flipping source so the
+                // source-change effect sees it and commits the carry-over in
+                // the same React tick — no timers, no visible clear+refill.
+                const q = (submitted || query).trim();
+                if (q) pendingCrossSourceQueryRef.current = q;
+                setCurrentSource(s);
+              }} /> : null
             ) : (
-              <div className="animate-fade-up">
-                <ResultsLayout
-                  rows={displayRows}
-                  mode={viewMode}
-                  query={submitted || query}
-                  favorites={favorites}
-                  onSelect={onSelectSession}
-                  onToggleFav={onToggleFavorite}
-                  onStatus={onStatus}
-                />
-                <MoreSentinel hasMore={hasMore} onLoad={loadMore} shown={displayRows.length} total={filteredRows.length} />
+              // While a new deep search runs, dim + de-saturate the prior
+              // results AND show a top progress bar over the list. Doesn't
+              // block scrolling — user can still browse the old rows; the
+              // visual cue prevents the "I hit Enter, nothing happened"
+              // feeling that an inert list creates during a 1-3s grep.
+              <div className="relative">
+                <div className={cn(
+                  'animate-fade-up transition-[opacity,filter] duration-200 ease-out',
+                  deepLoading && 'opacity-50 saturate-50 pointer-events-none'
+                )}>
+                  <ResultsLayout
+                    rows={displayRows}
+                    mode={viewMode}
+                    query={submitted || query}
+                    favorites={favorites}
+                    onSelect={onSelectSession}
+                    onToggleFav={onToggleFavorite}
+                    onStatus={onStatus}
+                  />
+                  <MoreSentinel hasMore={hasMore} onLoad={loadMore} shown={displayRows.length} total={filteredRows.length} />
+                </div>
+                {deepLoading && <DeepLoadingOverlay />}
               </div>
             )}
           </>
@@ -451,6 +662,28 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
 
 /* ============================== Result row ============================== */
 
+// Shared resume handler — every result-row layout (list / timeline / card)
+// exposes the same "open in terminal" affordance, so the platform-capability
+// probe + iTerm-vs-Terminal selection + status feedback live in one hook
+// rather than being duplicated three times. Returns a handler ready to wire
+// to the Resume button's onClick.
+function useResumeHandler(row: ResultRowData, onStatus: (msg: string) => void) {
+  const { t } = useTranslation();
+  const [prefs] = useDisplayPrefs();
+  const caps = useSystemCapabilities();
+  const useITerm = caps?.platform === 'darwin' && caps.terminals.iterm && prefs.preferredTerminal === 'iterm';
+  return async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const fn = useITerm ? window.api.openInITerm : window.api.openInTerminal;
+    const label = useITerm ? 'iTerm' : 'Terminal';
+    try {
+      await fn(row.session.id, row.session.filePath, row.session.source);
+      onStatus(t('status.openedIn', { target: label }));
+      setTimeout(() => onStatus(''), 2500);
+    } catch (err: any) { onStatus(t('status.error', { error: err.message })); }
+  };
+}
+
 function ResultRow({ row, isFav, query, onSelect, onToggleFav, onStatus }: {
   row: ResultRowData;
   isFav: boolean;
@@ -460,21 +693,7 @@ function ResultRow({ row, isFav, query, onSelect, onToggleFav, onStatus }: {
   onStatus: (msg: string) => void;
 }) {
   const { t } = useTranslation();
-  const [prefs] = useDisplayPrefs();
-  const caps = useSystemCapabilities();
-  const useITerm = caps?.platform === 'darwin' && caps.terminals.iterm && prefs.preferredTerminal === 'iterm';
-  const handleResume = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    // Match SessionDetail / SessionList: the user's chosen terminal app wins.
-    // Search used to hardwire Terminal.app regardless of the iTerm preference.
-    const fn = useITerm ? window.api.openInITerm : window.api.openInTerminal;
-    const label = useITerm ? 'iTerm' : 'Terminal';
-    try {
-      await fn(row.session.projectCwd || row.session.decodedCwd, row.session.id, row.session.filePath, row.session.source);
-      onStatus('Opened in ' + label);
-      setTimeout(() => onStatus(''), 2500);
-    } catch (e: any) { onStatus('Error: ' + e.message); }
-  };
+  const handleResume = useResumeHandler(row, onStatus);
   return (
     <div
       role="button"
@@ -495,29 +714,11 @@ function ResultRow({ row, isFav, query, onSelect, onToggleFav, onStatus }: {
             <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 flex-shrink-0"><GitBranch className="w-3 h-3" />{row.branch}</span>
           )}
         </div>
-        {(row.snippet || hasShallowMatch(row, query)) && (
-          <div className="mt-2 rounded-md bg-accent-soft/40 border border-accent/15 px-2.5 py-1.5">
-            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] uppercase tracking-wider font-semibold text-accent/70 mb-1">
-              <Search className="w-2.5 h-2.5" />
-              <span>{t('search.matchedIn')}</span>
-              {getMatchSources(row, query).map((src, i) => (
-                <span key={i} className="inline-flex items-center gap-1 normal-case tracking-normal text-[10.5px] font-semibold bg-accent/10 text-accent rounded px-1.5 py-0.5">
-                  {src.label}
-                  {src.count != null && src.count > 1 && <span className="tabular-nums text-accent/70 font-normal">·{src.count}</span>}
-                </span>
-              ))}
-            </div>
-            {row.snippet && (
-              <p className="text-[12px] text-text line-clamp-3 leading-snug">
-                …{highlight(cleanDisplayText(row.snippet), query)}…
-              </p>
-            )}
-          </div>
-        )}
+        <MatchBlock row={row} query={query} />
         <div className="flex items-center gap-3 mt-2 text-[11px] text-text-muted">
-          <span className="tabular-nums">{fmtTokens(row.tokens)} tokens</span>
+          <span className="tabular-nums">{fmtTokens(row.tokens)} {t('units.tokens')}</span>
           <span className="text-text-muted/50">·</span>
-          <span className="tabular-nums">{row.msgs} msgs</span>
+          <span className="tabular-nums">{row.msgs} {t('units.msgs')}</span>
         </div>
       </div>
       <div className="flex flex-col items-end gap-1 flex-shrink-0">
@@ -605,10 +806,13 @@ function ResultsLayout({ rows, mode, query, favorites, onSelect, onToggleFav, on
 }) {
   const { t, locale } = useTranslation();
   if (mode === 'card') {
-    // Two-column grid of larger cards. Each tile breathes — title + branch +
-    // keyword tag chips + a footer with relative time, tokens, msgs.
+    // Width-driven auto-fill grid. The 260px minimum is tuned so the app's
+    // minimum window width (1380px → ~1100px content after sidebar/padding)
+    // still fits 4 columns — the configured floor — while wider windows pick
+    // up 5 / 6+ columns naturally. Each tile keeps title + branch + keyword
+    // tag chips + footer with relative time, tokens, msgs.
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
         {rows.map(r => (
           <CardItem
             key={`${r.session.source}:${r.session.id}`}
@@ -617,6 +821,7 @@ function ResultsLayout({ rows, mode, query, favorites, onSelect, onToggleFav, on
             query={query}
             onSelect={onSelect}
             onToggleFav={onToggleFav}
+            onStatus={onStatus}
           />
         ))}
       </div>
@@ -667,6 +872,7 @@ function ResultsLayout({ rows, mode, query, favorites, onSelect, onToggleFav, on
                     locale={locale}
                     onSelect={onSelect}
                     onToggleFav={onToggleFav}
+                    onStatus={onStatus}
                   />
                 ))}
               </div>
@@ -730,15 +936,17 @@ function formatTimeHM(ts: string | null, locale: string): string {
   return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 }
 
-function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav }: {
+function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav, onStatus }: {
   row: ResultRowData;
   isFav: boolean;
   query: string;
   locale: string;
   onSelect: (id: string) => void;
   onToggleFav: (id: string) => void;
+  onStatus: (msg: string) => void;
 }) {
   const { t } = useTranslation();
+  const handleResume = useResumeHandler(row, onStatus);
   // Layout: [time column 76px | gutter 16px (where dot sits at left edge) | card]
   // The day-group's parent draws the continuous track at left:84px which goes
   // through the gutter; each row places its dot at the same x to land on the
@@ -779,10 +987,16 @@ function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav }: {
             <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 flex-shrink-0"><GitBranch className="w-3 h-3" />{row.branch}</span>
           )}
         </div>
+        <MatchBlock row={row} query={query} compact />
         <div className="flex items-center gap-2 mt-2 text-[11.5px] text-text-muted tabular-nums">
-          <span>{fmtTokens(row.tokens)} tokens</span>
+          <span>{fmtTokens(row.tokens)} {t('units.tokens')}</span>
           <span className="text-text-muted/50">·</span>
-          <span>{row.msgs} msgs</span>
+          <span>{row.msgs} {t('units.msgs')}</span>
+          {/* Hover-revealed Resume — same affordance as list mode, lives in
+             the meta row so it never displaces the card content. */}
+          <button onClick={handleResume} className="ml-auto inline-flex items-center gap-1 px-2 h-6 rounded-md bg-accent-soft text-accent text-[11px] font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition">
+            <Play className="w-3 h-3" /> {t('detail.btn.resume')}
+          </button>
         </div>
       </div>
     </div>
@@ -813,15 +1027,17 @@ function extractTitleTags(title: string, max = 4): string[] {
   return out;
 }
 
-function CardItem({ row, isFav, query, onSelect, onToggleFav }: {
+function CardItem({ row, isFav, query, onSelect, onToggleFav, onStatus }: {
   row: ResultRowData;
   isFav: boolean;
   query: string;
   onSelect: (id: string) => void;
   onToggleFav: (id: string) => void;
+  onStatus: (msg: string) => void;
 }) {
   const { t } = useTranslation();
   const tags = extractTitleTags(row.title);
+  const handleResume = useResumeHandler(row, onStatus);
   return (
     <div
       role="button"
@@ -838,19 +1054,29 @@ function CardItem({ row, isFav, query, onSelect, onToggleFav }: {
           <Star className={cn('w-3.5 h-3.5', isFav ? 'fill-amber-400 text-amber-400' : 'text-text-muted')} />
         </button>
       </div>
-      {/* Project / branch — close under title */}
-      <div className="flex items-center gap-2 mt-2 text-[12px] text-text-muted">
-        <span className="truncate">{row.project}</span>
+      {/* Project / branch — close under title. Both lanes use `min-w-0` so a
+         long branch name (or project path) can collapse with truncation
+         instead of overflowing the card's right edge. */}
+      <div className="flex items-center gap-2 mt-2 text-[12px] text-text-muted min-w-0">
+        <span className="truncate min-w-0 flex-shrink">{row.project}</span>
         {row.branch && (
-          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 flex-shrink-0"><GitBranch className="w-3 h-3" />{row.branch}</span>
+          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 min-w-0 flex-shrink">
+            <GitBranch className="w-3 h-3 flex-shrink-0" />
+            <span className="truncate">{row.branch}</span>
+          </span>
         )}
       </div>
+      {/* Match block — sits right under the project line so the user sees
+         WHY this card matched (snippet + matched-in chips) before the
+         decorative tag chips and footer. Same shape as list/timeline modes. */}
+      <MatchBlock row={row} query={query} compact />
       {/* Big spacer — generous whitespace per reference. flex-1 absorbs all
          extra height so the tag chips + footer drop to the bottom of the card,
          and rows in the same grid row stay aligned at the bottom. */}
       <div className="flex-1 min-h-[28px]" />
-      {/* Tag chips derived from title words */}
-      {tags.length > 0 && (
+      {/* Tag chips derived from title words — hidden when we have a match
+         block so the card doesn't look noisy. */}
+      {!row.snippet && !hasShallowMatch(row, query) && tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {tags.map(tag => (
             <span key={tag} className="text-[11px] px-2 py-0.5 rounded-md bg-muted/60 border border-border-soft text-text-muted">
@@ -859,13 +1085,16 @@ function CardItem({ row, isFav, query, onSelect, onToggleFav }: {
           ))}
         </div>
       )}
-      {/* Footer — relative time + tokens + msgs, divider above */}
+      {/* Footer — relative time + tokens + msgs + hover-Resume, divider above */}
       <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border-soft/70 text-[11.5px] text-text-muted tabular-nums">
         <span>{fmtTime(row.session.lastTs, t)}</span>
         <span className="text-text-muted/50">·</span>
-        <span>{fmtTokens(row.tokens)} tokens</span>
+        <span>{fmtTokens(row.tokens)} {t('units.tokens')}</span>
         <span className="text-text-muted/50">·</span>
-        <span>{row.msgs} msgs</span>
+        <span>{row.msgs} {t('units.msgs')}</span>
+        <button onClick={handleResume} className="ml-auto inline-flex items-center gap-1 px-2 h-6 rounded-md bg-accent-soft text-accent text-[11px] font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition">
+          <Play className="w-3 h-3" /> {t('detail.btn.resume')}
+        </button>
       </div>
     </div>
   );
@@ -958,6 +1187,35 @@ function SelectChip({ icon, label, value, onChange, options, align = 'left' }: {
 // Skeleton list shown while sessions are still being read from disk. Six rows
 // of pulse-shimmer placeholders matching the real ResultRow shape so the layout
 // doesn't shift when content arrives.
+// Soft cue overlaid on the prior results while a fresh deep search runs.
+// Two layers: a sticky pill at the top of the scroll area (so it follows
+// the user when scrolling), and a thin animated bar pinned to the top edge
+// of the results region for peripheral-vision feedback. Translucent so it
+// reads as "working", not "blocking".
+function DeepLoadingOverlay() {
+  const { t } = useTranslation();
+  return (
+    <>
+      <span
+        aria-hidden
+        className="absolute top-0 left-0 right-0 h-[2px] overflow-hidden rounded-t bg-accent/10 z-10"
+      >
+        <span className="absolute inset-y-0 left-0 w-1/3 bg-accent/70 animate-progress-sweep" />
+      </span>
+      <div
+        role="status"
+        aria-live="polite"
+        className="sticky top-2 z-10 flex justify-center pointer-events-none"
+      >
+        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-elevated/90 backdrop-blur border border-border-soft shadow-soft text-[11.5px] text-text-dim">
+          <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+          {t('search.searchingAll')}
+        </span>
+      </div>
+    </>
+  );
+}
+
 function SkeletonResults() {
   return (
     <div className="animate-fade-in">
@@ -1008,8 +1266,8 @@ function EmptyState({ onPick }: { onPick: (q: string) => void }) {
       <p className="text-[12.5px] text-text-muted mt-1.5 mb-5">{t('search.empty.hint')}</p>
       <div className="flex flex-wrap justify-center gap-1.5">
         {SUGGESTED_PROMPTS.map(p => (
-          <button key={p} onClick={() => onPick(p.replace(/^Search by /, ''))} className="px-2.5 py-1 rounded-full text-[11.5px] bg-muted/40 border border-border-soft text-text-muted hover:text-text hover:border-border">
-            {p}
+          <button key={p.seed} onClick={() => onPick(p.seed)} className="px-2.5 py-1 rounded-full text-[11.5px] bg-muted/40 border border-border-soft text-text-muted hover:text-text hover:border-border">
+            {t(p.labelKey)}
           </button>
         ))}
       </div>
@@ -1017,15 +1275,65 @@ function EmptyState({ onPick }: { onPick: (q: string) => void }) {
   );
 }
 
-function NoResults() {
+function NoResults({ currentSource, crossSourceHits, query, onSwitchSource }: {
+  currentSource: SessionSource;
+  crossSourceHits: number | null;
+  query: string;
+  onSwitchSource: (s: SessionSource) => void;
+}) {
   const { t } = useTranslation();
+  const otherSource: SessionSource = currentSource === 'claude' ? 'codex' : 'claude';
+  const otherDef = getSource(otherSource);
+  const currentDef = getSource(currentSource);
+  const showCross = crossSourceHits != null && crossSourceHits > 0;
   return (
     <div className="text-center mt-20 max-w-md mx-auto">
       <div className="w-14 h-14 mx-auto rounded-2xl bg-muted border border-border-soft flex items-center justify-center mb-3">
         <Search className="w-6 h-6 text-text-muted" />
       </div>
       <h2 className="text-[16px] font-semibold text-text">{t('search.noResults')}</h2>
-      <p className="text-[12.5px] text-text-muted mt-1.5">{t('search.noResultsHint')}</p>
+      <p className="text-[12.5px] text-text-muted mt-1.5">
+        {showCross ? t('search.noResultsHintInSource', { source: currentDef.label }) : t('search.noResultsHint')}
+      </p>
+      {showCross && (
+        <button
+          onClick={() => onSwitchSource(otherSource)}
+          className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-[12.5px] font-semibold hover:opacity-90"
+          title={t('search.switchSourceTitle', { source: otherDef.label, q: query })}
+        >
+          <ArrowRightLeft className="w-3.5 h-3.5" />
+          {t('search.foundInOther', { n: crossSourceHits, source: otherDef.label })}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// "Matched in X" pill row + snippet — shared by list, timeline, and card
+// modes so the user always sees WHY a session matched the query, not just
+// that it did. Without this in timeline/card, the user saw a row with no
+// hint of where the query landed — looked like noise.
+function MatchBlock({ row, query, compact = false }: { row: ResultRowData; query: string; compact?: boolean }) {
+  const { t } = useTranslation();
+  if (!row.snippet && !hasShallowMatch(row, query)) return null;
+  const sources = getMatchSources(row, query);
+  return (
+    <div className={cn('rounded-md bg-accent-soft/40 border border-accent/15 px-2.5 py-1.5', compact ? 'mt-2' : 'mt-2')}>
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] uppercase tracking-wider font-semibold text-accent/70 mb-1">
+        <Search className="w-2.5 h-2.5" />
+        <span>{t('search.matchedIn')}</span>
+        {sources.map((src, i) => (
+          <span key={i} className="inline-flex items-center gap-1 normal-case tracking-normal text-[10.5px] font-semibold bg-accent/10 text-accent rounded px-1.5 py-0.5">
+            {t(src.labelKey)}
+            {src.count != null && src.count > 1 && <span className="tabular-nums text-accent/70 font-normal">·{src.count}</span>}
+          </span>
+        ))}
+      </div>
+      {row.snippet && (
+        <p className={cn('text-[12px] text-text leading-snug', compact ? 'line-clamp-2' : 'line-clamp-3')}>
+          …{highlight(cleanDisplayText(row.snippet), query)}…
+        </p>
+      )}
     </div>
   );
 }
@@ -1033,22 +1341,22 @@ function NoResults() {
 // Derive "Matched in X" chips from what we know on the frontend (title / repo / branch)
 // plus the per-role breakdown the backend deepSearch returns. Order = strongest signal first.
 // Multi-term OR: any term hitting the field counts.
-function getMatchSources(row: ResultRowData, query: string): Array<{ label: string; count?: number }> {
+function getMatchSources(row: ResultRowData, query: string): Array<{ labelKey: TKey; count?: number }> {
   const terms = tokenizeQuery(query);
   if (terms.length === 0) return [];
-  const out: Array<{ label: string; count?: number }> = [];
+  const out: Array<{ labelKey: TKey; count?: number }> = [];
   const titleLower = row.title.toLowerCase();
   const projLower = row.project.toLowerCase();
   const branchLower = row.branch?.toLowerCase() ?? '';
-  if (terms.some(t => titleLower.includes(t))) out.push({ label: 'Session Title' });
-  if (terms.some(t => projLower.includes(t))) out.push({ label: 'Repository' });
-  if (branchLower && terms.some(t => branchLower.includes(t))) out.push({ label: 'Branch' });
+  if (terms.some(t => titleLower.includes(t))) out.push({ labelKey: 'search.matchSource.title' });
+  if (terms.some(t => projLower.includes(t))) out.push({ labelKey: 'search.matchSource.repository' });
+  if (branchLower && terms.some(t => branchLower.includes(t))) out.push({ labelKey: 'search.matchSource.branch' });
   const s = row.sources;
   if (s) {
-    if (s.assistant > 0) out.push({ label: 'Assistant', count: s.assistant });
-    if (s.user > 0) out.push({ label: 'User Prompt', count: s.user });
-    if (s.summary > 0) out.push({ label: 'Summary', count: s.summary });
-    if (s.tool > 0) out.push({ label: 'Tool Output', count: s.tool });
+    if (s.assistant > 0) out.push({ labelKey: 'search.matchSource.assistant', count: s.assistant });
+    if (s.user > 0) out.push({ labelKey: 'search.matchSource.userPrompt', count: s.user });
+    if (s.summary > 0) out.push({ labelKey: 'search.matchSource.summary', count: s.summary });
+    if (s.tool > 0) out.push({ labelKey: 'search.matchSource.toolOutput', count: s.tool });
   }
   return out.slice(0, 4);
 }

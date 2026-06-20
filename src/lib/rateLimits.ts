@@ -18,11 +18,9 @@ export function useRateLimitsConsent(): [Consent, (v: Consent) => void] {
       return v === 'granted' || v === 'denied' ? v : 'pending';
     } catch { return 'pending'; }
   });
-  // Main process is the single source of truth. On mount, pull the persisted
-  // consent from appPrefs and (only if missing) seed it from localStorage so
-  // upgrades from older builds don't ask twice. Going forward, `set` below
-  // writes BOTH sides so they stay in sync; we no longer overwrite main on
-  // every mount, which used to let a tampered localStorage flip the gate.
+  // Main process is the single source of truth (appPrefs). localStorage is a
+  // synchronous seed so the first render doesn't have to wait for the IPC
+  // round-trip; on mount we pull the canonical value from main and reconcile.
   useEffect(() => {
     let cancelled = false;
     window.api.getAppPrefs?.().then(prefs => {
@@ -34,8 +32,7 @@ export function useRateLimitsConsent(): [Consent, (v: Consent) => void] {
           setConsent(main);
         }
       } else if (consent !== 'pending') {
-        // Local has a decision but main doesn't — first launch after upgrade.
-        // One-shot sync up.
+        // localStorage has a decision but main doesn't — push it to main once.
         window.api.setRateLimitsConsent?.(consent).catch(() => {});
       }
     }).catch(() => {});
@@ -107,11 +104,16 @@ export function useRateLimits(enabled: boolean, source: 'claude' | 'codex' = 'cl
       if (timerRef.current != null) { clearInterval(timerRef.current); timerRef.current = null; }
       return;
     }
-    // On a fresh source switch (or first enable), wipe the previous source's
-    // limits before the new tick lands so the sidebar/Usage hero don't show
-    // Claude data briefly while a Codex probe is still in flight.
+    // Source switch (or first enable): kick off a fresh tick but **keep the
+    // previous limits visible** until the new value lands. Previously we
+    // wiped to `null` here, which made RateBar drop to its 2% empty
+    // fallback and animate back up over the 350ms transition — visually
+    // reads as "bar resets to zero and refills" on every poll / source
+    // flip. Stale Claude data showing for ~1s after a Codex switch is the
+    // worse-of-two-evils tradeoff we're explicitly making; the active
+    // source label in the sidebar makes the brief inconsistency obvious.
     seqRef.current++;
-    setState({ limits: null, fetchedAt: null, loading: true, error: null, debug: null });
+    setState(s => ({ ...s, loading: true }));
     tick(false);
     timerRef.current = window.setInterval(() => tick(false), POLL_INTERVAL);
     return () => {

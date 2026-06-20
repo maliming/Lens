@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useTranslation } from '../lib/I18nProvider';
 import { cn } from '../lib/utils';
 import { renderMarkdown, escapeHtml } from '../lib/markdown';
+import { highlightDom } from '../lib/highlight';
 import { fmtTokens, fmtModel, cleanDisplayText } from '../lib/format';
 import { ChevronDown, ChevronUp, Copy, Check, X } from 'lucide-react';
 import { getSource } from '../lib/sources';
+import { useProfile } from '../lib/profile';
 import { CodeBlock } from './CodeBlock';
 import type { MessageItem } from '../types';
 import type { DisplayPrefs } from '../lib/displayPrefs';
@@ -96,6 +98,10 @@ function MessageTimestamp({ iso }: { iso: string }) {
 
 export function Message({ message, defaultMode, query, prefs, source = 'claude' }: { message: MessageItem; defaultMode: 'markdown' | 'raw'; query: string; prefs: DisplayPrefs; source?: 'claude' | 'codex' }) {
   const { t } = useTranslation();
+  // Read the per-source profile so a USER message renders the operator's
+  // uploaded avatar image (if any) instead of the hardcoded "M" letter, and
+  // the fallback initial honours their configured profile initial.
+  const [profile] = useProfile(source);
   const [mode, setMode] = useState<'markdown' | 'raw' | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -105,6 +111,12 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
   // until they click — JSONL with attacker-controlled URLs can't beacon home.
   const [loadedRemote, setLoadedRemote] = useState<Set<number>>(() => new Set());
   const effective = mode ?? defaultMode;
+  // Body container ref — after each render we walk its text nodes and wrap
+  // query matches in <mark> so SessionDetail can index every match in the
+  // conversation for prev/next nav. Doing this in the live DOM (vs. mutating
+  // the marked HTML string) keeps MD / RAW paths uniform and avoids accidental
+  // wrapping into tag attributes.
+  const bodyRef = useRef<HTMLDivElement>(null);
   // Defensive clean at the message boundary: ANSI escapes, C0/C1 control chars,
   // and bidi overrides slipped through JSONL would otherwise reorder visible
   // characters or hide content. Keep tab + newline so code blocks stay
@@ -116,7 +128,24 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
   // their formatting.
   const text = isTool ? prettyPrintJsonIfAny(rawText) : rawText;
   const tooLong = text.length > COLLAPSE_THRESHOLD;
-  const showTrunc = tooLong && !expanded;
+  // If a search match lives inside a long message, force the truncation off so
+  // the user can actually see what they searched for. Otherwise the <mark>
+  // ends up in the clipped/hidden tail and prev/next navigation jumps to an
+  // off-screen position the user can't read.
+  const queryHit = !!query.trim() && text.toLowerCase().includes(query.trim().toLowerCase());
+  const showTrunc = tooLong && !expanded && !queryHit;
+
+  // Re-highlight the body whenever the query, the displayed text, or the
+  // markdown/raw mode changes. dangerouslySetInnerHTML replaces children on
+  // every render, so wrapping <mark>s only stays consistent if we re-run
+  // here. useLayoutEffect ensures the marks are in the DOM before paint so
+  // SessionDetail's match collector (also useLayoutEffect) sees them on the
+  // same frame the user types.
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    highlightDom(el, query);
+  }, [query, text, effective, expanded]);
 
   const onCopy = async () => {
     const ok = await copyText(text);
@@ -137,7 +166,7 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
   if (isTool) {
     const truncText = showTrunc ? text.slice(0, 2000) + '\n…' : text;
     return (
-      <div className={cn('group relative rounded-lg bg-emerald-50 dark:bg-emerald-950/30 overflow-hidden animate-fade-up pl-3.5', prefs.compact ? 'p-2 pl-3.5' : 'p-3 pl-3.5')}>
+      <div ref={bodyRef} className={cn('group relative rounded-lg bg-emerald-50 dark:bg-emerald-950/30 overflow-hidden pl-3.5', prefs.compact ? 'p-2 pl-3.5' : 'p-3 pl-3.5')}>
         <span className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald-400 to-teal-600" />
         <div className="flex items-center justify-between mb-2">
           <span className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-400">
@@ -219,7 +248,7 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
   // long text are properly contained either way.
   return (
     <div className={cn(
-      'group relative animate-fade-up rounded-xl overflow-hidden',
+      'group relative rounded-xl overflow-hidden',
       isSummary && 'pl-4',
       cardClass,
       prefs.compact ? 'p-3' : 'p-4',
@@ -238,13 +267,27 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
             // Registry-driven so a new AI provider plugs in via lib/sources.ts.
             const def = getSource(source);
             const Glyph = def.Glyph;
+            // USER lane shows the operator's uploaded avatar image when set,
+            // otherwise falls back to their configured profile initial on the
+            // accent purple chip. Assistant + summary lanes are unchanged.
+            if (isUser && profile.avatarImage) {
+              return (
+                <img
+                  src={profile.avatarImage}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="w-5 h-5 rounded-md object-cover flex-shrink-0"
+                />
+              );
+            }
             const bg = isUser ? '#7c5cff' : isSummary ? '#f59e0b' : def.accent;
+            const initial = (profile.avatarInitial || 'M').slice(0, 2).toUpperCase();
             return (
               <div
                 className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 text-white text-[10px] font-bold"
                 style={{ background: bg }}
               >
-                {isUser ? 'M' : isSummary ? 'S' : <Glyph color="#ffffff" className="w-3 h-3" />}
+                {isUser ? initial : isSummary ? 'S' : <Glyph color="#ffffff" className="w-3 h-3" />}
               </div>
             );
           })()}
@@ -271,9 +314,9 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude' 
 
       <div className={cn('text-[13px] text-text', showTrunc && 'max-h-[260px] overflow-hidden')}>
         {text.trim() && (effective === 'markdown' ? (
-          <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
+          <div ref={bodyRef} className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
         ) : (
-          <div className="raw-body whitespace-pre-wrap break-words font-mono text-[12px]" dangerouslySetInnerHTML={{ __html: highlightHtml(text, query) }} />
+          <div ref={bodyRef} className="raw-body whitespace-pre-wrap break-words font-mono text-[12px]" dangerouslySetInnerHTML={{ __html: escapeHtml(text) }} />
         ))}
         {/* Inline images attached to the message — pasted screenshots / file
            uploads. Capped at 480px wide so they don't blow out the column;
@@ -364,13 +407,4 @@ function ImageLightbox({ src, onClose }: { src: string | null; onClose: () => vo
   );
 }
 
-function highlightHtml(text: string, query: string): string {
-  const escaped = escapeHtml(text);
-  if (!query) return escaped;
-  const q = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (!q) return escaped;
-  try {
-    return escaped.replace(new RegExp(q, 'gi'), m => `<mark>${m}</mark>`);
-  } catch { return escaped; }
-}
 

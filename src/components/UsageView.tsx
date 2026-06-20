@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { UsageSummary } from '../types';
 import { fmtTokens, fmtModel, shortCwd } from '../lib/format';
 import { useCurrentSource, getSource } from '../lib/sources';
@@ -17,6 +17,22 @@ type Props = {
   onRefreshRateLimits: () => void;
 };
 
+// "Billed" tokens — input + output only, mirroring Anthropic's pricing model
+// where cache reads (10% discount) and cache writes (1.25× multiplier) are
+// surfaced separately. Claude Code's own `/stats` reports this same sum as
+// "Total tokens". We keep cacheRead/cacheCreate available on `total` so the
+// breakdown line + cache-hit-rate stat still render, but every "how big was
+// this" summary (hero card, model bar, project bar, heatmap quartiles,
+// daily chart, peak day) routes through here so users comparing against
+// Claude Code see matching numbers.
+//
+// The runtime shape on `byDay` entries that came from `~/.claude/stats-cache.json`
+// (filled in usage.cjs) parks the day's whole token count in `input` already,
+// so this helper picks it up automatically — no special-case needed.
+function billed(x: { input: number; output: number }): number {
+  return (x.input || 0) + (x.output || 0);
+}
+
 export function UsageView({ usage, demoMode, rlConsent, rateLimits, onOpenRlPrompt, onRefreshRateLimits }: Props) {
   const { t } = useTranslation();
   const [currentSource] = useCurrentSource();
@@ -26,14 +42,19 @@ export function UsageView({ usage, demoMode, rlConsent, rateLimits, onOpenRlProm
     return <UsageSkeleton />;
   }
   const total = usage.buckets.total;
-  const totalSum = total.input + total.output + total.cacheRead + total.cacheCreate;
+  const totalSum = billed(total);
   const cacheHit = total.input + total.cacheRead > 0
     ? (total.cacheRead / (total.input + total.cacheRead)) * 100
     : 0;
 
   return (
     <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
-      <div className="px-8 py-8">
+      {/* AI-designed layout: cap the inner content at 2000px and centre it.
+          Above that, ultra-wide monitors would otherwise stretch every
+          chart across the entire pane and read as sparse. The cap is
+          generous enough that 1500-1800px monitors still get most of
+          the available width. */}
+      <div className="px-8 py-8 max-w-[2000px] mx-auto">
         {/* Header */}
         <div className="flex items-center gap-3 mb-1">
           <div
@@ -64,34 +85,87 @@ export function UsageView({ usage, demoMode, rlConsent, rateLimits, onOpenRlProm
 
         {/* 1. Activity — the only "how much have I used" view */}
         <SectionHeading icon={Hourglass}>{t('usage.activity')}</SectionHeading>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-8">
           <RollingWindow label={t('usage.today')} sub={t('usage.sinceMidnight')} highlight bucket={usage.currentWindows.today} />
           <RollingWindow label={t('usage.last3d')} sub={t('usage.rolling72h')} bucket={usage.currentWindows.last3d} />
           <RollingWindow label={t('usage.last7d')} sub={t('usage.weeklyRolling')} bucket={usage.currentWindows.last7d} />
+          <RollingWindow label={t('usage.last30d')} sub={t('usage.monthlyRolling')} bucket={usage.currentWindows.last30d} />
         </div>
 
-        {/* 1.5 Heatmap + activity stats */}
+        {/* 1.5 Activity cluster — "Activity Overview" three-segment design.
+            Layout courtesy of a UI-design pass:
+              - Below xl: single column. Heatmap → Daily Trend → Stats
+                stack one per row so narrow windows stay readable.
+              - xl (1280-2000): 12-col grid. Heatmap claims 8/12 (capped at
+                1120px so cells stay GitHub-dense), the right rail (4/12)
+                stacks Daily Trend on top + Stats below — both sized to
+                comfortable widths instead of fighting Heatmap for space.
+              - 2xl+ (>1536): tilt to 7/5 so Daily Trend + Stats get more
+                breathing room on ultra-wide displays without making the
+                Heatmap awkwardly wide. */}
         <SectionHeading icon={Flame}>{t('usage.activityHeatmap')}</SectionHeading>
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-5 mb-8 items-stretch">
-          <ActivityHeatmap byDay={usage.byDay} />
-          <ActivityStats stats={usage.stats} sessions={total.sessions} />
+        {/* Activity row — three layouts across breakpoints.
+              Wide (2xl, ≥1536px): Stats | Heatmap | Daily Trend on one
+              row, 3/6/3 split.
+              Medium (xl, 1280-1536, Lens' minimum-window range): the
+              user-named `|A B| / |A C|` layout —
+                  | Stats | Heatmap   |
+                  | Stats | DailyChart|
+              Stats (block A) takes the narrow left column and spans
+              both rows; Heatmap (B) lands top-right, DailyChart (C)
+              bottom-right. The right column gets the wide space the
+              heatmap + bar chart need; Stats is happy in ~280-360px.
+              Break is at 2xl (not xl) because Lens' minWidth is already
+              at xl — without that, every Lens window would skip the
+              medium layout entirely.
+              Narrow (<xl, <1280px): single column stack — only seen if
+              someone overrides minWidth. */}
+        <div className="
+          grid gap-5 mb-8 items-stretch
+          grid-cols-1
+          xl:grid-cols-[minmax(0,1fr)_minmax(0,3fr)] xl:grid-rows-[auto_auto]
+          2xl:grid-cols-12 2xl:grid-rows-1
+        ">
+          {/* Stats = block A. Tall left column on xl, leftmost on 2xl. */}
+          <div className="
+            min-w-0 [&>*]:h-full
+            xl:row-span-2 xl:col-start-1
+            2xl:row-span-1 2xl:col-start-1 2xl:col-span-3
+          ">
+            <ActivityStats stats={usage.stats} sessions={total.sessions} />
+          </div>
+          {/* Heatmap = block B. Right-top on xl, middle column on 2xl. */}
+          <div className="
+            min-w-0 [&>*]:h-full
+            xl:col-start-2 xl:row-start-1
+            2xl:col-start-4 2xl:col-span-6 2xl:row-start-1
+          ">
+            <ActivityHeatmap byDay={usage.byDay} />
+          </div>
+          {/* Daily Trend = block C. Right-bottom on xl, rightmost on 2xl. */}
+          <div className="
+            min-w-0 [&>*]:h-full
+            xl:col-start-2 xl:row-start-2
+            2xl:col-start-10 2xl:col-span-3 2xl:row-start-1
+          ">
+            <DailyChart byDay={usage.byDay} />
+          </div>
         </div>
 
-        {/* 2. Daily trend */}
-        <SectionHeading icon={TrendingUp}>{t('usage.dailyTrend')}</SectionHeading>
-        <DailyChart byDay={usage.byDay} />
-
-        {/* 3. Drill-down: model + project in two columns */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-          <div>
+        {/* 3. Drill-down: model + project in two columns. Cards stretch
+            to the same height even when one list is shorter than the
+            other — `items-stretch` on the grid + `h-full flex-col` on the
+            card wrappers makes the shorter list grow to match the taller. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6 items-stretch">
+          <div className="flex flex-col h-full">
             <SectionHeading icon={Zap}>By model</SectionHeading>
-            <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft">
+            <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex-1">
               <ModelList models={usage.byModel} />
             </div>
           </div>
-          <div>
+          <div className="flex flex-col h-full">
             <SectionHeading icon={Database}>{t('usage.topProjects')}</SectionHeading>
-            <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft">
+            <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex-1">
               <ProjectList projects={usage.byProject.slice(0, 10)} />
             </div>
           </div>
@@ -133,7 +207,7 @@ function RollingWindow({ label, sub, bucket, highlight, compact }: {
   highlight?: boolean;
   compact?: boolean;
 }) {
-  const tokens = bucket.input + bucket.output + bucket.cacheRead + bucket.cacheCreate;
+  const tokens = billed(bucket);
   const oldestAgo = bucket.oldestTs ? humanAgo(Date.now() - bucket.oldestTs) : null;
   return (
     <div className={cn(
@@ -185,19 +259,19 @@ function humanAgo(ms: number): string {
 
 function DailyChart({ byDay }: { byDay: UsageSummary['byDay'] }) {
   const days = byDay.slice(0, 30).reverse();
-  const max = Math.max(1, ...days.map(d => d.input + d.output + d.cacheRead + d.cacheCreate));
-  const peakDay = days.reduce((peak, d) => {
-    const t = d.input + d.output + d.cacheRead + d.cacheCreate;
-    const pt = peak.input + peak.output + peak.cacheRead + peak.cacheCreate;
-    return t > pt ? d : peak;
-  }, days[0]);
-  const peakTotal = peakDay ? peakDay.input + peakDay.output + peakDay.cacheRead + peakDay.cacheCreate : 0;
+  const max = Math.max(1, ...days.map(billed));
+  const peakDay = days.reduce((peak, d) => billed(d) > billed(peak) ? d : peak, days[0]);
+  const peakTotal = peakDay ? billed(peakDay) : 0;
 
   return (
-    <div className="bg-surface border border-border-soft rounded-xl p-5 mb-8 shadow-soft">
-      <div className="flex items-stretch justify-between gap-1 h-32 mb-3">
+    // mb-8 was removed when DailyChart became a grid sibling of the
+    // heatmap — the parent grid handles spacing via its own `mb-8`. Card
+    // also needs to stretch vertically (`h-full flex-col`) so it lines
+    // up with the heatmap's full height in the same row.
+    <div className="bg-surface border border-border-soft rounded-xl p-5 shadow-soft h-full flex flex-col">
+      <div className="flex items-stretch justify-between gap-1 flex-1 min-h-[8rem] mb-3">
         {days.map(d => {
-          const t = d.input + d.output + d.cacheRead + d.cacheCreate;
+          const t = billed(d);
           const h = Math.max(2, (t / max) * 100);
           const isPeak = d === peakDay;
           return (
@@ -227,15 +301,15 @@ function DailyChart({ byDay }: { byDay: UsageSummary['byDay'] }) {
 
 function ModelList({ models }: { models: UsageSummary['byModel'] }) {
   const filtered = models.filter(m => m.model !== 'unknown');
-  const sumAll = filtered.reduce((s, m) => s + m.input + m.output + m.cacheRead + m.cacheCreate, 0);
-  const max = Math.max(1, ...filtered.map(m => m.input + m.output + m.cacheRead + m.cacheCreate));
+  const sumAll = filtered.reduce((s, m) => s + billed(m), 0);
+  const max = Math.max(1, ...filtered.map(billed));
 
   if (!filtered.length) return <div className="text-text-muted text-[12px] py-4 text-center">No model data</div>;
 
   return (
     <div className="space-y-3">
       {filtered.map(m => {
-        const t = m.input + m.output + m.cacheRead + m.cacheCreate;
+        const t = billed(m);
         const pct = sumAll > 0 ? (t / sumAll) * 100 : 0;
         const w = (t / max) * 100;
         return (
@@ -268,12 +342,12 @@ function ModelList({ models }: { models: UsageSummary['byModel'] }) {
 }
 
 function ProjectList({ projects }: { projects: UsageSummary['byProject'] }) {
-  const max = Math.max(1, ...projects.map(p => p.input + p.output + p.cacheRead + p.cacheCreate));
+  const max = Math.max(1, ...projects.map(billed));
   if (!projects.length) return <div className="text-text-muted text-[12px] py-4 text-center">No project data</div>;
   return (
     <div className="space-y-2">
       {projects.map(p => {
-        const t = p.input + p.output + p.cacheRead + p.cacheCreate;
+        const t = billed(p);
         const w = (t / max) * 100;
         return (
           <div key={p.project} className="grid grid-cols-[1fr_auto] gap-3 items-center min-w-0 group">
@@ -387,7 +461,7 @@ function ActivityHeatmap({ byDay }: { byDay: UsageSummary['byDay'] }) {
   const { t } = useTranslation();
   // Build a Map<dayKey, total> + figure out the weeks grid (Mon..Sun cols).
   const map = new Map<string, number>();
-  for (const d of byDay) map.set(d.day, d.input + d.output + d.cacheRead + d.cacheCreate);
+  for (const d of byDay) map.set(d.day, billed(d));
 
   const today = new Date();
   const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -423,9 +497,15 @@ function ActivityHeatmap({ byDay }: { byDay: UsageSummary['byDay'] }) {
     // semantic border token so the heatmap cell is always discernible from
     // empty space.
     'bg-border',
-    'bg-accent/20',
-    'bg-accent/40',
-    'bg-accent/65',
+    // The lowest activity level used to be bg-accent/20, which read as
+    // "almost the same as the zero cell" on light themes — the user
+    // couldn't tell at a glance whether a faint cell meant "no activity"
+    // or "barely any activity". Lift the floor to /35 (still clearly less
+    // than /55) and widen the rest of the ramp evenly so all four
+    // non-zero levels are visually distinct.
+    'bg-accent/35',
+    'bg-accent/55',
+    'bg-accent/75',
     'bg-accent',
   ];
   const dayLabels = ['Mon', '', 'Wed', '', 'Fri', '', ''];
@@ -506,7 +586,7 @@ function ActivityHeatmap({ byDay }: { byDay: UsageSummary['byDay'] }) {
 function ActivityStats({ stats, sessions }: { stats: UsageSummary['stats']; sessions: number }) {
   const { t } = useTranslation();
   return (
-    <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft min-w-[240px] flex flex-col justify-between gap-3 h-full">
+    <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex flex-col gap-2.5 h-full min-w-0">
       <StatLine icon={<Trophy className="w-3.5 h-3.5 text-amber-500" />} label={t('usage.favoriteModel')} value={stats.favoriteModel ? fmtModel(stats.favoriteModel) : '—'} />
       <StatLine icon={<Database className="w-3.5 h-3.5 text-accent" />} label={t('usage.sessions')} value={sessions.toLocaleString()} />
       <StatLine icon={<CalendarIcon className="w-3.5 h-3.5 text-emerald-500" />} label={t('usage.activeDays')} value={`${stats.activeDays} / ${stats.totalDays}`} />
@@ -520,9 +600,13 @@ function ActivityStats({ stats, sessions }: { stats: UsageSummary['stats']; sess
 
 function StatLine({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 text-[12px]">
-      <span className="flex items-center gap-1.5 text-text-muted">{icon}{label}</span>
-      <span className="font-semibold text-text tabular-nums truncate" title={value}>{value}</span>
+    <div className="flex items-center justify-between gap-3 text-[12px] min-w-0">
+      {/* Label can truncate; the value (right side) takes priority because
+          it's the data the user actually wants to read. flex-shrink-0 on
+          the value pins it; min-w-0 + truncate on the label lets it
+          shorten gracefully when the column is narrow. */}
+      <span className="flex items-center gap-1.5 text-text-muted min-w-0 truncate" title={label}>{icon}<span className="truncate">{label}</span></span>
+      <span className="font-semibold text-text tabular-nums truncate flex-shrink-0" title={value}>{value}</span>
     </div>
   );
 }
@@ -585,7 +669,7 @@ function UsageSkeleton() {
 
 function HeroMetrics({ usage }: { usage: UsageSummary }) {
   const total = usage.buckets.total;
-  const totalTokens = total.input + total.output + total.cacheRead + total.cacheCreate;
+  const totalTokens = billed(total);
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
       <HeroMetric eyebrow="Total tokens" value={fmtTokens(totalTokens)} sub="all-time across all sessions" />
@@ -614,7 +698,7 @@ function InsightCards({ usage }: { usage: UsageSummary }) {
     let best: typeof usage.byDay[number] | null = null;
     let bestTotal = -1;
     for (const d of usage.byDay) {
-      const t = d.input + d.output + d.cacheRead + d.cacheCreate;
+      const t = billed(d);
       if (t > bestTotal) { bestTotal = t; best = d; }
     }
     return best;
@@ -628,7 +712,7 @@ function InsightCards({ usage }: { usage: UsageSummary }) {
         <InsightCard
           eyebrow="Favorite project"
           title={shortCwd(topProject.project)}
-          metric={fmtTokens(topProject.input + topProject.output + topProject.cacheRead + topProject.cacheCreate) + ' tokens'}
+          metric={fmtTokens(billed(topProject)) + ' tokens'}
           sub={`${topProject.sessions} session${topProject.sessions !== 1 ? 's' : ''}`}
           tint="from-purple-500 to-fuchsia-500"
         />
@@ -637,7 +721,7 @@ function InsightCards({ usage }: { usage: UsageSummary }) {
         <InsightCard
           eyebrow="Most productive day"
           title={topDay.day}
-          metric={fmtTokens(topDay.input + topDay.output + topDay.cacheRead + topDay.cacheCreate) + ' tokens'}
+          metric={fmtTokens(billed(topDay)) + ' tokens'}
           sub={`${topDay.sessions} session${topDay.sessions !== 1 ? 's' : ''}`}
           tint="from-emerald-500 to-teal-500"
         />
@@ -711,6 +795,32 @@ function QuotaRing({ label, window: w }: { label: string; window: { utilization:
     : left <= 10 ? 'from-rose-400 to-rose-600'
     : left <= 30 ? 'from-amber-400 to-orange-500'
     : 'from-accent to-purple-500';
+  // Mirror Sidebar.RateBar's Web Animations approach so the bar in the
+  // Usage hero animates on mount and on source flip (Claude ↔ Codex)
+  // instead of snapping. Driving width via `el.animate(...)` sidesteps
+  // React 18's automatic batching, which was collapsing the
+  // "render at 0% → setState to target" pair into a single paint with
+  // nothing to interpolate.
+  const targetWidth = left == null ? 0 : Math.max(left, 2);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const prevWidthRef = useRef(0);
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const from = prevWidthRef.current;
+    prevWidthRef.current = targetWidth;
+    if (Math.abs(from - targetWidth) < 0.01) {
+      el.style.width = `${targetWidth}%`;
+      return;
+    }
+    el.style.width = `${targetWidth}%`;
+    try {
+      el.animate(
+        [{ width: `${from}%` }, { width: `${targetWidth}%` }],
+        { duration: 700, easing: 'ease-out', fill: 'forwards' },
+      );
+    } catch {}
+  }, [targetWidth]);
 
   return (
     <div className="bg-surface border border-border-soft rounded-xl p-4">
@@ -729,8 +839,9 @@ function QuotaRing({ label, window: w }: { label: string; window: { utilization:
       </div>
       <div className="h-[8px] bg-border rounded-full overflow-hidden">
         <div
-          className={cn('h-full rounded-full bg-gradient-to-r transition-[width] duration-500', barGradient)}
-          style={{ width: `${Math.max(left ?? 0, left === 0 ? 0 : 2)}%` }}
+          ref={barRef}
+          className={cn('h-full rounded-full bg-gradient-to-r will-change-[width]', barGradient)}
+          style={{ width: '0%' }}
         />
       </div>
       <div className="text-[10.5px] text-text-muted tabular-nums mt-1.5">

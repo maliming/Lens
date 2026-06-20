@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-// i18n key completeness check. Walks src/lib/i18n.ts, extracts each locale's
-// dictionary as a flat list of keys, and compares against `en`. Exit non-zero
-// if any locale is missing a key — used in CI so a key added to en without
-// the matching translation can't slip into a release.
+// Local helper to diff each locale against en. Walks src/lib/i18n.ts, extracts
+// each locale's dictionary as a flat list of keys, and reports gaps. Useful
+// when adding new keys; not wired into CI.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

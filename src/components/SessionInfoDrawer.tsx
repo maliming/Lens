@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, Copy, GitBranch, Calendar, MessageSquare, FileText, Cpu } from 'lucide-react';
-import { fmtBytes, fmtModel, fmtTime, fmtTokens, shortCwd, isUsableModel } from '../lib/format';
+import { fmtBytes, fmtModel, fmtTime, fmtTokens, shortCwd, isUsableModel, visibleMessageCount } from '../lib/format';
 import { meaningfulBranch } from '../lib/sessionTitle';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/I18nProvider';
@@ -20,6 +20,9 @@ export function SessionInfoDrawer({ open, onOpenChange, session }: Props) {
   const tCr = session.tokensCacheRead || 0;
   const tCc = session.tokensCacheCreate || 0;
   const total = tIn + tOut + tCr + tCc;
+  const userVisible = session.userMsgs || 0;
+  const assistantVisible = session.assistantMsgs || 0;
+  const totalVisible = visibleMessageCount(session);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -42,7 +45,7 @@ export function SessionInfoDrawer({ open, onOpenChange, session }: Props) {
               <section>
                 <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t('info.section.tokens')}</h3>
                 <div className="text-[28px] font-bold tabular-nums leading-none text-text mb-1">{fmtTokens(total)}</div>
-                <div className="text-[11px] text-text-muted mb-3">{t('info.tokens.across', { n: (session.userMsgs || 0) + (session.assistantMsgs || 0) })}</div>
+                <div className="text-[11px] text-text-muted mb-3">{t('info.tokens.across', { n: totalVisible })}</div>
                 <div className="grid grid-cols-2 gap-2">
                   <TokenRow label={t('info.tokens.in')} value={tIn} accent="bg-blue-400" />
                   <TokenRow label={t('info.tokens.out')} value={tOut} accent="bg-pink-400" />
@@ -85,7 +88,7 @@ export function SessionInfoDrawer({ open, onOpenChange, session }: Props) {
                   <Row label={t('info.row.lastActivity')}>{fmtTime(session.lastTs)}</Row>
                 )}
                 <Row label={<><MessageSquare className="w-3 h-3 inline mr-1 -mt-0.5" />{t('info.row.messages')}</>}>
-                  {(session.userMsgs || 0) + (session.assistantMsgs || 0)} ({session.userMsgs || 0} / {session.assistantMsgs || 0})
+                  {totalVisible} ({userVisible} / {assistantVisible})
                 </Row>
                 <Row label={<><FileText className="w-3 h-3 inline mr-1 -mt-0.5" />{t('info.row.fileSize')}</>}>{fmtBytes(session.fileSize)}</Row>
               </dl>
@@ -113,13 +116,14 @@ export function SessionInfoDrawer({ open, onOpenChange, session }: Props) {
 }
 
 function Row({ label, children, mono, copyable }: { label: React.ReactNode; children: React.ReactNode; mono?: boolean; copyable?: string }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center justify-between gap-3 min-w-0">
       <dt className="text-text-muted flex-shrink-0">{label}</dt>
       <dd className={cn('text-text min-w-0 truncate flex items-center gap-1.5', mono && 'font-mono text-[11.5px]')}>
         {children}
         {copyable && (
-          <button onClick={() => navigator.clipboard.writeText(copyable)} className="text-text-muted hover:text-accent flex-shrink-0" title="Copy">
+          <button onClick={() => navigator.clipboard.writeText(copyable)} className="text-text-muted hover:text-accent flex-shrink-0" title={t('common.copy')}>
             <Copy className="w-3 h-3" />
           </button>
         )}

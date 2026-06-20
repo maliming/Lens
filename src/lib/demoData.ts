@@ -602,6 +602,7 @@ export const DEMO_USAGE: UsageSummary = {
     last24h: windowOf(24),
     last3d: windowOf(72),
     last7d: windowOf(168),
+    last30d: windowOf(720),
   },
   byModel: (() => {
     const map = new Map<string, { input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>();
@@ -1209,12 +1210,17 @@ export const DEMO_AUTH: AuthStatus = {
   subscriptionType: 'pro',
 };
 
-// Fixed identity used by demo mode — bypasses any stored profile so a user who
-// previously customized their name doesn't leak into demo screenshots.
+// Fixed identity used by demo mode — bypasses any stored profile so a
+// customised name never leaks into demo screenshots. A stylised person-
+// silhouette SVG reads naturally as a chat avatar; the app icon looks
+// jarring at this role since users expect a contact-style portrait, not a
+// brand glyph. Vite resolves the ?url suffix to a hashed asset URL.
+import demoAvatarUrl from '../assets/demo-avatar.svg?url';
 export const DEMO_PROFILE = {
   name: 'Lens',
-  avatarInitial: 'C',
+  avatarInitial: 'L',
   avatarGradient: 'from-purple-500 to-blue-500',
+  avatarImage: demoAvatarUrl,
 };
 
 // Stable demo rate-limit snapshot. Matches the v2 design's numbers (6% / 28%)

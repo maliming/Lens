@@ -25,7 +25,7 @@ export function StatusBar({ sessions, message }: Props) {
     return t > n ? t : n;
   }, 0);
   const buildTitle = `Branch: ${__GIT_BRANCH__}${__GIT_DATE__ ? ` · ${new Date(__GIT_DATE__).toLocaleString()}` : ''} · Click to open on GitHub`;
-  const RELEASE_URL = `https://github.com/maliming/Lens/releases/tag/v${__APP_VERSION__}`;
+  const RELEASE_URL = `https://github.com/maliming/Lens/releases/tag/${__APP_VERSION__}`;
   const openExt = (url: string) => { window.api.openExternal?.(url).catch(() => {}); };
 
   return (

@@ -15,10 +15,9 @@ import { useExcludeRules, computeEffectiveExcluded } from './lib/excludeRules';
 import { useCurrentSource, srcKey, type SessionSource } from './lib/sources';
 import { sessionTimestamp } from './lib/format';
 import { useDemoMode } from './lib/demoMode';
-import { DEMO_SESSIONS, DEMO_USAGE, DEMO_PROFILE } from './lib/demoData';
+import { DEMO_SESSIONS, DEMO_USAGE, DEMO_PROFILE, DEMO_RATE_LIMITS } from './lib/demoData';
 import { useRateLimitsConsent, useRateLimits, type RateLimitsState } from './lib/rateLimits';
 import { RateLimitsConsentModal } from './components/RateLimitsConsentModal';
-import { DEMO_RATE_LIMITS } from './lib/demoData';
 import { useTranslation } from './lib/I18nProvider';
 import type { SessionMeta, View, UsageSummary } from './types';
 
@@ -26,6 +25,47 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 
 function getSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+// Keeps every nav target mounted so React state, scroll position, deep-search
+// results, and (most importantly) SessionDetail's loaded messages survive when
+// the user switches views.
+//
+// When active: `display: contents` makes the wrapper transparent to the outer
+// flex row — the view component is laid out as a direct child of the flex
+// container, just like the old conditional render.
+//
+// When inactive: `position: absolute + visibility: hidden + pointer-events:
+// none` takes the wrapper out of flex flow so the active view gets the full
+// width, but the subtree still paints into a real DOM box with real
+// dimensions. That matters because SessionList's `@tanstack/react-virtual`
+// uses a ResizeObserver on every row — under `display: none` every row
+// reports height 0, and switching back triggers a flood of re-measures
+// (visible as the list height "snapping" into place). Keeping a real layout
+// while invisible avoids that re-measure entirely.
+//
+// Side note: the parent of these ViewSlots (`flex-1 flex ... relative`)
+// becomes the positioning context for the absolute wrapper, so the hidden
+// view inherits the row's full width — slightly wider than the active view
+// (it doesn't subtract the sidebar) but row height isn't width-sensitive,
+// so the cached measurements still apply when it becomes active again.
+function ViewSlot({ active, children }: { active: boolean; children: React.ReactNode }) {
+  if (active) return <div style={{ display: 'contents' }}>{children}</div>;
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        minHeight: 0,
+        visibility: 'hidden',
+        pointerEvents: 'none',
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
 export default function App() {
@@ -62,6 +102,12 @@ export default function App() {
   // priority usage refresh could trample the freshly-arrived sessions list.
   const reloadSeqRef = useRef(0);
   const usageSeqRef = useRef(0);
+  // Bumped on every full reload — ConfigView watches this so the Workspace
+  // pane re-reads CLAUDE.md / skills / commands / hooks from disk on ⌘R or
+  // the sidebar Rescan button. The renderer never watches the FS itself, so
+  // without this an edit to ~/.claude/CLAUDE.md (or a new skill) wouldn't
+  // surface until the source flips or the window is restarted.
+  const [refreshTick, setRefreshTick] = useState(0);
   const [demoAliases, setDemoAliases] = useState<Record<string, string | null>>({});
   const [rlConsent, setRlConsent] = useRateLimitsConsent();
   const [rlPromptOpen, setRlPromptOpen] = useState(false);
@@ -105,8 +151,8 @@ export default function App() {
   // tool's last-selected session instead of bleeding state across sources.
   const [activeId, setActiveId] = useState<string | null>(() => localStorage.getItem(`active-id:${currentSource}`));
   const [realProfile, setProfile] = useProfile(currentSource);
-  // Demo mode overlays a fixed profile so any localStorage-customised name
-  // (e.g. an existing user's saved "maliming") doesn't leak into demo views.
+  // Demo mode overlays a fixed profile so a localStorage-customised name
+  // never leaks into demo views.
   const profile = demoMode ? DEMO_PROFILE : realProfile;
   const [profileOpen, setProfileOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -184,12 +230,17 @@ export default function App() {
   }, [view, activeId, favorites, effectiveExcluded, sessions]);
 
   const reload = useCallback(async () => {
-    // Capture the source + a monotonic request id at call time. If the user
-    // flips Claude↔Codex OR triggers a fresher reload before this one settles,
-    // we drop the slower result so the hero numbers / usage / streak don't get
-    // briefly overwritten by stale data.
+    // Stale guard: capture source + a monotonic request id at call time. If
+    // the user flips Claude↔Codex OR a fresher reload starts before this one
+    // settles, drop the result so hero numbers / usage / streak only commit
+    // when neither source nor seq has shifted.
     const reqSource = currentSource;
     const reqSeq = ++reloadSeqRef.current;
+    // Signal Workspace (ConfigView) to refetch CLAUDE.md / skills / etc.
+    // Sessions + workspace live on disk side-by-side; a refresh that updates
+    // one without the other left users wondering why their fresh
+    // ~/.claude/CLAUDE.md edit didn't show up.
+    setRefreshTick(t => t + 1);
     setLoading(true);
     try {
       const [s, f, e, u] = await Promise.all([
@@ -213,10 +264,10 @@ export default function App() {
       // new reload) shouldn't flash a status bar message or kill the loading
       // skeleton of the in-flight successor.
       if (reqSource !== currentSourceRef.current || reqSeq !== reloadSeqRef.current) return;
-      setStatusMsg('Error: ' + err.message);
+      setStatusMsg(t('status.error', { error: err.message }));
       setLoading(false);
     }
-  }, [currentSource]);
+  }, [currentSource, t]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -247,6 +298,28 @@ export default function App() {
     window.addEventListener('sessions:reload', h);
     return () => window.removeEventListener('sessions:reload', h);
   }, [reload]);
+
+  // History pane EmptyState dispatches this when the user clicks "Search
+  // content" — switch to the dedicated Search view and re-broadcast the query
+  // so SearchView can auto-submit it. Two-event hop is needed because
+  // SearchView's input state is owned inside the component, and we want the
+  // query to land + grep to fire without an extra click after the view swap.
+  useEffect(() => {
+    const h = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { q?: string };
+      const q = (detail?.q || '').trim();
+      if (!q) return;
+      setView('search');
+      // Defer one frame so SearchView's mount/visibility transition lands
+      // before we fire the auto-submit. Without this the SearchView listener
+      // hasn't mounted yet on first navigation and the event is missed.
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent('search:autoSubmit', { detail: { q } }));
+      });
+    };
+    window.addEventListener('nav:contentSearch', h);
+    return () => window.removeEventListener('nav:contentSearch', h);
+  }, []);
 
   // Optimistic alias patch — updates the in-memory session entry without a full
   // reload(). Demo mode tracks aliases in a separate overlay map so DEMO_SESSIONS
@@ -339,19 +412,23 @@ export default function App() {
     const handler = (e: KeyboardEvent) => {
       const cmd = e.metaKey || e.ctrlKey;
       if (cmd && e.key === 'k') {
-        // ⌘K used to open a Cmd-K palette; the dedicated Search page covers
-        // the same workflow with more depth, so jump there instead.
+        // ⌘K opens the Search view.
         e.preventDefault();
         setView('search');
       } else if (cmd && e.key === 'f') {
         e.preventDefault();
-        const el = document.getElementById('search-input') as HTMLInputElement | null;
+        // Both views stay mounted via ViewSlot, so two distinct ids exist
+        // simultaneously — focus the one whose view is actually visible.
+        // Fall back to the History input for views that don't host their
+        // own search field (Workspace / Usage / Settings).
+        const id = view === 'search' ? 'deep-search-input' : 'history-search-input';
+        const el = document.getElementById(id) as HTMLInputElement | null;
         el?.focus();
         el?.select();
       } else if (cmd && e.key === 'r') {
         e.preventDefault();
         reload();
-        setStatusMsg('Rescanned');
+        setStatusMsg(t('status.rescanned'));
         setTimeout(() => setStatusMsg(''), 1500);
       } else if (cmd && e.key === 'i') {
         e.preventDefault();
@@ -363,7 +440,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [reload, activeSession]);
+  }, [reload, activeSession, view]);
 
   const toggleFav = useCallback(async (id: string) => {
     const isFav = await window.api.toggleFavorite(currentSource, id);
@@ -385,9 +462,9 @@ export default function App() {
       return next;
     });
     setSessions(prev => prev.map(s => s.id === id && (s.source) === currentSource ? { ...s, excluded: isEx } : s));
-    setStatusMsg(isEx ? 'Excluded from list' : 'Restored to list');
+    setStatusMsg(isEx ? t('status.excluded') : t('status.restored'));
     setTimeout(() => setStatusMsg(''), 2500);
-  }, [currentSource]);
+  }, [currentSource, t]);
 
   return (
     <div className="h-full w-full flex flex-col bg-bg text-text">
@@ -399,7 +476,7 @@ export default function App() {
         </span>
       </div>
 
-      <div className="flex-1 flex min-h-0 overflow-hidden gap-1.5 p-1.5">
+      <div className="flex-1 flex min-h-0 overflow-hidden gap-1.5 p-1.5 relative">
         <Sidebar
           view={view}
           onViewChange={setView}
@@ -419,16 +496,29 @@ export default function App() {
           profile={profile}
           onOpenProfile={() => setProfileOpen(true)}
           rateLimits={rateLimitsState}
+          quotaEnabled={rlEnabled || demoMode}
           demoMode={demoMode}
         />
         <Resizer cssVar="--sidebar-width" storageKey="sidebar-width" min={180} max={280} side="left" />
 
-        {(view === 'sessions' || view === 'favorites' || view === 'excluded') && (
+        {/*
+          Every view stays mounted (see ViewSlot) so navigating away and back
+          keeps detail-pane messages, deep-search hits, scroll positions, and
+          input state intact. The previous conditional render unmounted the
+          whole subtree, forcing a fresh IPC fetch on re-entry.
+        */}
+        <ViewSlot active={view === 'sessions' || view === 'favorites' || view === 'excluded'}>
           <SessionsView
-            view={view}
+            // While inactive, freeze the `view` prop on the last active
+            // sessions/favorites/excluded variant so SessionsView doesn't
+            // try to reconcile against a value it doesn't understand
+            // (e.g. 'search'). The component is hidden so the user can't see
+            // the freeze; on next entry the live view value flows through.
+            view={(view === 'sessions' || view === 'favorites' || view === 'excluded') ? view : 'sessions'}
             sessions={sessions}
             favorites={favorites}
             excluded={effectiveExcluded}
+            manualExcluded={excluded}
             excludeRules={excludeRules}
             onExcludeRulesChange={setExcludeRules}
             demoMode={demoMode}
@@ -441,9 +531,10 @@ export default function App() {
             onStatus={setStatusMsg}
             onOpenInfo={() => setInfoOpen(true)}
           />
-        )}
-        {view === 'search' && (
+        </ViewSlot>
+        <ViewSlot active={view === 'search'}>
           <SearchView
+            isActive={view === 'search'}
             sessions={sessions}
             favorites={favorites}
             excluded={effectiveExcluded}
@@ -471,13 +562,13 @@ export default function App() {
                 return lastTs < Date.now() - days * 86400000;
               };
               try {
-                const raw = localStorage.getItem('session-filters-v2');
+                const raw = localStorage.getItem('session-filters');
                 const obj = raw ? JSON.parse(raw) : {};
                 const cur = (obj.sessions && typeof obj.sessions === 'object') ? obj.sessions : {};
                 const next = { ...cur, project: '' };
                 if (wouldHideByTime(cur.time)) next.time = 'all';
                 obj.sessions = next;
-                localStorage.setItem('session-filters-v2', JSON.stringify(obj));
+                localStorage.setItem('session-filters', JSON.stringify(obj));
               } catch {}
               window.dispatchEvent(new CustomEvent('history:relaxForTarget', { detail: { lastTs } }));
               setActiveId(id);
@@ -493,10 +584,16 @@ export default function App() {
             onToggleFavorite={toggleFav}
             onStatus={setStatusMsg}
           />
-        )}
-        {view === 'usage' && <UsageView usage={usage} demoMode={demoMode} rlConsent={rlConsent} rateLimits={rateLimitsState} onOpenRlPrompt={() => setRlPromptOpen(true)} onRefreshRateLimits={refreshRateLimits} loading={loading} />}
-        {view === 'config' && <ConfigView demoMode={demoMode} onStatus={setStatusMsg} />}
-        {view === 'settings' && <SettingsView themeMode={themeMode} resolvedTheme={theme} onThemeChange={setThemeMode} onReload={reload} demoMode={demoMode} onDemoModeChange={setDemoMode} rlConsent={rlConsent} onRlConsentChange={setRlConsent} />}
+        </ViewSlot>
+        <ViewSlot active={view === 'usage'}>
+          <UsageView usage={usage} demoMode={demoMode} rlConsent={rlConsent} rateLimits={rateLimitsState} onOpenRlPrompt={() => setRlPromptOpen(true)} onRefreshRateLimits={refreshRateLimits} loading={loading} />
+        </ViewSlot>
+        <ViewSlot active={view === 'config'}>
+          <ConfigView demoMode={demoMode} onStatus={setStatusMsg} refreshTick={refreshTick} />
+        </ViewSlot>
+        <ViewSlot active={view === 'settings'}>
+          <SettingsView themeMode={themeMode} resolvedTheme={theme} onThemeChange={setThemeMode} demoMode={demoMode} onDemoModeChange={setDemoMode} rlConsent={rlConsent} onRlConsentChange={setRlConsent} />
+        </ViewSlot>
       </div>
 
       <AccountModal

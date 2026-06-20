@@ -1,6 +1,5 @@
-import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Sun, Moon, Monitor, Settings as Gear, Check, RefreshCw, FolderOpen, FlaskConical, Activity, Terminal as TerminalIcon, ChevronDown } from 'lucide-react';
+import { Sun, Moon, Monitor, Settings as Gear, Check, FolderOpen, FlaskConical, Activity, Terminal as TerminalIcon, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useDisplayPrefs } from '../lib/displayPrefs';
 import type { ThemeMode } from '../App';
@@ -16,16 +15,14 @@ type Props = {
   themeMode: ThemeMode;
   resolvedTheme: 'light' | 'dark';
   onThemeChange: (m: ThemeMode) => void;
-  onReload: () => void;
   demoMode: boolean;
   onDemoModeChange: (v: boolean) => void;
   rlConsent: 'pending' | 'granted' | 'denied';
   onRlConsentChange: (v: 'pending' | 'granted' | 'denied') => void;
 };
 
-export function SettingsView({ themeMode, resolvedTheme, onThemeChange, onReload, demoMode, onDemoModeChange, rlConsent, onRlConsentChange }: Props) {
+export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode, onDemoModeChange, rlConsent, onRlConsentChange }: Props) {
   const [prefs, setPrefs] = useDisplayPrefs();
-  const [reloading, setReloading] = useState(false);
   const { t, locale, setLocale } = useTranslation();
   const [source] = useCurrentSource();
   const sourceDef = getSource(source);
@@ -164,18 +161,11 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, onReload
           </Row>
         </Section>
 
-        {/* Advanced — diagnostics + power-user toggles */}
+        {/* Advanced — local folders + power-user toggles. Order: AI tool's
+            data dir first (source-aware), then Lens's own user-data dir, then
+            the debug log dir. Diagnostics-only rows live after the everyday
+            ones; Demo mode (dev-only) anchors the bottom. */}
         <Section title={t('settings.section.advanced')}>
-          <Row label={t('settings.rescan')} hint={t('settings.rescan.hint')}>
-            <button
-              onClick={async () => { setReloading(true); try { await Promise.resolve(onReload()); } finally { setTimeout(() => setReloading(false), 600); } }}
-              disabled={reloading}
-              className="px-3 py-1.5 bg-bg border border-border-soft rounded-md text-[12px] hover:bg-muted flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {reloading ? <Check className="w-3 h-3 text-emerald-500" /> : <RefreshCw className="w-3 h-3" />}
-              {reloading ? t('settings.rescanned') : t('settings.rescan.btn')}
-            </button>
-          </Row>
           {/* Source-aware: button label / path follow the active AI tool, so
              switching to Codex flips this to "Open ~/.codex/sessions". */}
           <Row
@@ -188,6 +178,15 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, onReload
             >
               <FolderOpen className="w-3 h-3" />
               {t('settings.openClaude.btn')}
+            </button>
+          </Row>
+          <Row label={t('settings.appData')} hint={t('settings.appData.hint')}>
+            <button
+              onClick={() => window.api.openUserDataFolder?.().catch(() => {})}
+              className="px-3 py-1.5 bg-bg border border-border-soft rounded-md text-[12px] hover:bg-muted flex items-center gap-1.5"
+            >
+              <FolderOpen className="w-3 h-3" />
+              {t('settings.appData.btn')}
             </button>
           </Row>
           <Row label={t('settings.logs')} hint={t('settings.logs.hint')}>

@@ -2,16 +2,29 @@ import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { SessionList } from './SessionList';
 import { SessionDetail } from './SessionDetail';
 import { Resizer } from './Resizer';
-import { sessionTimestamp } from '../lib/format';
+import { sessionTimestamp, visibleMessageCount } from '../lib/format';
 import { DEMO_MESSAGES } from '../lib/demoData';
 import { useCurrentSource, srcKey } from '../lib/sources';
+import { useTranslation } from '../lib/I18nProvider';
 import type { MessageItem, SessionMeta, UsageSummary, View } from '../types';
+
+// SessionsView (History / Favorites / Excluded) does only a lightweight
+// metadata-driven filter on the search input. Deep full-text search lives in
+// the dedicated Search view (⌘K) — running it from a history pane would let
+// the row list silently exclude sessions the user can see in the list, which
+// reads as "history is broken" rather than "search ran over JSONL content".
 
 type Props = {
   view: View;
   sessions: SessionMeta[];
   favorites: Set<string>;
+  // `excluded` is the EFFECTIVE set — manual excludes + rule-derived ones.
+  // It drives row visibility / list inclusion. `manualExcluded` is the raw
+  // user-toggled set; only it can be flipped by the per-row Restore action.
+  // Rule-only hits show a "Hidden by rule" state instead of a Restore link
+  // because toggling the manual exclude wouldn't unhide them anyway.
   excluded: Set<string>;
+  manualExcluded: Set<string>;
   excludeRules: string[];
   onExcludeRulesChange: (next: string[]) => void;
   demoMode: boolean;
@@ -35,13 +48,11 @@ export type Filters = {
 // Filters are stored per-view so a project pick in Favorites isn't wiped when
 // the user jumps Search → History (App dispatches `history:relaxFilters` to
 // make the chosen row visible, but that should only affect History's filter,
-// not Favorites' or Excluded's). Legacy v1 storage was a single blob; we
-// migrate it onto the History view and keep the other views fresh.
+// not Favorites' or Excluded's).
 type ViewKey = 'sessions' | 'favorites' | 'excluded';
 type FiltersByView = Record<ViewKey, Filters>;
 
-const FILTERS_STORAGE = 'session-filters-v2';
-const LEGACY_FILTERS_STORAGE = 'session-filters-v1';
+const FILTERS_STORAGE = 'session-filters';
 const DEFAULT_FILTERS: Filters = { query: '', project: '', time: '7', sort: 'recent' };
 const VIEW_KEYS: ViewKey[] = ['sessions', 'favorites', 'excluded'];
 
@@ -61,16 +72,6 @@ function loadFiltersByView(): FiltersByView {
             blank[v] = { ...DEFAULT_FILTERS, ...obj[v], query: '' };
           }
         }
-        return blank;
-      }
-    }
-    // Legacy single-blob → seed History only; Favorites/Excluded start fresh
-    // so the user's older "show me X" choice doesn't leak across views.
-    const legacy = localStorage.getItem(LEGACY_FILTERS_STORAGE);
-    if (legacy) {
-      const obj = JSON.parse(legacy);
-      if (obj && typeof obj === 'object') {
-        blank.sessions = { ...DEFAULT_FILTERS, ...obj, query: '' };
       }
     }
   } catch {}
@@ -81,9 +82,25 @@ function asViewKey(v: string): ViewKey {
   return v === 'favorites' || v === 'excluded' ? v : 'sessions';
 }
 
-export function SessionsView({ view, sessions, favorites, excluded, excludeRules, onExcludeRulesChange, demoMode, loading, activeId, onActiveIdChange, onToggleFavorite, onToggleExclude, onStatus, onOpenInfo }: Props) {
+export function SessionsView({ view, sessions, favorites, excluded, manualExcluded, excludeRules, onExcludeRulesChange, demoMode, loading, activeId, onActiveIdChange, onToggleFavorite, onToggleExclude, onStatus, onOpenInfo }: Props) {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<MessageItem[] | null>(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  // Big-session confirmation. Detail-view loads slurp the full JSONL into
+  // memory (the IPC returns one MessageItem[] for the renderer to keep
+  // around), so a 263MB session can pin hundreds of MB until the user
+  // navigates away. We pause auto-load above this size and ask the user
+  // to opt in via SessionDetail's overlay. `largeConfirmedKey` stores the
+  // composite key the user already opted-in for so revisiting the same
+  // session in the same window doesn't re-prompt.
+  const LARGE_SESSION_THRESHOLD = 50 * 1024 * 1024; // 50 MB
+  const [largeConfirmedKey, setLargeConfirmedKey] = useState<string | null>(null);
+  const [pendingLargeKey, setPendingLargeKey] = useState<string | null>(null);
+  // Set true while a refresh refetch is in-flight (different from initial
+  // load — we don't clear `messages` for refresh, so loadingMessages stays
+  // false). SessionDetail uses this to drive the spinner / done-check on
+  // the toolbar refresh button.
+  const [refreshingMessages, setRefreshingMessages] = useState(false);
   // Bumped by SessionDetail's refresh button so the message-loading effect
   // re-runs (active session id hasn't changed → we need an explicit signal).
   const [messageRefreshTick, setMessageRefreshTick] = useState(0);
@@ -97,29 +114,27 @@ export function SessionsView({ view, sessions, favorites, excluded, excludeRules
       return { ...prev, [viewKey]: updated };
     });
   }, [viewKey]);
-  const [deepHits, setDeepHits] = useState<Map<string, { snippet: string; matchCount: number }> | null>(null);
-  const [deepSearchLoading, setDeepSearchLoading] = useState(false);
   const activeReqRef = useRef<string | null>(null);
-  // Monotonic counter + latest-query ref for deep-search stale guarding.
-  // Comparing against the closure's `filters.query` would let a slow search
-  // resolve after the user edited the input — using a ref ensures we always
-  // compare to the live value.
-  const deepSeqRef = useRef(0);
-  const latestDeepQueryRef = useRef('');
+  // Tracks the last session+filePath actually loaded into the detail pane so
+  // we can tell a refresh tick apart from a real session switch. When they
+  // match we don't clear `messages` — the refetch lands silently and
+  // SessionDetail folds new turns in without snapping the scroll position.
+  const lastReqKeyRef = useRef<string | null>(null);
+  // Mirrors `messageRefreshTick` so a re-fired effect can tell whether the
+  // user actually hit the Refresh button (tick incremented) vs. the effect
+  // running twice for unrelated reasons (React 18 StrictMode double-mount
+  // in dev, fast-refresh after edits, etc.). Without this, StrictMode's
+  // second pass on a fresh session mount sees `lastReqKeyRef.current ===
+  // reqKey` and silently flips the toolbar into the spinning "refreshing"
+  // state for no real refresh.
+  const lastRefreshTickRef = useRef<number>(0);
   const [currentSource] = useCurrentSource();
-  // Mirror currentSource into a ref so the stale guard inside an async deep
-  // search compares against the LATEST source rather than the closure capture.
-  // Without this a fast Claude → Codex flip can let a Claude search resolve
-  // and overwrite Codex's deepHits because closure `currentSource` still
-  // reads "claude" inside the .then.
-  const currentSourceRef = useRef(currentSource);
-  useEffect(() => { currentSourceRef.current = currentSource; }, [currentSource]);
 
   // Source-scoped state: when the user flips Claude ↔ Codex the per-source
-  // session set changes wholesale, so any project filter / deep-search hits
-  // from the old source are guaranteed stale. Clear them so the new source
-  // starts with a clean filter rather than carrying over an irrelevant
-  // projectDir that ends up with zero matches.
+  // session set changes wholesale, so any project filter from the old source
+  // is guaranteed stale. Clear so the new source starts with a clean filter
+  // rather than carrying over an irrelevant projectDir that ends up with
+  // zero matches.
   useEffect(() => {
     setFiltersByView(prev => {
       const next: FiltersByView = { ...prev };
@@ -132,7 +147,6 @@ export function SessionsView({ view, sessions, favorites, excluded, excludeRules
       }
       return changed ? next : prev;
     });
-    setDeepHits(null);
   }, [currentSource]);
 
   useEffect(() => {
@@ -203,16 +217,15 @@ export function SessionsView({ view, sessions, favorites, excluded, excludeRules
       arr = arr.filter(s => sessionTimestamp(s) >= cutoff);
     }
     const q = filters.query.trim().toLowerCase();
-    if (q && !deepHits) {
+    if (q) {
       arr = arr.filter(s => {
         const hay = [s.alias, s.summary, s.firstUser, s.decodedCwd, s.gitBranch, s.projectDir, s.id]
           .filter(Boolean).join(' ').toLowerCase();
         return hay.includes(q);
       });
     }
-    if (deepHits) arr = arr.filter(s => deepHits.has(`${s.source}:${s.id}`));
     return arr;
-  }, [sessions, view, favorites, excluded, filters.time, filters.query, deepHits]);
+  }, [sessions, view, favorites, excluded, filters.time, filters.query]);
 
   const filtered = useMemo(() => {
     let arr = filters.project
@@ -222,21 +235,30 @@ export function SessionsView({ view, sessions, favorites, excluded, excludeRules
     switch (filters.sort) {
       case 'oldest': arr.sort((a, b) => sessionTimestamp(a) - sessionTimestamp(b)); break;
       case 'largest': arr.sort((a, b) => (b.fileSize || 0) - (a.fileSize || 0)); break;
-      case 'messages': arr.sort((a, b) => ((b.userMsgs || 0) + (b.assistantMsgs || 0)) - ((a.userMsgs || 0) + (a.assistantMsgs || 0))); break;
+      case 'messages': arr.sort((a, b) => visibleMessageCount(b) - visibleMessageCount(a)); break;
       case 'tokens': arr.sort((a, b) => totalTokens(b) - totalTokens(a)); break;
       default:
-        if (deepHits) arr.sort((a, b) => (deepHits.get(`${b.source}:${b.id}`)?.matchCount || 0) - (deepHits.get(`${a.source}:${a.id}`)?.matchCount || 0));
-        else arr.sort((a, b) => sessionTimestamp(b) - sessionTimestamp(a));
+        arr.sort((a, b) => sessionTimestamp(b) - sessionTimestamp(a));
     }
     return arr;
-  }, [preProjectFiltered, filters.project, filters.sort, deepHits]);
+  }, [preProjectFiltered, filters.project, filters.sort]);
 
   const activeSession = useMemo(() => sessions.find(s => srcKey(s) === activeId) || null, [sessions, activeId]);
 
   useEffect(() => {
-    if (!activeSession) { setMessages(null); return; }
-    setMessages(null);
-    setLoadingMessages(true);
+    if (!activeSession) {
+      // Always reset BOTH messages and the loading/refresh flags here. A
+      // previous run may have set loadingMessages=true before activeSession
+      // flipped to null (e.g. Search → History where the inView guard fires
+      // momentarily); without the reset the detail pane stays stuck on the
+      // "Loading messages…" placeholder forever.
+      setMessages(null);
+      setLoadingMessages(false);
+      setRefreshingMessages(false);
+      lastReqKeyRef.current = null;
+      activeReqRef.current = null;
+      return;
+    }
     // Key the in-flight token by source+id, not bare id. Two sessions with the
     // same UUID across Claude and Codex would otherwise share a token — the
     // earlier source's getSession could resolve after the user flipped source
@@ -245,11 +267,43 @@ export function SessionsView({ view, sessions, favorites, excluded, excludeRules
     // different on-disk locations (rare but possible after a rename / cache
     // resurrection) don't read each other's messages.
     const reqKey = srcKey(activeSession) + '@' + (activeSession.filePath || '');
+    // Refresh = same session AND user actually bumped `messageRefreshTick`.
+    // Checking the tick (not just the key) blocks StrictMode's dev-mode
+    // double-mount and any other re-fire that re-runs the effect for the
+    // same session without the user pressing Refresh.
+    const tickChanged = lastRefreshTickRef.current !== messageRefreshTick;
+    const isRefresh = lastReqKeyRef.current === reqKey && tickChanged;
+    lastReqKeyRef.current = reqKey;
+    lastRefreshTickRef.current = messageRefreshTick;
     activeReqRef.current = reqKey;
+    // Big-session gate: when the JSONL is over the threshold and the user
+    // hasn't already confirmed for this session, surface the confirm
+    // overlay in SessionDetail and bail before the IPC slurps the file.
+    // Refresh skips the gate — if the user already loaded once and is
+    // hitting refresh, they've already accepted the cost.
+    const tooBig = !isRefresh
+      && !demoMode
+      && (activeSession.fileSize || 0) > LARGE_SESSION_THRESHOLD
+      && largeConfirmedKey !== reqKey;
+    if (tooBig) {
+      setMessages(null);
+      setLoadingMessages(false);
+      setRefreshingMessages(false);
+      setPendingLargeKey(reqKey);
+      return;
+    }
+    setPendingLargeKey(null);
+    if (!isRefresh) {
+      setMessages(null);
+      setLoadingMessages(true);
+    } else {
+      setRefreshingMessages(true);
+    }
     if (demoMode) {
       const demo = DEMO_MESSAGES[activeSession.id] || [];
       setMessages(demo);
       setLoadingMessages(false);
+      setRefreshingMessages(false);
       return;
     }
     // cancelled flag so the cleanup (view switch / unmount / session change)
@@ -260,11 +314,16 @@ export function SessionsView({ view, sessions, favorites, excluded, excludeRules
     window.api.getSession(activeSession.filePath).then(msgs => {
       if (cancelled || activeReqRef.current !== reqKey) return;
       setMessages(msgs);
+      // Always clear BOTH spinners on a settled fetch — a previous run may
+      // have left loadingMessages=true if a non-refresh run was superseded
+      // by a refresh-typed re-run before the original fetch settled.
       setLoadingMessages(false);
+      setRefreshingMessages(false);
     }).catch(e => {
       if (cancelled || activeReqRef.current !== reqKey) return;
-      onStatus('Load error: ' + e.message);
+      onStatus(t('status.loadError', { error: e.message }));
       setLoadingMessages(false);
+      setRefreshingMessages(false);
     });
     return () => { cancelled = true; };
     // Depend on identity-stable primitives (id + filePath) not the activeSession
@@ -275,43 +334,7 @@ export function SessionsView({ view, sessions, favorites, excluded, excludeRules
     // messageRefreshTick is in deps so the explicit Refresh button in
     // SessionDetail re-runs this effect without touching the session id.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSession?.id, activeSession?.filePath, demoMode, onStatus, messageRefreshTick]);
-
-  const runDeepSearch = async () => {
-    if (deepSearchLoading) return;  // ignore re-trigger while in flight
-    const q = filters.query.trim();
-    if (q.length < 2) { onStatus('Type at least 2 chars'); setTimeout(() => onStatus(''), 2000); return; }
-    // Stale guard: tag the request by source + query + seq. If anything
-    // changes by the time the IPC lands, drop the result so a slow search
-    // doesn't paint hits from a query/source the user has already moved off.
-    const reqSeq = ++deepSeqRef.current;
-    const reqSource = currentSource;
-    latestDeepQueryRef.current = q;
-    setDeepSearchLoading(true);
-    onStatus(`Deep-searching "${q}"…`);
-    try {
-      const hits = await window.api.deepSearch(q, reqSource);
-      if (reqSeq !== deepSeqRef.current || reqSource !== currentSourceRef.current || q !== latestDeepQueryRef.current) return;
-      // Key by `source:id` so a Codex session can't collide with a Claude one
-      // that happens to share the same UUID prefix in some edge case.
-      setDeepHits(new Map(hits.map(h => [`${h.source}:${h.id}`, { snippet: h.snippet, matchCount: h.matchCount }])));
-      onStatus(`Deep search: ${hits.length} matched`);
-      setTimeout(() => onStatus(''), 2500);
-    } catch (e: any) {
-      if (reqSeq !== deepSeqRef.current) return;
-      onStatus('Error: ' + e.message);
-    } finally {
-      if (reqSeq === deepSeqRef.current) setDeepSearchLoading(false);
-    }
-  };
-
-  const clearDeep = () => {
-    // Bump seq + drop latest-query so a still-pending deep search can't
-    // re-populate the hits we just cleared.
-    ++deepSeqRef.current;
-    latestDeepQueryRef.current = '';
-    setDeepHits(null);
-  };
+  }, [activeSession?.id, activeSession?.filePath, demoMode, onStatus, messageRefreshTick, largeConfirmedKey, LARGE_SESSION_THRESHOLD]);
 
   return (
     <>
@@ -320,19 +343,16 @@ export function SessionsView({ view, sessions, favorites, excluded, excludeRules
         projectChoices={preProjectFiltered}
         favorites={favorites}
         excluded={excluded}
+        manualExcluded={manualExcluded}
         excludeRules={excludeRules}
         onExcludeRulesChange={onExcludeRulesChange}
         activeId={activeId}
-        deepHits={deepHits}
         filters={filters}
         sessions={sessions}
         onSelect={onActiveIdChange}
         onFilters={setFilters}
         onToggleFavorite={onToggleFavorite}
         onToggleExclude={onToggleExclude}
-        onDeepSearch={runDeepSearch}
-        onClearDeep={clearDeep}
-        deepSearchLoading={deepSearchLoading}
         loading={loading}
         onStatus={onStatus}
         view={view as 'sessions' | 'favorites' | 'excluded'}
@@ -342,6 +362,7 @@ export function SessionsView({ view, sessions, favorites, excluded, excludeRules
         session={activeSession}
         messages={messages}
         loading={loadingMessages}
+        refreshing={refreshingMessages}
         favorites={favorites}
         excluded={excluded}
         query={filters.query}
@@ -350,6 +371,17 @@ export function SessionsView({ view, sessions, favorites, excluded, excludeRules
         onStatus={onStatus}
         onOpenInfo={onOpenInfo}
         onRefreshMessages={() => setMessageRefreshTick(t => t + 1)}
+        // Big-session opt-in: when the active session is over
+        // LARGE_SESSION_THRESHOLD and not yet confirmed for this session,
+        // SessionDetail renders a confirm overlay instead of auto-loading.
+        // Clicking the overlay's "Load" button bumps `largeConfirmedKey`,
+        // which re-fires the fetch effect and starts the IPC.
+        pendingLargeLoad={
+          pendingLargeKey && activeSession
+            && pendingLargeKey === srcKey(activeSession) + '@' + (activeSession.filePath || '')
+            ? { sizeBytes: activeSession.fileSize || 0, onConfirm: () => setLargeConfirmedKey(pendingLargeKey) }
+            : null
+        }
       />
     </>
   );

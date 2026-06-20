@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '../lib/utils';
-import { cleanDisplayText, fmtTime, fmtTokens, kbdShortcut, projectColor, projectInitial, projectTextColor, sessionTimestamp } from '../lib/format';
+import { cleanDisplayText, fmtTime, fmtTokens, kbdShortcut, projectColor, projectInitial, projectTextColor, sessionTimestamp, visibleMessageCount } from '../lib/format';
 import { deriveDisplayTitle, projectShortName, meaningfulBranch } from '../lib/sessionTitle';
 import { groupSessions, type GroupKey } from '../lib/timelineGroup';
 import { matchesExcludeRule } from '../lib/excludeRules';
@@ -23,20 +23,22 @@ type Props = {
   projectChoices: SessionMeta[];
   sessions: SessionMeta[];
   favorites: Set<string>;
+  // `excluded` is the effective set (manual + rule); `manualExcluded` is the
+  // user-toggleable raw one. We need both because the per-row Restore action
+  // only flips the manual flag — for a rule-matched row, calling toggle would
+  // either silently add a manual entry (without restoring) or remove one that
+  // wasn't there. Splitting lets the menu show "Hidden by rule" instead.
   excluded: Set<string>;
+  manualExcluded: Set<string>;
   excludeRules: string[];
   onExcludeRulesChange: (next: string[]) => void;
   activeId: string | null;
-  deepHits: Map<string, { snippet: string; matchCount: number }> | null;
   filters: Filters;
   view: 'sessions' | 'favorites' | 'excluded';
   onSelect: (id: string) => void;
   onFilters: (f: Filters) => void;
   onToggleFavorite: (id: string) => void;
   onToggleExclude: (id: string) => void;
-  onDeepSearch: () => void;
-  onClearDeep: () => void;
-  deepSearchLoading: boolean;
   loading?: boolean;
   onStatus: (msg: string) => void;
 };
@@ -54,7 +56,7 @@ const SORT_OPTIONS: Array<{ value: Filters['sort']; labelKey: TKey }> = [
   { value: 'messages', labelKey: 'list.sortMessages' },
 ];
 
-export function SessionList({ items, projectChoices, sessions, favorites, excluded, excludeRules, onExcludeRulesChange, activeId, deepHits, filters, view, onSelect, onFilters, onToggleFavorite, onToggleExclude, onDeepSearch, onClearDeep, deepSearchLoading, loading = false, onStatus }: Props) {
+export function SessionList({ items, projectChoices, sessions, favorites, excluded, manualExcluded, excludeRules, onExcludeRulesChange, activeId, filters, view, onSelect, onFilters, onToggleFavorite, onToggleExclude, loading = false, onStatus }: Props) {
   const { t } = useTranslation();
   // Build the project dropdown from `projectChoices` — the same slice as
   // `items` but BEFORE the project filter applies. Using `items` collapses the
@@ -70,7 +72,7 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
     return [...m.entries()].sort((a, b) => b[1].count - a[1].count);
   }, [projectChoices]);
 
-  const showGroups = filters.sort === 'recent' && !deepHits;
+  const showGroups = filters.sort === 'recent';
   const groups = useMemo(
     () => showGroups ? groupSessions(items) : [{ key: null as unknown as GroupKey, items }],
     [items, showGroups]
@@ -86,28 +88,27 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
         <ExcludeRulesBar rules={excludeRules} onChange={onExcludeRulesChange} allSessions={sessions} />
       )}
 
-      {/* Top toolbar */}
+      {/* Top toolbar — input is metadata-only filter over the visible list.
+          Full-text deep search across JSONL content lives in the dedicated
+          Search view (⌘K); running it from a history pane silently hid rows
+          users could still see in the list and looked like a bug. */}
       <div className="px-4 pt-3 pb-2">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" />
           <input
-            id="search-input"
+            id="history-search-input"
             type="search"
             value={filters.query}
-            onChange={e => {
-              onFilters({ ...filters, query: e.target.value });
-              if (!e.target.value.trim() && deepHits) onClearDeep();
-            }}
+            onChange={e => onFilters({ ...filters, query: e.target.value })}
             onKeyDown={e => {
-              if (e.key === 'Enter') onDeepSearch();
-              if (e.key === 'Escape') { onFilters({ ...filters, query: '' }); onClearDeep(); }
+              if (e.key === 'Escape') onFilters({ ...filters, query: '' });
             }}
             placeholder={t('list.searchPlaceholder')}
             className="w-full pl-9 pr-20 h-10 bg-surface border border-border-soft rounded-[11px] text-[13px] outline-none focus:border-accent focus:ring-1 focus:ring-accent placeholder:text-text-muted"
           />
           {filters.query ? (
             <button
-              onClick={() => { onFilters({ ...filters, query: '' }); onClearDeep(); }}
+              onClick={() => onFilters({ ...filters, query: '' })}
               title={t('common.clear')}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md hover:bg-muted text-text-muted hover:text-text flex items-center justify-center"
             >
@@ -132,7 +133,7 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
           >
             <option value="">{t('list.project.all')}</option>
             {projects.map(([dir, info]) => (
-              <option key={dir} value={dir}>{projectShortName(info.cwd) || info.cwd} ({info.count})</option>
+              <option key={dir} value={dir}>{projectShortName(info.cwd) || cleanDisplayText(info.cwd)} ({info.count})</option>
             ))}
           </select>
 
@@ -169,28 +170,14 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
           </span>
         </div>
 
-        {(deepHits || filters.query.length >= 2) && (
-          <div className="mt-2 text-right">
-            {deepHits ? (
-              <button onClick={onClearDeep} className="text-[11px] text-accent flex items-center gap-1 hover:underline ml-auto inline-flex">
-                <X className="w-3 h-3" /> {t('list.clearDeep')}
-              </button>
-            ) : deepSearchLoading ? (
-              <span className="text-[11px] text-accent flex items-center gap-1.5 ml-auto inline-flex">
-                <span className="inline-block w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                Searching every JSONL…
-              </span>
-            ) : (
-              <button onClick={onDeepSearch} disabled={deepSearchLoading} className="text-[11px] text-accent hover:underline font-medium disabled:opacity-50 disabled:cursor-wait">
-                {t('list.deepCta')}
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
-      {/* List — virtualized so 670+ sessions don't blow up the DOM. */}
+      {/* List — virtualized so 670+ sessions don't blow up the DOM.
+          Keyed by view so History / Favorites / Excluded each get their own
+          virtualizer instance — switching views shouldn't preserve scroll
+          offset across lists that differ in length and contents. */}
       <VirtualList
+        key={view}
         groups={groups}
         items={items}
         view={view}
@@ -200,7 +187,7 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
         activeId={activeId}
         favorites={favorites}
         excluded={excluded}
-        deepHits={deepHits}
+        manualExcluded={manualExcluded}
         onSelect={onSelect}
         onToggleFavorite={onToggleFavorite}
         onToggleExclude={onToggleExclude}
@@ -246,7 +233,7 @@ type Row =
   | { kind: 'item'; session: SessionMeta; isFirst: boolean; isLast: boolean; height: number };
 
 function VirtualList({
-  groups, items, view, query, activeId, favorites, excluded, deepHits,
+  groups, items, view, query, activeId, favorites, excluded, manualExcluded,
   loading, sessions,
   onSelect, onToggleFavorite, onToggleExclude, onStatus, onPickSuggestion,
 }: {
@@ -259,7 +246,7 @@ function VirtualList({
   activeId: string | null;
   favorites: Set<string>;
   excluded: Set<string>;
-  deepHits: Map<string, { snippet: string; matchCount: number }> | null;
+  manualExcluded: Set<string>;
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onToggleExclude: (id: string) => void;
@@ -276,16 +263,15 @@ function VirtualList({
     for (const g of groups) {
       if (g.key) r.push({ kind: 'header', key: g.key, height: 38 });
       g.items.forEach((s, idx) => {
-        const hasDeepHit = deepHits?.has(`${s.source}:${s.id}`);
         const hasAlias = !!s.alias;
-        // Deep-hit rows have an extra snippet line; aliased rows surface the
-        // original title underneath. Both bump the estimate to avoid layout shift.
-        const base = 80 + (hasAlias ? 16 : 0) + (hasDeepHit ? 32 : 0);
+        // Aliased rows surface the original title underneath; bump the
+        // estimate so the virtualizer doesn't visibly resnap on first paint.
+        const base = 80 + (hasAlias ? 16 : 0);
         r.push({ kind: 'item', session: s, isFirst: idx === 0, isLast: idx === g.items.length - 1, height: base });
       });
     }
     return r;
-  }, [groups, deepHits]);
+  }, [groups]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -369,7 +355,7 @@ function VirtualList({
                   active={srcKey(row.session) === activeId}
                   isFav={favorites.has(srcKey(row.session))}
                   isEx={excluded.has(srcKey(row.session))}
-                  deepHit={deepHits?.get(srcKey(row.session)) ?? undefined}
+                  isManualEx={manualExcluded.has(srcKey(row.session))}
                   onSelect={() => onSelect(srcKey(row.session))}
                   onToggleFav={() => onToggleFavorite(row.session.id)}
                   onToggleEx={() => onToggleExclude(row.session.id)}
@@ -392,7 +378,11 @@ type ItemProps = {
   active: boolean;
   isFav: boolean;
   isEx: boolean;
-  deepHit?: { snippet: string; matchCount: number };
+  // `isManualEx`: this row is in the manual exclude set (i.e. the user
+  // right-clicked → Exclude). The context-menu Restore action only toggles
+  // this. A row with isEx=true but isManualEx=false is hidden purely by a
+  // rule; restoring it requires editing the rules.
+  isManualEx: boolean;
   query: string;
   onSelect: () => void;
   onToggleFav: () => void;
@@ -402,7 +392,7 @@ type ItemProps = {
   isLast: boolean;
 };
 
-function SessionListItem({ s, active, isFav, isEx, deepHit, query, onSelect, onToggleFav, onToggleEx, onStatus, isFirst, isLast }: ItemProps) {
+function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, onToggleFav, onToggleEx, onStatus, isFirst, isLast }: ItemProps) {
   const { t } = useTranslation();
   const caps = useSystemCapabilities();
   const [prefs] = useDisplayPrefs();
@@ -420,25 +410,25 @@ function SessionListItem({ s, active, isFav, isEx, deepHit, query, onSelect, onT
   const cleanedAlias = cleanDisplayText(s.alias);
   const cleanedSummary = cleanDisplayText(s.summary);
   const cleanedFirstUser = cleanDisplayText(s.firstUser);
-  const rawTitle = cleanedAlias || cleanedSummary || cleanedFirstUser || '(no human message)';
+  const rawTitle = cleanedAlias || cleanedSummary || cleanedFirstUser || t('list.noHumanMessage');
   const title = cleanedAlias
     ? { primary: cleanedAlias, sub: undefined as string | undefined, isSmart: false }
     : deriveDisplayTitle(rawTitle);
   const tokens = (s.tokensIn || 0) + (s.tokensOut || 0) + (s.tokensCacheRead || 0) + (s.tokensCacheCreate || 0);
-  const msgs = (s.userMsgs || 0) + (s.assistantMsgs || 0);
+  const msgs = visibleMessageCount(s);
   const projName = projectShortName(s.projectCwd || s.decodedCwd);
   const branch = meaningfulBranch(s.gitBranch);
 
   const handleCopy = async () => {
-    const cmd = await window.api.copyResumeCommand(s.projectCwd || s.decodedCwd, s.id, s.filePath, s.source);
-    onStatus('Copied: ' + cmd);
+    const cmd = await window.api.copyResumeCommand(s.id, s.filePath, s.source);
+    onStatus(t('status.copied', { cmd }));
     setTimeout(() => onStatus(''), 2500);
   };
   const handleResume = async () => {
     const fn = useITerm ? window.api.openInITerm : window.api.openInTerminal;
     const label = useITerm ? 'iTerm' : 'Terminal';
-    try { await fn(s.projectCwd || s.decodedCwd, s.id, s.filePath, s.source); onStatus('Opened in ' + label); setTimeout(() => onStatus(''), 2500); }
-    catch (e: any) { onStatus('Error: ' + e.message); }
+    try { await fn(s.id, s.filePath, s.source); onStatus(t('status.openedIn', { target: label })); setTimeout(() => onStatus(''), 2500); }
+    catch (e: any) { onStatus(t('status.error', { error: e.message })); }
   };
 
   return (
@@ -473,8 +463,8 @@ function SessionListItem({ s, active, isFav, isEx, deepHit, query, onSelect, onT
             {isFav && <Star className="w-4 h-4 fill-amber-400 text-amber-400 flex-shrink-0" />}
             {s.alias && <Pencil className={cn('w-3 h-3 flex-shrink-0', active ? 'text-accent/70' : 'text-text-muted')} />}
             {s.tooLarge && (
-              <span className="text-[9.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 flex-shrink-0" title="Session file exceeds the size cap and cannot be opened.">
-                Too large
+              <span className="text-[9.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 flex-shrink-0" title={t('list.tooLarge.tooltip')}>
+                {t('list.tooLarge')}
               </span>
             )}
             <h3 className={cn('text-[14px] font-semibold truncate leading-snug flex-1 min-w-0', active ? 'text-accent' : 'text-text')}>
@@ -487,7 +477,7 @@ function SessionListItem({ s, active, isFav, isEx, deepHit, query, onSelect, onT
 
           {/* Aliased rows: surface the auto-derived original so users still see what the session originally was. */}
           {s.alias && (
-            <div className={cn('text-[11px] italic truncate min-w-0', active ? 'text-accent/60' : 'text-text-muted')} title={`Original: ${deriveDisplayTitle(s.summary || s.firstUser || '').primary}`}>
+            <div className={cn('text-[11px] italic truncate min-w-0', active ? 'text-accent/60' : 'text-text-muted')} title={t('list.aliasedOriginal', { title: deriveDisplayTitle(s.summary || s.firstUser || '').primary })}>
               {deriveDisplayTitle(s.summary || s.firstUser || '').primary}
             </div>
           )}
@@ -532,11 +522,6 @@ function SessionListItem({ s, active, isFav, isEx, deepHit, query, onSelect, onT
             )}
           </div>
 
-          {deepHit && (
-            <div className="text-[10.5px] text-text-dim bg-muted/60 px-2 py-1 rounded mt-1.5 line-clamp-1 border-l-2 border-accent">
-              {cleanDisplayText(deepHit.snippet)} <em className="text-text-muted">· {deepHit.matchCount}×</em>
-            </div>
-          )}
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
@@ -551,16 +536,35 @@ function SessionListItem({ s, active, isFav, isEx, deepHit, query, onSelect, onT
           <CtxItem onSelect={onToggleFav} icon={isFav ? <StarOff className="w-3.5 h-3.5" /> : <Star className="w-3.5 h-3.5" />}>
             {isFav ? t('ctx.removeFav') : t('ctx.addFav')}
           </CtxItem>
-          <CtxItem onSelect={onToggleEx} icon={<X className="w-3.5 h-3.5" />}>
-            {isEx ? t('ctx.restore') : t('ctx.exclude')}
-          </CtxItem>
+          {/* Three branches: not excluded → Exclude. Manually excluded →
+             Restore (flips the manual set). Rule-excluded only → disabled
+             "Hidden by rule" so the action doesn't silently add a manual
+             entry on top without unhiding the row. */}
+          {!isEx ? (
+            <CtxItem onSelect={onToggleEx} icon={<X className="w-3.5 h-3.5" />}>
+              {t('ctx.exclude')}
+            </CtxItem>
+          ) : isManualEx ? (
+            <CtxItem onSelect={onToggleEx} icon={<X className="w-3.5 h-3.5" />}>
+              {t('ctx.restore')}
+            </CtxItem>
+          ) : (
+            <ContextMenu.Item
+              disabled
+              className="flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-text-muted cursor-not-allowed"
+              title={t('ctx.hiddenByRule.tooltip')}
+            >
+              <Filter className="w-3.5 h-3.5" />
+              <span className="flex-1">{t('ctx.hiddenByRule')}</span>
+            </ContextMenu.Item>
+          )}
         </ContextMenu.Content>
       </ContextMenu.Portal>
       <RenameAliasDialog
         open={renameOpen}
         onOpenChange={setRenameOpen}
         session={s}
-        onSaved={(alias) => { onStatus(alias ? 'Renamed' : 'Alias removed'); setTimeout(() => onStatus(''), 1800); }}
+        onSaved={(alias) => { onStatus(alias ? t('status.renamed') : t('status.aliasRemoved')); setTimeout(() => onStatus(''), 1800); }}
       />
     </ContextMenu.Root>
   );
@@ -577,10 +581,25 @@ function EmptyState({ view, query, onPickSuggestion }: { view: 'sessions' | 'fav
     return { title: t('empty.history.title'), sub: t('empty.history.sub') };
   })();
   const showSuggestions = !query && view === 'sessions';
+  // When the history filter returns zero, surface a one-click jump to the
+  // dedicated Search view with the same query — that's where AI replies / tool
+  // output get grep'd. Without this nudge the user thinks search is broken.
+  const goSearchWithQuery = (q: string) => {
+    window.dispatchEvent(new CustomEvent('nav:contentSearch', { detail: { q } }));
+  };
   return (
     <div className="text-center px-6 py-14 text-text-muted">
       <div className="text-[15px] font-semibold text-text mb-1">{copy.title}</div>
       <div className="text-[12px] mb-5">{copy.sub}</div>
+      {query && (
+        <button
+          onClick={() => goSearchWithQuery(query)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[12px] font-semibold hover:opacity-90 mb-4"
+        >
+          <Search className="w-3 h-3" />
+          {t('empty.search.toSearchView', { q: query })}
+        </button>
+      )}
       {showSuggestions && (
         <>
           <div className="text-[10.5px] uppercase tracking-wider text-text-muted mb-2.5 font-semibold">{t('empty.try')}</div>
@@ -657,7 +676,7 @@ function ExcludeRulesBar({ rules, onChange, allSessions }: { rules: string[]; on
       {rules.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {rules.map(r => (
-            <span key={r} className="inline-flex items-center gap-1.5 pl-2 pr-1 py-0.5 bg-surface border border-border-soft rounded-md text-[11px]" title={`Matches ${ruleCounts.get(r) || 0} session${(ruleCounts.get(r) || 0) !== 1 ? 's' : ''}`}>
+            <span key={r} className="inline-flex items-center gap-1.5 pl-2 pr-1 py-0.5 bg-surface border border-border-soft rounded-md text-[11px]" title={t('exclude.matchesSessions', { n: ruleCounts.get(r) || 0 })}>
               <span className="text-text font-mono">{r}</span>
               <span className="text-text-muted tabular-nums text-[10px]">{ruleCounts.get(r) || 0}</span>
               <button onClick={() => remove(r)} className="text-text-muted hover:text-text rounded p-0.5" aria-label={t('common.remove')}>
@@ -693,7 +712,7 @@ function ExcludeRulesBar({ rules, onChange, allSessions }: { rules: string[]; on
       {/* Live impact preview as user types */}
       {draft.trim() && (
         <div className="text-[10.5px] text-text-muted">
-          Would hide <span className="font-semibold text-text">{draftMatchCount}</span> additional session{draftMatchCount !== 1 ? 's' : ''}
+          {t('exclude.wouldHide', { n: draftMatchCount })}
         </div>
       )}
 
@@ -717,6 +736,7 @@ function ExcludeRulesBar({ rules, onChange, allSessions }: { rules: string[]; on
 }
 
 function ActivityDot({ ts, active }: { ts: number; active: boolean }) {
+  const { t } = useTranslation();
   // ts is already normalised to ms epoch via sessionTimestamp (handles
   // Invalid Date and future clamps centrally). 0 means "no usable timestamp"
   // → Infinity here so the dot reads as "older".
@@ -729,7 +749,12 @@ function ActivityDot({ ts, active }: { ts: number; active: boolean }) {
     : ms < 7 * DAY
     ? 'bg-amber-400'
     : 'bg-text-muted/40';
-  return <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', cls)} title={ms < DAY ? 'Active today' : ms < 7 * DAY ? 'Active this week' : 'Older session'} />;
+  const tooltip = ms < DAY
+    ? t('list.activity.today')
+    : ms < 7 * DAY
+    ? t('list.activity.thisWeek')
+    : t('list.activity.older');
+  return <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', cls)} title={tooltip} />;
 }
 
 function highlight(text: string, query: string) {

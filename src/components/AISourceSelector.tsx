@@ -33,14 +33,6 @@ function SourceBadge({ source, size }: { source: SourceDef; size: number }) {
   );
 }
 
-function BetaChip() {
-  return (
-    <span className="text-[9px] uppercase tracking-[0.06em] font-semibold px-1.5 py-[1px] rounded bg-purple-100/70 text-purple-700/90 dark:bg-purple-900/25 dark:text-purple-300/90">
-      Beta
-    </span>
-  );
-}
-
 export function AISourceSelector({ value, onChange, demoMode = false }: Props) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -95,7 +87,6 @@ export function AISourceSelector({ value, onChange, demoMode = false }: Props) {
       >
         <SourceBadge source={current} size={26} />
         <span className="text-[13.5px] font-semibold text-text flex-1 truncate">{current.label}</span>
-        {current.beta && <BetaChip />}
         <ChevronDown className={cn('w-3.5 h-3.5 text-text-muted transition-transform', open && 'rotate-180')} />
       </button>
 
@@ -118,7 +109,6 @@ export function AISourceSelector({ value, onChange, demoMode = false }: Props) {
               >
                 <SourceBadge source={def} size={26} />
                 <span className="text-[13.5px] font-semibold text-text flex-1 truncate">{def.label}</span>
-                {def.beta && <BetaChip />}
                 {!installed && (
                   <span className="text-[9.5px] uppercase tracking-wider font-semibold text-text-muted">
                     {t('aitool.notInstalled')}

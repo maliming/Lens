@@ -50,7 +50,7 @@ function loadCollapsed(source: SessionSource): Set<string> {
   return new Set();
 }
 
-export function ConfigView({ demoMode = false, onStatus }: { demoMode?: boolean; onStatus?: (msg: string) => void }) {
+export function ConfigView({ demoMode = false, onStatus, refreshTick = 0 }: { demoMode?: boolean; onStatus?: (msg: string) => void; refreshTick?: number }) {
   const { t: tConfigRoot } = useTranslationLocal();
   const [config, setConfig] = useState<ConfigPayload | null>(null);
   const [active, setActive] = useState<string | null>(null);
@@ -73,22 +73,20 @@ export function ConfigView({ demoMode = false, onStatus }: { demoMode?: boolean;
   };
 
   useEffect(() => {
-    setActive(null);
-    // Source change wipes the prior source's filter and collapsed state — they
-    // are conceptually about different resource sets and shouldn't survive a
-    // tool switch.
-    setFilter('');
-    setCollapsed(loadCollapsed(currentSource));
+    // Source-flip side effects (reset selection / filter / collapsed) only
+    // run when the source actually changed — refreshTick re-fires this effect
+    // too (to re-read disk), and clearing the user's filter+collapsed state
+    // on every ⌘R would feel like the workspace nav was "snapping back".
     if (demoMode) {
       setConfig(DEMO_CONFIGS[currentSource]);
       return;
     }
     // Re-fetch when source changes so codex AGENTS.md / skills / rules
-    // replace the claude resources. Stale guard: capture the source we're
-    // fetching and only write the result if it's still the active source by
-    // the time the IPC resolves. A fast Codex → Claude flip otherwise lets
-    // a slow Codex readConfig clobber the Claude payload.
-    setConfig(null);
+    // replace the claude resources. Also re-fetch on refreshTick so ⌘R /
+    // sidebar Rescan picks up edits to CLAUDE.md, new skills, etc. We keep
+    // the previous config visible while the new fetch is in flight — the
+    // refresh case shouldn't blank the pane just because a refetch is
+    // happening.
     let cancelled = false;
     const reqSource = currentSource;
     window.api.readConfig(reqSource)
@@ -100,7 +98,18 @@ export function ConfigView({ demoMode = false, onStatus }: { demoMode?: boolean;
         // hanging on a stale "loading" overlay.
       });
     return () => { cancelled = true; };
-  }, [demoMode, currentSource]);
+  }, [demoMode, currentSource, refreshTick]);
+
+  // Source flip: reset the prior source's selection / filter / collapsed
+  // state — they are conceptually about different resource sets and
+  // shouldn't survive a tool switch. Kept separate from the data-fetch
+  // effect so a refreshTick bump doesn't clear them.
+  useEffect(() => {
+    setActive(null);
+    setFilter('');
+    setCollapsed(loadCollapsed(currentSource));
+    if (!demoMode) setConfig(null);
+  }, [currentSource, demoMode]);
 
   // Memoised so a re-render doesn't allocate a new meta object every time and
   // bust the downstream items useMemo.

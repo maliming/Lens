@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Clock, Star, X, Coins, RefreshCw, Check, Command, Settings as Gear } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { ClaudeIcon } from './ClaudeIcon';
@@ -34,6 +34,10 @@ type Props = {
   profile: Profile;
   onOpenProfile: () => void;
   rateLimits?: RateLimitsState;
+  // True once the user has opted into / Codex-locally-runs the quota probe.
+  // Keeps the quota section mounted (with skeleton bars) during the in-flight
+  // window so it doesn't blink in and out around source flips or refreshes.
+  quotaEnabled?: boolean;
   demoMode?: boolean;
 };
 
@@ -48,7 +52,7 @@ const PRIMARY_NAV: Array<{ id: View | 'search'; labelKey: TKey; icon: any; count
   { id: 'settings', labelKey: 'nav.settings', icon: Gear, countKey: null },
 ];
 
-export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, totalTokens, onReload, profile, onOpenProfile, rateLimits, demoMode = false }: Props) {
+export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, totalTokens, onReload, profile, onOpenProfile, rateLimits, quotaEnabled = false, demoMode = false }: Props) {
   const [source] = useCurrentSource();
   const { auth: realAuth, loading: realLoading, refresh } = useSourceAuth(source);
   const { t } = useTranslation();
@@ -88,6 +92,7 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
         planName={planName}
         planSubscriptionType={auth?.subscriptionType}
         rateLimits={rateLimits}
+        quotaEnabled={quotaEnabled}
         onOpenProfile={onOpenProfile}
         onViewUsage={() => onViewChange('usage')}
         noNameLabel={t('profile.noName')}
@@ -164,11 +169,11 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
           identity card. */}
       <div className="no-drag mx-1 mb-3 rounded-2xl border border-border bg-surface/35 overflow-hidden">
         <div className="px-3 pt-3 pb-2.5 grid grid-cols-2 gap-2">
-          <div className="min-w-0">
+          <div className="min-w-0 text-center">
             <div className="text-[13.5px] font-semibold text-text tabular-nums leading-none">{counts.sessions}</div>
             <div className="text-[9.5px] text-text-muted uppercase tracking-wider mt-1">{t('footer.sessions')}</div>
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 text-center">
             <div className="text-[13.5px] font-semibold text-text tabular-nums leading-none truncate">{fmtTokens(totalTokens)}</div>
             <div className="text-[9.5px] text-text-muted uppercase tracking-wider mt-1">{t('footer.tokens')}</div>
           </div>
@@ -230,6 +235,48 @@ function RateBar({ label, window, windowSize, className }: { label: string; wind
     : left <= 10 ? 'from-rose-400 to-rose-600'
     : left <= 30 ? 'from-amber-400 to-orange-500'
     : 'from-accent to-purple-500';
+  // First-load skeleton: when utilization is still null (no data has ever
+  // arrived for this source), render an indeterminate shimmer instead of a
+  // 2% "fake" bar. The old fallback animated from 2% → real value through
+  // `transition-[width]` and read as "bar grows from zero", even though no
+  // refill ever happened. Skeleton → real-value mount transition feels
+  // cleaner than width interpolation from a synthetic baseline.
+  const isSkeleton = left == null;
+  // Target width (clamped to a 2% floor so a 0%-left bar is still visible).
+  const targetWidth = isSkeleton ? 0 : Math.max(left as number, 2);
+  // Width animation driven by the Web Animations API instead of CSS
+  // `transition`. Earlier attempts used `setState(0)` + rAF to fake an
+  // "enter at 0 → fill to target" sequence, but React 18 automatic
+  // batching + StrictMode dev-mode double-effects kept collapsing both
+  // commits into a single paint, so the bar snapped. The Animations API
+  // sidesteps React entirely: it interpolates between explicit keyframes
+  // managed by the browser's compositor regardless of how React commits
+  // state. Mount plays 0 → target; subsequent target updates (polling /
+  // source flip / refresh) play prev → target. `prevWidthRef` carries
+  // the previous frame so source flips don't restart from zero.
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const prevWidthRef = useRef(0);
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const from = prevWidthRef.current;
+    prevWidthRef.current = targetWidth;
+    // No-op if the value hasn't changed — saves the browser the
+    // round-trip of building an animation that ends where it started.
+    if (Math.abs(from - targetWidth) < 0.01) {
+      el.style.width = `${targetWidth}%`;
+      return;
+    }
+    el.style.width = `${targetWidth}%`;
+    try {
+      el.animate(
+        [{ width: `${from}%` }, { width: `${targetWidth}%` }],
+        { duration: 700, easing: 'ease-out', fill: 'forwards' },
+      );
+    } catch {
+      // Older Electron / unsupported envs — fall back to instant set.
+    }
+  }, [targetWidth]);
   return (
     <div className={cn('min-w-0', className)} title={`${label} window · ${resetLabel ?? '—'} until reset · window ${windowSize}`}>
       <div className="flex items-baseline justify-between gap-2 mb-1.5 min-w-0">
@@ -237,10 +284,24 @@ function RateBar({ label, window, windowSize, className }: { label: string; wind
         <span className="text-[12.5px] tabular-nums text-text font-semibold">{left != null ? t('sidebar.quotaLeft', { n: left.toFixed(1) }) : '—'}</span>
       </div>
       <div className="h-[6px] bg-border rounded-full overflow-hidden">
-        <div
-          className={cn('h-full rounded-full bg-gradient-to-r transition-[width] duration-500', barGradient)}
-          style={{ width: `${Math.max(left ?? 0, left === 0 ? 0 : 2)}%` }}
-        />
+        {isSkeleton ? (
+          // Shimmering placeholder — sized to match the real bar so the layout
+          // doesn't shift when data finally lands.
+          <div className="h-full w-full bg-gradient-to-r from-border via-border/40 to-border animate-pulse rounded-full" />
+        ) : (
+          <div
+            ref={barRef}
+            // `will-change: width` lets the browser hoist the bar onto its own
+            // composited layer so the width interpolation is GPU-accelerated
+            // and the surrounding layout never re-flows mid-transition. The
+            // initial inline width is 0% — the useEffect-driven Web
+            // Animations call replaces it with the target on mount and
+            // animates from there. (If JS / WAAPI is disabled we degrade
+            // to a flat empty bar rather than a misleading partial fill.)
+            className={cn('h-full rounded-full bg-gradient-to-r will-change-[width]', barGradient)}
+            style={{ width: '0%' }}
+          />
+        )}
       </div>
     </div>
   );
@@ -263,6 +324,7 @@ function ProfileQuotaCard({
   planName,
   planSubscriptionType,
   rateLimits,
+  quotaEnabled = false,
   onOpenProfile,
   onViewUsage,
   noNameLabel,
@@ -273,6 +335,7 @@ function ProfileQuotaCard({
   planName: string | null;
   planSubscriptionType?: string;
   rateLimits?: RateLimitsState;
+  quotaEnabled?: boolean;
   onOpenProfile: () => void;
   onViewUsage: () => void;
   noNameLabel: string;
@@ -280,6 +343,13 @@ function ProfileQuotaCard({
 }) {
   const { t } = useTranslation();
   const hasQuota = !!rateLimits?.limits;
+  // Mount the section once the probe is enabled — even before the first
+  // response lands — so it doesn't blink in/out around source flips or
+  // refreshes. Skeleton bars render via RateBar's null-window fallback.
+  const showQuotaSection = hasQuota || quotaEnabled;
+  const EMPTY_WINDOW = { utilization: null, reset: null };
+  const fiveHour = rateLimits?.limits?.fiveHour ?? EMPTY_WINDOW;
+  const weekly = rateLimits?.limits?.weekly ?? EMPTY_WINDOW;
   const headlineReset = hasQuota
     ? (resetInLabel(rateLimits!.limits!.weekly.reset, t) ?? resetInLabel(rateLimits!.limits!.fiveHour.reset, t))
     : null;
@@ -287,9 +357,18 @@ function ProfileQuotaCard({
   return (
     <div className="no-drag mx-1 mb-5 rounded-2xl border border-border-soft bg-surface/60 overflow-hidden">
       <button onClick={onOpenProfile} className="w-full flex items-center gap-3 px-3 pt-3 pb-3 text-left hover:bg-muted/30 transition">
-        <div className={cn('w-[42px] h-[42px] rounded-[14px] bg-gradient-to-br flex items-center justify-center text-white font-bold text-[18px] shadow-[0_8px_18px_rgba(124,63,242,0.24)] flex-shrink-0', profile.avatarGradient)}>
-          {profile.avatarInitial || '?'}
-        </div>
+        {profile.avatarImage ? (
+          <img
+            src={profile.avatarImage}
+            alt=""
+            referrerPolicy="no-referrer"
+            className="w-[42px] h-[42px] rounded-[14px] object-cover shadow-[0_8px_18px_rgba(124,63,242,0.24)] flex-shrink-0"
+          />
+        ) : (
+          <div className={cn('w-[42px] h-[42px] rounded-[14px] bg-gradient-to-br flex items-center justify-center text-white font-bold text-[18px] shadow-[0_8px_18px_rgba(124,63,242,0.24)] flex-shrink-0', profile.avatarGradient)}>
+            {profile.avatarInitial || '?'}
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-[13.5px] font-semibold text-text truncate leading-tight">{profile.name || noNameLabel}</span>
@@ -307,18 +386,26 @@ function ProfileQuotaCard({
         </div>
       </button>
 
-      {hasQuota && (
+      {showQuotaSection && (
         <>
           <div className="h-px bg-border-soft/70 mx-3" />
           <div className="px-3 pt-2.5 pb-3">
-            <div className="flex items-center justify-between mb-1.5" title={t('quota.updated', { when: agoLabel(rateLimits!.fetchedAt, t) })}>
+            <div
+              className="flex items-center justify-between mb-1.5"
+              title={hasQuota ? t('quota.updated', { when: agoLabel(rateLimits!.fetchedAt, t) }) : undefined}
+            >
               <span className="text-[9.5px] uppercase tracking-wider font-semibold text-text-muted flex items-center gap-1">
-                <span className="w-1 h-1 rounded-full bg-emerald-500" aria-hidden />
+                {/* Pulse the live dot until data arrives so the loading
+                   state is visible without an explicit spinner. */}
+                <span className={cn(
+                  'w-1 h-1 rounded-full',
+                  hasQuota ? 'bg-emerald-500' : 'bg-text-muted/60 animate-pulse'
+                )} aria-hidden />
                 {liveLabel}
               </span>
             </div>
-            <RateBar label="5h" window={rateLimits!.limits!.fiveHour} windowSize="5h" />
-            <RateBar label="7d" window={rateLimits!.limits!.weekly} windowSize="7d" className="mt-2" />
+            <RateBar label="5h" window={fiveHour} windowSize="5h" />
+            <RateBar label="7d" window={weekly} windowSize="7d" className="mt-2" />
             <div className="flex items-center justify-between gap-2 mt-2.5">
               <span className="text-[10.5px] text-text-muted truncate">
                 {headlineReset ? t('sidebar.resetsIn', { when: headlineReset }) : ''}

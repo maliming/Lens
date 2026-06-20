@@ -28,8 +28,11 @@ export type SessionMeta = {
   // extracted from session_meta. Claude sessions don't populate this; the
   // field stays undefined.
   planType?: string | null;
-  // Set by readSessionMetadataFromDisk when the file exceeds MAX_SESSION_FILE_SIZE
-  // so the UI can label the row "too large" rather than empty.
+  // Carries the size-cap label state when the on-disk file once exceeded the
+  // metadata cap and the cached entry hasn't been refreshed yet. Metadata
+  // streaming (since v9) no longer produces new `tooLarge` rows, but older
+  // caches and the detail-view path can still surface it. Keep the field so
+  // the renderer's "Too large" pill keeps working on legacy data.
   tooLarge?: boolean;
   error?: string;
 };
@@ -88,6 +91,7 @@ export type UsageSummary = {
     last24h: WindowBucket;
     last3d: WindowBucket;
     last7d: WindowBucket;
+    last30d: WindowBucket;
   };
   byModel: Array<{ model: string; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>;
   byProject: Array<{ project: string; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>;
@@ -189,12 +193,12 @@ declare global {
         termCount?: number;
         sources?: { user: number; assistant: number; summary: number; tool: number };
       }>>;
-      copyResumeCommand: (cwd: string, id: string, filePath?: string, source?: 'claude' | 'codex') => Promise<string>;
+      copyResumeCommand: (id: string, filePath?: string, source?: 'claude' | 'codex') => Promise<string>;
       revealInFinder: (filePath: string) => Promise<void>;
       revealSourceDir: (source: 'claude' | 'codex') => Promise<void>;
-      openInVSCode: (cwd: string) => Promise<void>;
-      openInTerminal: (cwd: string, id: string, filePath?: string, source?: 'claude' | 'codex') => Promise<void>;
-      openInITerm: (cwd: string, id: string, filePath?: string, source?: 'claude' | 'codex') => Promise<void>;
+      openInVSCode: (id: string, filePath?: string, source?: 'claude' | 'codex') => Promise<void>;
+      openInTerminal: (id: string, filePath?: string, source?: 'claude' | 'codex') => Promise<void>;
+      openInITerm: (id: string, filePath?: string, source?: 'claude' | 'codex') => Promise<void>;
       listFavorites: () => Promise<string[]>;
       toggleFavorite: (source: 'claude' | 'codex', id: string) => Promise<boolean>;
       listExcludes: () => Promise<string[]>;
@@ -213,6 +217,7 @@ declare global {
       setAppPrefs: (patch: Partial<Omit<AppPrefs, 'rateLimitsConsent'>>) => Promise<AppPrefs>;
       setRateLimitsConsent: (v: 'pending' | 'granted' | 'denied') => Promise<'pending' | 'granted' | 'denied'>;
       openLogsFolder: () => Promise<string>;
+      openUserDataFolder: () => Promise<string>;
       setTitleBarTheme: (theme: 'light' | 'dark') => Promise<void>;
     };
   }

@@ -230,6 +230,10 @@ code, pre, kbd, samp, .font-mono {
 
 mark { background: hsl(45 95% 75%); color: hsl(240 10% 12%); padding: 0 2px; border-radius: 2px; }
 [data-theme='dark'] mark { background: hsl(45 60% 30%); color: hsl(45 95% 90%); }
+/* The currently-focused match in the in-session search nav — distinct from the
+   ambient yellow so the user can spot where prev/next just jumped to. */
+mark[data-current="true"] { background: hsl(22 95% 60%); color: white; box-shadow: 0 0 0 2px hsl(22 95% 60% / 0.35); }
+[data-theme='dark'] mark[data-current="true"] { background: hsl(22 90% 55%); color: white; box-shadow: 0 0 0 2px hsl(22 90% 55% / 0.45); }
 
 /* Respect prefers-reduced-motion: kills the message-card fade-in, sidebar/
    modal mounts, status-pulse dots, and spinner loops for users who flagged

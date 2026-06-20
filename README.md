@@ -175,7 +175,7 @@ npm run dist:mac    # → release/Lens-<ver>-(arm64|x64)-mac.zip
 npm run dist:win    # → release/Lens-<ver>-win.zip
 ```
 
-Distribution defaults trim Chromium locales (English only) and enable maximum compression — a macOS DMG sits around 80 MB.
+Distribution defaults trim Chromium locales (English only) and enable maximum compression — the macOS zip sits around 96 MB.
 
 `DEMO_BUILD=1 npm run dist:mac` produces a screenshot-ready artifact with the fake-data layer locked on. Regular builds **never ship demo content** — the demo data module is swapped for an empty stub at build time via Vite alias.
 

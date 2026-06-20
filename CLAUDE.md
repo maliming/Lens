@@ -17,8 +17,7 @@ npm run build        # typecheck + Vite build → dist/  (does NOT package)
 npm run preview      # run Electron against built dist/
 
 npm run dist:mac     # release/Lens-<ver>-(arm64|x64).zip
-npm run dist:win     # zip + electron-builder (--win --x64 --dir for unpacked folder)
-npm run dist:linux   # AppImage + .deb
+npm run dist:win     # release/Lens-<ver>-win.zip
 
 npm run build:icon   # regenerate build/icon.{icns,ico,png} from icon.svg
 DEMO_BUILD=1 npm run dist:mac   # screenshot-ready build with fake data forced on
@@ -32,7 +31,7 @@ Renderer hot-reloads under `npm run dev`. **Main-process edits (`electron/main.c
 
 ### Two-process boundary
 
-- `electron/main.cjs` (Node, ~3.2k LOC) — all filesystem IO, JSONL parsing, sub-process spawning (terminal launchers, `claude`/`codex` CLI probes), persistence (`favorites.json` / `excludes.json` / `aliases.json` / `sessions-cache.json` / `app-prefs.json` under `app.getPath('userData')`).
+- `electron/main.cjs` (Node) — all filesystem IO, JSONL parsing, sub-process spawning (terminal launchers, `claude`/`codex` CLI probes), persistence (`favorites.json` / `excludes.json` / `aliases.json` / `sessions-cache.json` / `app-prefs.json` under `app.getPath('userData')`).
 - `src/` (React 18 + TypeScript + Vite + Tailwind) — pure renderer. **No Node access.** Talks to main only via `window.api.*`.
 - `electron/preload.cjs` — `contextBridge.exposeInMainWorld('api', ...)`. This is the IPC contract; any new feature that crosses the boundary needs an entry here + a matching `ipcMain.handle` in `main.cjs` + a typed signature in `src/types.ts` under `declare global { interface Window { api: { ... } } }`.
 
@@ -57,7 +56,7 @@ Favorites, excludes, and aliases use composite keys `"<source>:<sessionId>"` eve
 Per-source localStorage keys (used to share renderer state without bleeding between providers):
 
 - `active-id:<source>` — last-selected session in this source
-- `session-filters-v2` — keyed by view (`sessions` / `favorites` / `excluded`), each carries `{project, time, sort}`
+- `session-filters` — keyed by view (`sessions` / `favorites` / `excluded`), each carries `{project, time, sort}`
 - `search-recent-v1:<source>` — recent deep-search queries
 - `config-collapsed-v1:<source>` — collapsed group state in Workspace view
 - `ai-source-v1` — the current source itself
@@ -183,9 +182,9 @@ Shortcut hints: `kbdShortcut('K')` returns `⌘K` on macOS, `Ctrl K` elsewhere.
 
 - `electron-builder` config lives inline in `package.json#build`. `extraMetadata.main` points to `electron/main.cjs`.
 - `electronLanguages: ['en']` strips ~80 MB of Chromium locales — Lens does its own i18n in the renderer.
-- `compression: maximum` — DMG sits at ~80 MB.
+- `compression: maximum` — mac zip sits at ~96 MB.
 - `extraResources` ships the tray icon PNGs.
-- `dist/` and `release/` are gitignored. The `M package.json` you'll often see in `git status` after a version bump is expected.
+- `dist/` and `release/` are gitignored. Bumping the version in `package.json` shows as `M` until the release commit lands.
 
 ## File layout (don't catalogue every file in commits)
 
@@ -225,4 +224,4 @@ website/     Standalone static landing site (lens.maliming.net)
 - **Icons**: `lucide-react` only.
 - **Markdown rendering**: `marked` + `DOMPurify` (sanitised at the renderer in `lib/markdown.ts`). Don't call `marked` without `DOMPurify.sanitize` on the output. ConfigView passes content through `cleanDisplayText` first.
 - **DevTools shortcut**: registered only in dev or when `LENS_ENABLE_DEVTOOLS=1`. Don't expose in shipped builds.
-- **i18n**: every new user-visible string needs an `en` key + ideally translations to all 10 locales (`zh-CN/tr/ja/ko/de/fr/es/pt-BR/ru`). Non-en is `Partial<Record<TKey,string>>` so missing keys fall back to en gracefully; `scripts/check-i18n.mjs` lists gaps.
+- **i18n**: every new user-visible string MUST land in en AND every other locale (`zh-CN/tr/ja/ko/de/fr/es/pt-BR/ru`) in the same change. The fallback machinery exists for `Partial<Record<TKey,string>>` ergonomics during refactors, NOT as license to ship English-only copy and call it "ja falls back gracefully". If a key isn't translated, the Japanese / Russian / etc. user reads English mid-sentence in their otherwise localised UI — a UX bug, not a "gap". Workflow: add the `en` entry, immediately add an entry to every other locale block (translate; don't paste English), then run `npm run check:i18n` and confirm `OK (N/N)` for every locale. Same rule for **deletes**: drop the key from every locale block in the same change so check:i18n stays green. Translated text style: match the locale's existing tone in this file (terse, sentence case where the locale uses it, no machine-translation literalism — read the file's existing keys for that locale before writing). Touched a key + skipped 8 locales = the change is incomplete.

@@ -5,6 +5,10 @@ export type Profile = {
   name: string;
   avatarInitial: string;
   avatarGradient: string;
+  // Optional user-uploaded avatar as a data URL (JPEG, resized to 256×256
+  // before save — see AccountModal). When set, renderers prefer this over
+  // the initial + gradient fallback.
+  avatarImage?: string;
 };
 
 export const AVATAR_GRADIENTS = [

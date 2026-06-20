@@ -33,6 +33,7 @@ export const DEMO_USAGE: UsageSummary = {
     last24h: { ...emptyWindow },
     last3d: { ...emptyWindow },
     last7d: { ...emptyWindow },
+    last30d: { ...emptyWindow },
   },
   byModel: [],
   byProject: [],
@@ -52,10 +53,12 @@ export const DEMO_USAGE: UsageSummary = {
 
 export const DEMO_AUTH: AuthStatus = { loggedIn: false };
 
+import demoAvatarUrl from '../assets/demo-avatar.svg?url';
 export const DEMO_PROFILE = {
   name: '',
   avatarInitial: '',
   avatarGradient: 'from-purple-500 to-blue-500',
+  avatarImage: demoAvatarUrl,
 };
 
 export const DEMO_RATE_LIMITS: RateLimits = {
