@@ -396,7 +396,12 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
       // header doubles in height.
       style={{ minWidth: 640 }}
     >
-      <main data-pane="detail" ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
+      {/* overflow-anchor:none disables Chromium's native scroll anchoring.
+          The scroll-up loader already restores position manually (prepend
+          delta in the useLayoutEffect above); with native anchoring left on,
+          the browser ALSO shifts scrollTop by the same delta, so the two
+          stack and the view jumps back down toward the latest turn. */}
+      <main data-pane="detail" ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden [overflow-anchor:none]">
       {/* Compact Header (~140px) */}
       <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur border-b border-border-soft px-6 py-3 min-w-0">
         <div className="flex items-center gap-2 mb-1.5 min-w-0">
