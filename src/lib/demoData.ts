@@ -166,13 +166,38 @@ const DEMO_WORKFLOW_TOOLUSE_ID = 'demo_toolu_workflow';
 const DEMO_MSG_TEMPLATE: MessageItem[] = [
   {
     kind: 'user',
-    text: 'Why does my refresh token endpoint return 401 on retry? The token still has 30 minutes left on it according to the JWT exp.\n\nHere is the response I am getting:',
+    text: 'Why does my refresh token endpoint return 401 on retry?',
     timestamp: new Date(NOW - 25 * 60 * 1000).toISOString(),
     model: null,
     usage: null,
     images: [
       { mediaType: 'url', data: 'https://placehold.co/640x140/0f1729/ef4444/png?text=HTTP+401+Unauthorized' },
     ],
+  },
+  {
+    kind: 'assistant',
+    text: 'Before I answer, let me sweep the auth module for token-rotation races and weigh a couple of retry-hardening approaches in parallel.',
+    timestamp: new Date(NOW - 24 * 60 * 1000 - 40 * 1000).toISOString(),
+    model: 'claude-opus-4-7',
+    usage: { input_tokens: 130, output_tokens: 41, cache_read_input_tokens: 29000, cache_creation_input_tokens: 0 },
+  },
+  {
+    kind: 'assistant',
+    isToolUse: true,
+    text: '[Tool: Agent]\n{\n  "subagent_type": "Explore",\n  "description": "Audit auth module for token-rotation races"\n}',
+    timestamp: new Date(NOW - 24 * 60 * 1000 - 38 * 1000).toISOString(),
+    model: 'claude-opus-4-7',
+    usage: null,
+    toolCalls: [{ toolName: 'Agent', toolUseId: DEMO_TASK_AGENT_TOOLUSE_ID }],
+  },
+  {
+    kind: 'assistant',
+    isToolUse: true,
+    text: '[Tool: Workflow]\n{\n  "description": "Draft + score 2 retry-hardening approaches in parallel"\n}',
+    timestamp: new Date(NOW - 24 * 60 * 1000 - 20 * 1000).toISOString(),
+    model: 'claude-opus-4-7',
+    usage: null,
+    toolCalls: [{ toolName: 'Workflow', toolUseId: DEMO_WORKFLOW_TOOLUSE_ID }],
   },
   {
     kind: 'assistant',
@@ -290,31 +315,6 @@ Worth adding a Vitest case that hits the endpoint twice in parallel to lock in t
     timestamp: new Date(NOW - 18 * 60 * 1000).toISOString(),
     model: null,
     usage: null,
-  },
-  {
-    kind: 'assistant',
-    text: 'Before we lock this in, let me sweep the rest of the auth module for the same rotation race and weigh a couple of hardening approaches in parallel.',
-    timestamp: new Date(NOW - 17 * 60 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
-    usage: { input_tokens: 130, output_tokens: 41, cache_read_input_tokens: 29000, cache_creation_input_tokens: 0 },
-  },
-  {
-    kind: 'assistant',
-    isToolUse: true,
-    text: '[Tool: Agent]\n{\n  "subagent_type": "Explore",\n  "description": "Audit auth module for token-rotation races"\n}',
-    timestamp: new Date(NOW - 17 * 60 * 1000 + 2000).toISOString(),
-    model: 'claude-opus-4-7',
-    usage: null,
-    toolCalls: [{ toolName: 'Agent', toolUseId: DEMO_TASK_AGENT_TOOLUSE_ID }],
-  },
-  {
-    kind: 'assistant',
-    isToolUse: true,
-    text: '[Tool: Workflow]\n{\n  "description": "Draft + score 2 retry-hardening approaches in parallel"\n}',
-    timestamp: new Date(NOW - 16 * 60 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
-    usage: null,
-    toolCalls: [{ toolName: 'Workflow', toolUseId: DEMO_WORKFLOW_TOOLUSE_ID }],
   },
 ];
 
@@ -582,6 +582,133 @@ export const DEMO_MESSAGES: Record<string, MessageItem[]> = Object.fromEntries(
     anchorTemplate(s.id === REFRESH_TOKEN_ID ? DEMO_MSG_TEMPLATE : TEMPLATES[hashIdx(s.id)], s.lastTs),
   ])
 );
+
+// ---- Demo deep search ---------------------------------------------------
+// In demo mode the real `window.api.deepSearch` IPC would grep the user's
+// actual on-disk sessions, whose ids never match DEMO_SESSIONS — so the Search
+// view's "Matched in" chips + snippet preview would never populate. This
+// mirrors the backend deep-search semantics (electron/search.cjs) against the
+// in-memory demo data, returning the same hit shape the IPC does. `sources`
+// counts matching messages per role (not raw occurrences) — same as the
+// backend, so the chip counts line up.
+export type DemoDeepHit = {
+  id: string;
+  source: 'claude' | 'codex';
+  projectDir: string;
+  filePath: string;
+  snippet: string;
+  matchCount: number;
+  coverage: number;
+  termCount: number;
+  sources: { user: number; assistant: number; summary: number; tool: number };
+};
+
+// Mirror SearchView.tokenizeQuery: quoted "phrases" stay glued, bare words
+// split on whitespace, <2 chars dropped, OR semantics, deduped.
+function demoTokenizeQuery(query: string): string[] {
+  const out: string[] = [];
+  const re = /"([^"]+)"|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(query)) !== null) {
+    const t = (m[1] || m[2] || '').toLowerCase().trim();
+    if (t.length >= 2 && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+function demoCountOccurrences(haystackLower: string, term: string): number {
+  let pos = 0, count = 0;
+  while ((pos = haystackLower.indexOf(term, pos)) !== -1) { count++; pos += term.length; if (count > 999) break; }
+  return count;
+}
+
+// 80 chars of lead-in + 200 after the hit, whitespace collapsed, ellipsed —
+// matches the backend snippet window so demo screenshots look identical.
+function demoSnippet(text: string, term: string): string {
+  const lower = text.toLowerCase();
+  const hit = lower.indexOf(term);
+  const at = hit >= 0 ? hit : 0;
+  const start = Math.max(0, at - 80);
+  const end = Math.min(text.length, at + term.length + 200);
+  let s = text.slice(start, end).replace(/\s+/g, ' ').trim();
+  if (start > 0) s = '… ' + s;
+  if (end < text.length) s = s + ' …';
+  return s;
+}
+
+export function demoDeepSearch(query: string, source: 'claude' | 'codex'): DemoDeepHit[] {
+  const terms = demoTokenizeQuery(query);
+  if (terms.length === 0) return [];
+  const hits: DemoDeepHit[] = [];
+  for (const s of DEMO_SESSIONS) {
+    if (s.source !== source) continue;
+    const msgs = DEMO_MESSAGES[s.id] || [];
+    const sources = { user: 0, assistant: 0, summary: 0, tool: 0 };
+    const covered = new Set<string>();
+    let matchCount = 0;
+
+    // One "unit" = one searchable line, classified by role the same way the
+    // backend buckets JSONL lines. sources[bucket] increments once per unit
+    // with any hit; matchCount sums raw occurrences.
+    const scan = (text: string | null | undefined, bucket: keyof typeof sources) => {
+      if (!text) return;
+      const lower = text.toLowerCase();
+      let any = false;
+      for (const t of terms) {
+        const c = demoCountOccurrences(lower, t);
+        if (c > 0) { matchCount += c; covered.add(t); any = true; }
+      }
+      if (any) sources[bucket]++;
+    };
+
+    // Session-level fields stand in for the JSONL summary line + opening user
+    // prompt (templates are shared across sessions, so the seed firstUser may
+    // not appear in the assigned transcript — searching it keeps a title-term
+    // query from coming back empty). Skip firstUser when the template already
+    // opens with that exact text, or the shared line gets counted twice — the
+    // backend buckets each JSONL line once.
+    scan(s.summary, 'summary');
+    if (!msgs.some(m => m.text === s.firstUser)) scan(s.firstUser, 'user');
+    for (const m of msgs) {
+      const bucket: keyof typeof sources =
+        (m.isToolUse || m.isToolResult) ? 'tool'
+        : m.kind === 'assistant' ? 'assistant'
+        : m.kind === 'summary' ? 'summary'
+        : 'user';
+      scan(m.text, bucket);
+    }
+
+    if (matchCount === 0) continue;
+
+    // Snippet preference: clean opening prompt, then conversation prose, then
+    // tool output, then the summary — the backend likewise prefers human text
+    // over JSON/tool noise.
+    const containsTerm = (text: string | null | undefined): boolean =>
+      !!text && terms.some(t => text.toLowerCase().includes(t));
+    let snippetSrc: string | null = containsTerm(s.firstUser) ? s.firstUser : null;
+    if (!snippetSrc) snippetSrc = msgs.find(m => !(m.isToolUse || m.isToolResult) && containsTerm(m.text))?.text ?? null;
+    if (!snippetSrc) snippetSrc = msgs.find(m => (m.isToolUse || m.isToolResult) && containsTerm(m.text))?.text ?? null;
+    if (!snippetSrc && containsTerm(s.summary)) snippetSrc = s.summary;
+    const snippetTerm = snippetSrc
+      ? (terms.find(t => snippetSrc!.toLowerCase().includes(t)) || terms[0])
+      : terms[0];
+
+    hits.push({
+      id: s.id,
+      source: s.source,
+      projectDir: s.projectDir,
+      filePath: s.filePath,
+      snippet: snippetSrc ? demoSnippet(snippetSrc, snippetTerm) : '',
+      matchCount,
+      coverage: covered.size,
+      termCount: terms.length,
+      sources,
+    });
+  }
+  // Strongest relevance first — coverage dominates raw count, same as backend.
+  hits.sort((a, b) => (b.coverage - a.coverage) || (b.matchCount - a.matchCount));
+  return hits;
+}
 
 // Subagent / workflow transcripts for the refresh-token session, so the inline
 // "open subagent / workflow" feature has something to show in screenshots. The

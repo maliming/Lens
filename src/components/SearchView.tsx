@@ -7,6 +7,7 @@ import { useTranslation } from '../lib/I18nProvider';
 import { useCurrentSource, srcKey, getSource, type SessionSource } from '../lib/sources';
 import { useDisplayPrefs } from '../lib/displayPrefs';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
+import { demoDeepSearch } from '../lib/demoData';
 import type { SessionMeta } from '../types';
 import type { TKey } from '../lib/i18n';
 
@@ -68,6 +69,9 @@ type Props = {
   // whether it's actually visible — otherwise it'd steal focus from the
   // currently visible view on first render.
   isActive?: boolean;
+  // Demo mode routes deep search to the in-memory demo data instead of the
+  // real `window.api.deepSearch` IPC (whose hits never match DEMO_SESSIONS).
+  demoMode?: boolean;
 };
 
 type DeepSources = { user: number; assistant: number; summary: number; tool: number };
@@ -99,7 +103,7 @@ function loadRecent(source: string): string[] {
   return [];
 }
 
-export function SearchView({ sessions, favorites, excluded, loading = false, onSelectSession, onToggleFavorite, onStatus, isActive = true }: Props) {
+export function SearchView({ sessions, favorites, excluded, loading = false, onSelectSession, onToggleFavorite, onStatus, isActive = true, demoMode = false }: Props) {
   const { t } = useTranslation();
   const [currentSource, setCurrentSource] = useCurrentSource();
   // Result layout — list (default, dense rows), card (2-column tiles), or
@@ -293,7 +297,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
     const reqSource = currentSource;
     latestQueryRef.current = trimmed;
     try {
-      const hits = await window.api.deepSearch(trimmed, reqSource);
+      const hits = demoMode ? demoDeepSearch(trimmed, reqSource) : await window.api.deepSearch(trimmed, reqSource);
       if (reqSeq !== deepSeqRef.current || reqSource !== currentSourceRef.current || trimmed !== latestQueryRef.current) return;
       // Key by `source:id` so future cross-source hits never collide on
       // identical session UUIDs (the sessions list itself already uses this
@@ -309,7 +313,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
       if (hits.length === 0) {
         const otherSource: SessionSource = reqSource === 'claude' ? 'codex' : 'claude';
         try {
-          const otherHits = await window.api.deepSearch(trimmed, otherSource);
+          const otherHits = demoMode ? demoDeepSearch(trimmed, otherSource) : await window.api.deepSearch(trimmed, otherSource);
           if (reqSeq !== deepSeqRef.current || reqSource !== currentSourceRef.current || trimmed !== latestQueryRef.current) return;
           setCrossSourceHits(otherHits.length);
         } catch {

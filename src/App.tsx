@@ -535,6 +535,7 @@ export default function App() {
         <ViewSlot active={view === 'search'}>
           <SearchView
             isActive={view === 'search'}
+            demoMode={demoMode}
             sessions={sessions}
             favorites={favorites}
             excluded={effectiveExcluded}

@@ -18,6 +18,19 @@ export const DEMO_MESSAGES: Record<string, MessageItem[]> = {};
 export const DEMO_SUBAGENTS: Record<string, SessionSubagents> = {};
 export const DEMO_SUBAGENT_TRANSCRIPTS: Record<string, MessageItem[]> = {};
 
+export type DemoDeepHit = {
+  id: string;
+  source: 'claude' | 'codex';
+  projectDir: string;
+  filePath: string;
+  snippet: string;
+  matchCount: number;
+  coverage: number;
+  termCount: number;
+  sources: { user: number; assistant: number; summary: number; tool: number };
+};
+export function demoDeepSearch(_query: string, _source: 'claude' | 'codex'): DemoDeepHit[] { return []; }
+
 const emptyBucket = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, sessions: 0, msgs: 0 };
 const emptyWindow = { ...emptyBucket, oldestTs: null as number | null };
 

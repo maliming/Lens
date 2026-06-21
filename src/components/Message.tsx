@@ -8,6 +8,8 @@ import { fmtTokens, fmtModel, cleanDisplayText } from '../lib/format';
 import { ChevronDown, ChevronUp, Copy, Check, X, CornerDownRight } from 'lucide-react';
 import { getSource } from '../lib/sources';
 import { useProfile } from '../lib/profile';
+import { useDemoMode } from '../lib/demoMode';
+import { DEMO_PROFILE } from '../lib/demoData';
 import { CodeBlock } from './CodeBlock';
 import { SubagentSection } from './SubagentTranscript';
 import type { MessageItem } from '../types';
@@ -102,8 +104,12 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude',
   const { t } = useTranslation();
   // Read the per-source profile so a USER message renders the operator's
   // uploaded avatar image (if any) instead of the hardcoded "M" letter, and
-  // the fallback initial honours their configured profile initial.
-  const [profile] = useProfile(source);
+  // the fallback initial honours their configured profile initial. In demo
+  // mode swap in DEMO_PROFILE so the operator's real uploaded avatar never
+  // leaks into demo screenshots (the sidebar already does this swap in App).
+  const [realProfile] = useProfile(source);
+  const [demoMode] = useDemoMode();
+  const profile = demoMode ? DEMO_PROFILE : realProfile;
   const [mode, setMode] = useState<'markdown' | 'raw' | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
