@@ -58,6 +58,21 @@ export function fmtTime(iso: string | null | undefined, t?: (key: any, vars?: Re
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// Compact absolute date for stable labels (e.g. a session's creation date):
+// "Jun 18", widened to "Jun 18, 2024" when it's not the current year. Future
+// timestamps (clock skew) clamp to now so a corrupt firstTs can't read ahead.
+export function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const dd = new Date(Math.min(d.getTime(), now.getTime()));
+  const sameYear = dd.getFullYear() === now.getFullYear();
+  return dd.toLocaleDateString([], sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 export function fmtBytes(n: number): string {
   if (!n) return '0B';
   if (n < 1024) return n + 'B';

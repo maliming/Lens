@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Play, Copy, FolderOpen, Star, GitBranch, FileText, SlidersHorizontal, Check, Code2, Search, X, Info, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { cleanDisplayText, fmtBytes, fmtTime, fmtTokens, shortCwd, visibleMessageCount } from '../lib/format';
-import { meaningfulBranch } from '../lib/sessionTitle';
+import { cleanDisplayText, fmtBytes, fmtTime, fmtDate, fmtTokens, shortCwd, visibleMessageCount } from '../lib/format';
+import { meaningfulBranch, resolveSessionTitle } from '../lib/sessionTitle';
 import { useTranslation } from '../lib/I18nProvider';
 import type { MessageItem, SessionMeta, SessionSubagents } from '../types';
 import { Message } from './Message';
@@ -383,9 +383,10 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     catch (e: any) { onStatus(t('status.error', { error: e.message })); }
   };
 
-  // Run summary / firstUser through cleanDisplayText (same helper SessionList
-  // rows use) so ANSI / control chars / bidi marks never reach the DOM.
-  const title = cleanDisplayText(session.summary) || cleanDisplayText(session.firstUser) || t('list.noTitle');
+  // Same title resolution as the list rows so the header matches what the user
+  // clicked (alias → smart URL label → summary/ai-title → first message),
+  // already ANSI/bidi-cleaned inside resolveSessionTitle.
+  const title = resolveSessionTitle(session, { fallback: t('list.noTitle') }).primary;
 
   return (
     <div
@@ -434,7 +435,13 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
           <span className="inline-flex items-center gap-1.5 tabular-nums flex-shrink-0">
             <span>{visibleMessageCount(session)} {t('units.msgs')}</span>
             <span className="text-text-muted/50">·</span>
-            <span>{fmtTime(session.lastTs, t)}</span>
+            {session.firstTs && (
+              <>
+                <span title={`${t('info.row.created')} ${fmtDate(session.firstTs)}`}>{t('info.row.created')} {fmtDate(session.firstTs)}</span>
+                <span className="text-text-muted/50">·</span>
+              </>
+            )}
+            <span title={t('info.row.lastActivity')}>{fmtTime(session.lastTs, t)}</span>
             <span className="text-text-muted/50">·</span>
             <span>{fmtBytes(session.fileSize)}</span>
           </span>

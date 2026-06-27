@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '../lib/utils';
-import { cleanDisplayText, fmtTime, fmtTokens, kbdShortcut, projectColor, projectInitial, projectTextColor, sessionTimestamp, visibleMessageCount } from '../lib/format';
-import { deriveDisplayTitle, projectShortName, meaningfulBranch } from '../lib/sessionTitle';
+import { cleanDisplayText, fmtTime, fmtDate, fmtTokens, kbdShortcut, projectColor, projectInitial, projectTextColor, sessionTimestamp, visibleMessageCount } from '../lib/format';
+import { resolveSessionTitle, projectShortName, meaningfulBranch } from '../lib/sessionTitle';
 import { groupSessions, type GroupKey } from '../lib/timelineGroup';
 import { matchesExcludeRule } from '../lib/excludeRules';
 import { srcKey } from '../lib/sources';
@@ -403,17 +403,9 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
   const itermAvailable = caps?.platform === 'darwin' && caps.terminals.iterm;
   const useITerm = itermAvailable && prefs.preferredTerminal === 'iterm';
   const [renameOpen, setRenameOpen] = useState(false);
-  // Every fallback field goes through cleanDisplayText so an alias / summary
-  // composed entirely of control chars or bidi overrides can't be shown raw.
-  // We intentionally do NOT `|| original` after cleaning — that would defeat
-  // the whole hygiene effort for the worst inputs.
-  const cleanedAlias = cleanDisplayText(s.alias);
-  const cleanedSummary = cleanDisplayText(s.summary);
-  const cleanedFirstUser = cleanDisplayText(s.firstUser);
-  const rawTitle = cleanedAlias || cleanedSummary || cleanedFirstUser || t('list.noHumanMessage');
-  const title = cleanedAlias
-    ? { primary: cleanedAlias, sub: undefined as string | undefined, isSmart: false }
-    : deriveDisplayTitle(rawTitle);
+  // Title precedence + ANSI/bidi cleaning all live in resolveSessionTitle;
+  // `title.full` is the untruncated source for the row's hover tooltip.
+  const title = resolveSessionTitle(s, { fallback: t('list.noHumanMessage') });
   const tokens = (s.tokensIn || 0) + (s.tokensOut || 0) + (s.tokensCacheRead || 0) + (s.tokensCacheCreate || 0);
   const msgs = visibleMessageCount(s);
   const projName = projectShortName(s.projectCwd || s.decodedCwd);
@@ -439,7 +431,7 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
           role="button"
           tabIndex={0}
-          title={rawTitle}
+          title={title.full}
           className={cn(
             // v8 P2 — smoother transition (200ms ease-out), stronger hover feedback,
             // more intentional active state. No animations beyond bg/border fade.
@@ -470,15 +462,25 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
             <h3 className={cn('text-[14px] font-semibold truncate leading-snug flex-1 min-w-0', active ? 'text-accent' : 'text-text')}>
               {highlight(title.primary, query)}
             </h3>
-            <span className={cn('text-[11px] tabular-nums flex-shrink-0', active ? 'text-accent/70' : 'text-text-muted')}>
-              {fmtTime(s.lastTs || (s.mtime ? new Date(s.mtime).toISOString() : null))}
-            </span>
+            <div className="flex flex-col items-end flex-shrink-0 leading-none gap-0.5">
+              <span className={cn('text-[11px] tabular-nums', active ? 'text-accent/70' : 'text-text-muted')}>
+                {fmtTime(s.lastTs || (s.mtime ? new Date(s.mtime).toISOString() : null))}
+              </span>
+              {s.firstTs && (
+                <span
+                  className={cn('text-[10px] tabular-nums', active ? 'text-accent/50' : 'text-text-muted/60')}
+                  title={`${t('info.row.created')} ${fmtDate(s.firstTs)}`}
+                >
+                  {fmtDate(s.firstTs)}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Aliased rows: surface the auto-derived original so users still see what the session originally was. */}
           {s.alias && (
-            <div className={cn('text-[11px] italic truncate min-w-0', active ? 'text-accent/60' : 'text-text-muted')} title={t('list.aliasedOriginal', { title: deriveDisplayTitle(s.summary || s.firstUser || '').primary })}>
-              {deriveDisplayTitle(s.summary || s.firstUser || '').primary}
+            <div className={cn('text-[11px] italic truncate min-w-0', active ? 'text-accent/60' : 'text-text-muted')} title={t('list.aliasedOriginal', { title: resolveSessionTitle(s, { includeAlias: false }).primary })}>
+              {resolveSessionTitle(s, { includeAlias: false }).primary}
             </div>
           )}
 
@@ -786,7 +788,7 @@ function RenameAliasDialog({ open, onOpenChange, session, onSaved }: {
   // phase side effect — React StrictMode warns) → useEffect runs after commit.
   useEffect(() => { if (open) setDraft(session.alias || ''); }, [open, session.id, session.alias]);
 
-  const inferredTitle = deriveDisplayTitle(session.summary || session.firstUser || '').primary;
+  const inferredTitle = resolveSessionTitle(session, { includeAlias: false }).primary;
 
   // Demo mode: don't write demo session ids into the user's real aliases.json
   // on disk. App.tsx routes the patchAlias event to an in-memory demo overlay.

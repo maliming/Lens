@@ -30,7 +30,18 @@ const { readJsonFileSafe, atomicWriteJson } = require('./json-io.cjs');
 //     keeping the huge session out of every aggregate even after the
 //     parser was fixed. Bumping the version forces a full re-parse so
 //     those entries get rebuilt with real token + timestamp data.
-const SESSIONS_CACHE_VERSION = 9;
+//     v10 reads `ai-title` lines as the session title and derives firstUser
+//     from array-content user turns (pasted text + image), so sessions that
+//     opened with such a turn re-parse with a real title / first message.
+// v11: projectCwd now comes from the JSONL's first recorded cwd, not from
+//     decoding the project-folder name (which splits literal hyphens in a
+//     path segment into separators, e.g. `taskever-desktop` →
+//     `taskever/desktop`). v10 caches stored the wrong decoded path, so
+//     Resume/Copy `cd`'d into a non-existent dir; a re-parse fixes them.
+// v12: userMsgs now counts image-only user turns (a paste with no text), which
+//     the detail view already renders as a message — v11 caches undercounted
+//     the row's "N msgs" by one per such session, so a re-parse realigns them.
+const SESSIONS_CACHE_VERSION = 12;
 
 // Bumped any time the cached schema changes (new field, dropped field,
 // changed type, renamed field). Older caches are dropped on load so a
@@ -122,7 +133,7 @@ function extractMetaFromSession(s) {
     summary: s.summary || '', firstUser: s.firstUser || '',
     firstTs: s.firstTs || null, lastTs: s.lastTs || null,
     userMsgs: s.userMsgs || 0, assistantMsgs: s.assistantMsgs || 0,
-    cwd: s.lastCwd || s.projectCwd || '', gitBranch: s.gitBranch || '',
+    cwd: s.lastCwd || s.projectCwd || '', firstCwd: s.projectCwd || '', gitBranch: s.gitBranch || '',
     model: s.model || '', version: s.version || '',
     tokensIn: s.tokensIn || 0, tokensOut: s.tokensOut || 0,
     tokensCacheRead: s.tokensCacheRead || 0, tokensCacheCreate: s.tokensCacheCreate || 0,

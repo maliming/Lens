@@ -102,6 +102,9 @@ export default function App() {
   // priority usage refresh could trample the freshly-arrived sessions list.
   const reloadSeqRef = useRef(0);
   const usageSeqRef = useRef(0);
+  // Coalesces the visibilitychange + focus pair that both fire on a single dock
+  // re-activation, so silentRefresh doesn't rescan/probe twice per activation.
+  const lastSilentRefreshRef = useRef(0);
   // Bumped on every full reload — ConfigView watches this so the Workspace
   // pane re-reads CLAUDE.md / skills / commands / hooks from disk on ⌘R or
   // the sidebar Rescan button. The renderer never watches the FS itself, so
@@ -350,6 +353,12 @@ export default function App() {
   // state in place. Only initial mount + explicit ⌘R / Rescan show the
   // skeleton.
   const silentRefresh = useCallback(() => {
+    // Dock activation fires visibilitychange AND focus back-to-back; collapse
+    // them into one refresh. The 5-min poll and genuinely-spaced focuses are
+    // far apart so they're unaffected.
+    const now = performance.now();
+    if (now - lastSilentRefreshRef.current < 500) return;
+    lastSilentRefreshRef.current = now;
     const reqSource = currentSource;
     // Uses the USAGE-only seq — sessions data arrives via SWR push, which has
     // its own write path. We only protect against a stale usage payload.

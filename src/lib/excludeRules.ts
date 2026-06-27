@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { SessionMeta } from '../types';
-import { deriveDisplayTitle, projectShortName, meaningfulBranch } from './sessionTitle';
+import { resolveSessionTitle, smartTitle, projectShortName, meaningfulBranch } from './sessionTitle';
+import { cleanDisplayText } from './format';
 import { useCurrentSource } from './sources';
 
 const keyFor = (source: string) => `exclude-rules-v1:${source}`;
@@ -31,10 +32,16 @@ export function useExcludeRules(): [string[], (next: string[]) => void] {
 // match against full firstUser body or arbitrary cwd path because slash-command
 // prefaces like <command-message> would otherwise nuke unrelated real conversations.
 function ruleHaystack(s: SessionMeta): string {
-  const title = deriveDisplayTitle(s.summary || s.firstUser || '');
+  const title = resolveSessionTitle(s, { includeAlias: false });
+  // Fold in the leading-URL label/host even when it lost the title slot to a
+  // summary — a rule saved against a host (e.g. "docs.foo.com") must keep
+  // matching regardless of which candidate currently wins the visible title.
+  const smart = smartTitle(cleanDisplayText(s.firstUser));
   return [
     title.primary,
     title.sub,
+    smart?.label,
+    smart?.sub,
     s.summary,
     projectShortName(s.projectCwd || s.decodedCwd),
     meaningfulBranch(s.gitBranch),

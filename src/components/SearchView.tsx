@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Star, GitBranch, Play, Filter, Clock, X, ChevronDown, List as ListIcon, LayoutGrid, Calendar, ArrowRightLeft } from 'lucide-react';
+import { Search, Star, GitBranch, Play, Filter, Clock, X, ChevronDown, ArrowRightLeft } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { cleanDisplayText, fmtTime, fmtTokens, sessionTimestamp, visibleMessageCount } from '../lib/format';
-import { deriveDisplayTitle, projectShortName, meaningfulBranch } from '../lib/sessionTitle';
+import { cleanDisplayText, fmtTime, fmtDate, fmtTokens, sessionTimestamp, visibleMessageCount } from '../lib/format';
+import { resolveSessionTitle, projectShortName, meaningfulBranch } from '../lib/sessionTitle';
 import { useTranslation } from '../lib/I18nProvider';
 import { useCurrentSource, srcKey, getSource, type SessionSource } from '../lib/sources';
 import { useDisplayPrefs } from '../lib/displayPrefs';
@@ -13,8 +13,6 @@ import type { TKey } from '../lib/i18n';
 
 type TimeFilter = 'all' | 'today' | '7' | '30' | 'year';
 type Sort = 'relevance' | 'recent' | 'oldest' | 'tokens' | 'messages';
-type ViewMode = 'list' | 'card' | 'timeline';
-const VIEW_MODE_STORAGE = 'search-view-mode-v1';
 
 // Per-source so the Claude and Codex recent-query chips don't mix; queries
 // against Claude's session corpus rarely make sense against Codex and vice
@@ -106,20 +104,6 @@ function loadRecent(source: string): string[] {
 export function SearchView({ sessions, favorites, excluded, loading = false, onSelectSession, onToggleFavorite, onStatus, isActive = true, demoMode = false }: Props) {
   const { t } = useTranslation();
   const [currentSource, setCurrentSource] = useCurrentSource();
-  // Result layout — list (default, dense rows), card (2-column tiles), or
-  // timeline (rows grouped by day). Persisted per-user so re-opening Search
-  // keeps the chosen mode.
-  // Default to timeline — the chronological layout is the most expressive
-  // view of "what did I do recently". User's choice (if they switch) is
-  // persisted in localStorage and wins on next mount.
-  const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    try {
-      const v = localStorage.getItem(VIEW_MODE_STORAGE);
-      if (v === 'list' || v === 'card' || v === 'timeline') return v;
-    } catch {}
-    return 'timeline';
-  });
-  useEffect(() => { try { localStorage.setItem(VIEW_MODE_STORAGE, viewMode); } catch {} }, [viewMode]);
   const [query, setQuery] = useState('');
   const [submitted, setSubmitted] = useState('');
   const [project, setProject] = useState('');
@@ -394,8 +378,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
       const lastMs = sessionTimestamp(s);
       if (cutoffMs != null && lastMs < cutoffMs) continue;
       const projName = projectShortName(s.projectCwd || s.decodedCwd);
-      const rawTitle = s.alias || s.summary || s.firstUser || t('list.noHumanMessage');
-      const title = deriveDisplayTitle(rawTitle).primary;
+      const title = resolveSessionTitle(s, { fallback: t('list.noHumanMessage') }).primary;
       const branchName = meaningfulBranch(s.gitBranch);
       if (queryTerms.length > 0) {
         const haystack = (title + ' ' + projName + ' ' + (branchName || '') + ' ' + (s.firstUser || '')).toLowerCase();
@@ -588,8 +571,6 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
               count={filteredRows.length}
               shown={displayRows.length}
               deepLoading={deepLoading}
-              viewMode={viewMode}
-              onViewMode={setViewMode}
             />
             {/* Excluded-match nudge — appears whenever deep search found
                 content in sessions the user previously excluded, so they can
@@ -645,7 +626,6 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
                 )}>
                   <ResultsLayout
                     rows={displayRows}
-                    mode={viewMode}
                     query={submitted || query}
                     favorites={favorites}
                     onSelect={onSelectSession}
@@ -688,63 +668,12 @@ function useResumeHandler(row: ResultRowData, onStatus: (msg: string) => void) {
   };
 }
 
-function ResultRow({ row, isFav, query, onSelect, onToggleFav, onStatus }: {
-  row: ResultRowData;
-  isFav: boolean;
-  query: string;
-  onSelect: (id: string) => void;
-  onToggleFav: (id: string) => void;
-  onStatus: (msg: string) => void;
-}) {
-  const { t } = useTranslation();
-  const handleResume = useResumeHandler(row, onStatus);
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onSelect(srcKey(row.session))}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(srcKey(row.session)); } }}
-      className="group w-full text-left rounded-xl border border-border-soft hover:border-border bg-surface px-4 py-3 transition flex items-start gap-3 cursor-pointer outline-none focus-visible:border-accent"
-    >
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 min-w-0">
-          {isFav && <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 flex-shrink-0" />}
-          <h3 className="text-[14px] font-semibold text-text truncate">{highlight(row.title, query)}</h3>
-          <span className="ml-auto text-[11px] text-text-muted tabular-nums flex-shrink-0">{fmtTime(row.session.lastTs, t)}</span>
-        </div>
-        <div className="flex items-center gap-2 mt-1 text-[11.5px] text-text-muted">
-          <span className="truncate">{row.project}</span>
-          {row.branch && (
-            <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 flex-shrink-0"><GitBranch className="w-3 h-3" />{row.branch}</span>
-          )}
-        </div>
-        <MatchBlock row={row} query={query} />
-        <div className="flex items-center gap-3 mt-2 text-[11px] text-text-muted">
-          <span className="tabular-nums">{fmtTokens(row.tokens)} {t('units.tokens')}</span>
-          <span className="text-text-muted/50">·</span>
-          <span className="tabular-nums">{row.msgs} {t('units.msgs')}</span>
-        </div>
-      </div>
-      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-        <button onClick={(e) => { e.stopPropagation(); onToggleFav(row.session.id); }} className="p-1 rounded hover:bg-muted">
-          <Star className={cn('w-3.5 h-3.5', isFav ? 'fill-amber-400 text-amber-400' : 'text-text-muted')} />
-        </button>
-        <button onClick={handleResume} className="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-accent-soft text-accent text-[11px] font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition">
-          <Play className="w-3 h-3" /> {t('detail.btn.resume')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /* ============================== Heading + sentinel ============================== */
 
-function ResultsHeading({ count, shown, deepLoading, viewMode, onViewMode }: {
+function ResultsHeading({ count, shown, deepLoading }: {
   count: number;
   shown: number;
   deepLoading: boolean;
-  viewMode: ViewMode;
-  onViewMode: (m: ViewMode) => void;
 }) {
   const { t } = useTranslation();
   const showingAll = shown >= count;
@@ -760,48 +689,15 @@ function ResultsHeading({ count, shown, deepLoading, viewMode, onViewMode }: {
           </>
         )}
       </div>
-      {/* View mode switcher — segmented chip group. Hidden when there are no
-         results to display so the header stays clean for empty / loading states. */}
-      {count > 0 && (
-        <div className="inline-flex items-center gap-0.5 bg-muted/40 border border-border-soft rounded-md p-0.5">
-          <ViewModeChip mode="timeline" active={viewMode} onSelect={onViewMode} icon={Calendar}   label={t('search.viewMode.timeline')} />
-          <ViewModeChip mode="list"     active={viewMode} onSelect={onViewMode} icon={ListIcon}   label={t('search.viewMode.list')} />
-          <ViewModeChip mode="card"     active={viewMode} onSelect={onViewMode} icon={LayoutGrid} label={t('search.viewMode.card')} />
-        </div>
-      )}
     </div>
   );
 }
 
-function ViewModeChip({ mode, active, onSelect, icon: Icon, label }: {
-  mode: ViewMode;
-  active: ViewMode;
-  onSelect: (m: ViewMode) => void;
-  icon: any;
-  label: string;
-}) {
-  const on = active === mode;
-  return (
-    <button
-      onClick={() => onSelect(mode)}
-      title={label}
-      className={cn(
-        'inline-flex items-center gap-1 px-2 h-6 rounded text-[10.5px] font-medium transition',
-        on ? 'bg-surface text-text shadow-sm' : 'text-text-muted hover:text-text',
-      )}
-    >
-      <Icon className="w-3 h-3" />
-      <span className="hidden sm:inline">{label}</span>
-    </button>
-  );
-}
-
-// Picks the layout for a given view mode. Each mode reuses the same ResultRow
-// component but rearranges container layout — keeps interaction (click, fav,
-// resume button) identical across modes.
-function ResultsLayout({ rows, mode, query, favorites, onSelect, onToggleFav, onStatus }: {
+// Renders search results as a timeline: rows grouped by day with relative date
+// headers ("Today" / "Yesterday"), a continuous vertical track, a per-row time
+// column, and a tinted bullet dot at each anchor.
+function ResultsLayout({ rows, query, favorites, onSelect, onToggleFav, onStatus }: {
   rows: ResultRowData[];
-  mode: ViewMode;
   query: string;
   favorites: Set<string>;
   onSelect: (id: string) => void;
@@ -809,96 +705,51 @@ function ResultsLayout({ rows, mode, query, favorites, onSelect, onToggleFav, on
   onStatus: (msg: string) => void;
 }) {
   const { t, locale } = useTranslation();
-  if (mode === 'card') {
-    // Width-driven auto-fill grid. The 260px minimum is tuned so the app's
-    // minimum window width (1380px → ~1100px content after sidebar/padding)
-    // still fits 4 columns — the configured floor — while wider windows pick
-    // up 5 / 6+ columns naturally. Each tile keeps title + branch + keyword
-    // tag chips + footer with relative time, tokens, msgs.
-    return (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
-        {rows.map(r => (
-          <CardItem
-            key={`${r.session.source}:${r.session.id}`}
-            row={r}
-            isFav={favorites.has(`${r.session.source}:${r.session.id}`)}
-            query={query}
-            onSelect={onSelect}
-            onToggleFav={onToggleFav}
-            onStatus={onStatus}
-          />
-        ))}
-      </div>
-    );
+  // Group rows by day; render relative date headers ("Today" / "Yesterday")
+  // with N results, a vertical track on the left, a time column per row, and a
+  // tinted bullet dot at each row anchor.
+  const groups = new Map<string, ResultRowData[]>();
+  for (const r of rows) {
+    const ms = sessionTimestamp(r.session);
+    const ts = ms ? new Date(ms) : null;
+    const key = ts
+      ? `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, '0')}-${String(ts.getDate()).padStart(2, '0')}`
+      : 'unknown';
+    const list = groups.get(key) || [];
+    list.push(r);
+    groups.set(key, list);
   }
-  if (mode === 'timeline') {
-    // Group rows by day; render relative date headers ("Today" / "Yesterday")
-    // with N results, a vertical track on the left, a time column per row, and
-    // a tinted bullet dot at each row anchor.
-    const groups = new Map<string, ResultRowData[]>();
-    for (const r of rows) {
-      const ms = sessionTimestamp(r.session);
-      const ts = ms ? new Date(ms) : null;
-      const key = ts
-        ? `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, '0')}-${String(ts.getDate()).padStart(2, '0')}`
-        : 'unknown';
-      const list = groups.get(key) || [];
-      list.push(r);
-      groups.set(key, list);
-    }
-    const sortedKeys = [...groups.keys()].sort((a, b) => b.localeCompare(a));
-    return (
-      <div className="flex flex-col gap-8">
-        {sortedKeys.map(k => (
-          <div key={k}>
-            {/* Day header — bold relative label + count */}
-            <div className="flex items-baseline gap-2 mb-4">
-              <h3 className="text-[15px] font-bold text-text">{relDayLabel(k, t, locale)}</h3>
-              <span className="text-[11.5px] text-text-muted">
-                {groups.get(k)!.length} {groups.get(k)!.length === 1 ? t('search.result') : t('search.results')}
-              </span>
-            </div>
-            {/* Continuous vertical track across the whole day group. Each row
-               is just (time, dot, card); the track is drawn ONCE here so it
-               never breaks between rows. */}
-            <div className="relative">
-              <span
-                className="absolute top-2 bottom-2 left-[84px] w-px bg-border-soft"
-                aria-hidden
-              />
-              <div className="flex flex-col gap-5">
-                {groups.get(k)!.map(r => (
-                  <TimelineItem
-                    key={`${r.session.source}:${r.session.id}`}
-                    row={r}
-                    isFav={favorites.has(`${r.session.source}:${r.session.id}`)}
-                    query={query}
-                    locale={locale}
-                    onSelect={onSelect}
-                    onToggleFav={onToggleFav}
-                    onStatus={onStatus}
-                  />
-                ))}
-              </div>
+  const sortedKeys = [...groups.keys()].sort((a, b) => b.localeCompare(a));
+  return (
+    <div className="flex flex-col gap-8">
+      {sortedKeys.map(k => (
+        <div key={k}>
+          {/* Day header — bold relative label + count */}
+          <div className="flex items-baseline gap-2 mb-4">
+            <h3 className="text-[15px] font-bold text-text">{relDayLabel(k, t, locale)}</h3>
+            <span className="text-[11.5px] text-text-muted">
+              {groups.get(k)!.length} {groups.get(k)!.length === 1 ? t('search.result') : t('search.results')}
+            </span>
+          </div>
+          {/* Continuous vertical track across the whole day group. */}
+          <div className="relative">
+            <span className="absolute top-2 bottom-2 left-[84px] w-px bg-border-soft" aria-hidden />
+            <div className="flex flex-col gap-5">
+              {groups.get(k)!.map(r => (
+                <TimelineItem
+                  key={`${r.session.source}:${r.session.id}`}
+                  row={r}
+                  isFav={favorites.has(`${r.session.source}:${r.session.id}`)}
+                  query={query}
+                  locale={locale}
+                  onSelect={onSelect}
+                  onToggleFav={onToggleFav}
+                  onStatus={onStatus}
+                />
+              ))}
             </div>
           </div>
-        ))}
-      </div>
-    );
-  }
-  // Default: list.
-  return (
-    <div className="flex flex-col gap-2">
-      {rows.map(r => (
-        <ResultRow
-          key={`${r.session.source}:${r.session.id}`}
-          row={r}
-          isFav={favorites.has(`${r.session.source}:${r.session.id}`)}
-          query={query}
-          onSelect={onSelect}
-          onToggleFav={onToggleFav}
-          onStatus={onStatus}
-        />
+        </div>
       ))}
     </div>
   );
@@ -963,7 +814,7 @@ function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav, onStat
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(srcKey(row.session)); } }}
       className="group relative grid grid-cols-[76px_minmax(0,1fr)] gap-4 items-stretch cursor-pointer outline-none min-w-0"
     >
-      {/* Time column — top-aligned to the title baseline of the card */}
+      {/* Time column — day-scoped HH:MM, top-aligned to the card's title row. */}
       <div className="pt-4 pr-2 text-right">
         <span className="text-[11.5px] tabular-nums text-text-muted">{formatTimeHM(row.session.lastTs, locale)}</span>
       </div>
@@ -980,7 +831,12 @@ function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav, onStat
         <div className="flex items-center gap-2 min-w-0">
           {isFav && <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 flex-shrink-0" />}
           <h3 className="text-[14.5px] font-semibold text-text truncate flex-1">{highlight(row.title, query)}</h3>
-          <span className="text-[11.5px] text-text-muted tabular-nums flex-shrink-0">{fmtTime(row.session.lastTs, t)}</span>
+          <span className="flex flex-col items-end leading-none gap-0.5 flex-shrink-0">
+            <span className="text-[11.5px] text-text-muted tabular-nums">{fmtTime(row.session.lastTs, t)}</span>
+            {row.session.firstTs && (
+              <span className="text-[10px] text-text-muted/60 tabular-nums" title={`${t('info.row.created')} ${fmtDate(row.session.firstTs)}`}>{fmtDate(row.session.firstTs)}</span>
+            )}
+          </span>
           <button onClick={e => { e.stopPropagation(); onToggleFav(row.session.id); }} className="p-1 rounded hover:bg-muted">
             <Star className={cn('w-3.5 h-3.5', isFav ? 'fill-amber-400 text-amber-400' : 'text-text-muted')} />
           </button>
@@ -1002,103 +858,6 @@ function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav, onStat
             <Play className="w-3 h-3" /> {t('detail.btn.resume')}
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// Pull a few representative tag words from the title. Used to fill the
-// keyword chips row in the card view per the screenshot. Stopwords stripped
-// and length-capped so the chips don't run away.
-const TITLE_STOPWORDS = new Set([
-  'the','a','an','to','for','of','in','on','with','and','or','at','from','by','as','is','are','was','were','it','this','that','these','those','be','been','being','my','your','our','their','its','do','does','did','have','has','had','can','will','should','would','what','when','where','why','how','which','who','whom','off','out','up','down','via','vs','&',
-]);
-
-function extractTitleTags(title: string, max = 4): string[] {
-  if (!title) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of title.split(/[^A-Za-z0-9]+/)) {
-    if (!raw) continue;
-    const w = raw.toLowerCase();
-    if (w.length < 3 || w.length > 16) continue;
-    if (TITLE_STOPWORDS.has(w)) continue;
-    if (seen.has(w)) continue;
-    seen.add(w);
-    out.push(w);
-    if (out.length >= max) break;
-  }
-  return out;
-}
-
-function CardItem({ row, isFav, query, onSelect, onToggleFav, onStatus }: {
-  row: ResultRowData;
-  isFav: boolean;
-  query: string;
-  onSelect: (id: string) => void;
-  onToggleFav: (id: string) => void;
-  onStatus: (msg: string) => void;
-}) {
-  const { t } = useTranslation();
-  const tags = extractTitleTags(row.title);
-  const handleResume = useResumeHandler(row, onStatus);
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onSelect(srcKey(row.session))}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(srcKey(row.session)); } }}
-      className="group rounded-xl border border-border-soft hover:border-border bg-surface p-6 transition cursor-pointer outline-none focus-visible:border-accent flex flex-col min-h-[240px]"
-    >
-      {/* Title row — line-clamp-2 prevents 5-line titles from blowing the card
-         layout out of shape; ellipsis at the end signals truncation. */}
-      <div className="flex items-start gap-2 min-w-0">
-        <h3 className="text-[15.5px] font-semibold text-text leading-snug flex-1 line-clamp-2 break-words">{highlight(row.title, query)}</h3>
-        <button onClick={e => { e.stopPropagation(); onToggleFav(row.session.id); }} className="p-0.5 rounded hover:bg-muted -mt-0.5 flex-shrink-0">
-          <Star className={cn('w-3.5 h-3.5', isFav ? 'fill-amber-400 text-amber-400' : 'text-text-muted')} />
-        </button>
-      </div>
-      {/* Project / branch — close under title. Both lanes use `min-w-0` so a
-         long branch name (or project path) can collapse with truncation
-         instead of overflowing the card's right edge. */}
-      <div className="flex items-center gap-2 mt-2 text-[12px] text-text-muted min-w-0">
-        <span className="truncate min-w-0 flex-shrink">{row.project}</span>
-        {row.branch && (
-          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 min-w-0 flex-shrink">
-            <GitBranch className="w-3 h-3 flex-shrink-0" />
-            <span className="truncate">{row.branch}</span>
-          </span>
-        )}
-      </div>
-      {/* Match block — sits right under the project line so the user sees
-         WHY this card matched (snippet + matched-in chips) before the
-         decorative tag chips and footer. Same shape as list/timeline modes. */}
-      <MatchBlock row={row} query={query} compact />
-      {/* Big spacer — generous whitespace per reference. flex-1 absorbs all
-         extra height so the tag chips + footer drop to the bottom of the card,
-         and rows in the same grid row stay aligned at the bottom. */}
-      <div className="flex-1 min-h-[28px]" />
-      {/* Tag chips derived from title words — hidden when we have a match
-         block so the card doesn't look noisy. */}
-      {!row.snippet && !hasShallowMatch(row, query) && tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {tags.map(tag => (
-            <span key={tag} className="text-[11px] px-2 py-0.5 rounded-md bg-muted/60 border border-border-soft text-text-muted">
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
-      {/* Footer — relative time + tokens + msgs + hover-Resume, divider above */}
-      <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border-soft/70 text-[11.5px] text-text-muted tabular-nums">
-        <span>{fmtTime(row.session.lastTs, t)}</span>
-        <span className="text-text-muted/50">·</span>
-        <span>{fmtTokens(row.tokens)} {t('units.tokens')}</span>
-        <span className="text-text-muted/50">·</span>
-        <span>{row.msgs} {t('units.msgs')}</span>
-        <button onClick={handleResume} className="ml-auto inline-flex items-center gap-1 px-2 h-6 rounded-md bg-accent-soft text-accent text-[11px] font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition">
-          <Play className="w-3 h-3" /> {t('detail.btn.resume')}
-        </button>
       </div>
     </div>
   );

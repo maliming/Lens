@@ -118,6 +118,42 @@ function isHumanUserLine(obj) {
   return !isSystemInjectedUserText(obj.message.content);
 }
 
+// Human-typed text from a user line: direct string content, or the joined text
+// blocks when newer Claude Code wraps a pasted prompt (+ image) in a content
+// array. Returns '' for tool_result, system-injected, or text-less lines so
+// they never become the session's firstUser / title. Without the array branch
+// a session whose opening turn pastes text + an image derives no firstUser and
+// the title falls through to the next turn (or "no human message").
+function humanUserText(obj) {
+  if (!obj || obj.type !== 'user' || !obj.message) return '';
+  const c = obj.message.content;
+  if (typeof c === 'string') return isSystemInjectedUserText(c) ? '' : c.trim();
+  if (Array.isArray(c)) {
+    if (c.some(b => b?.type === 'tool_result')) return '';
+    const text = c.filter(b => b?.type === 'text' && typeof b.text === 'string').map(b => b.text).join('\n').trim();
+    return isSystemInjectedUserText(text) ? '' : text;
+  }
+  return '';
+}
+
+// Whether a user line is a human-authored turn for COUNT purposes — a superset
+// of "has firstUser text". An image-only paste carries no text (humanUserText
+// returns '') yet the detail view still renders it as a user message, so it must
+// count toward userMsgs or the row's "N msgs" undercounts what the user sees.
+// Excludes tool_result and system-injected lines, same as humanUserText.
+function isHumanUserTurn(obj) {
+  if (!obj || obj.type !== 'user' || !obj.message) return false;
+  const c = obj.message.content;
+  if (typeof c === 'string') return !isSystemInjectedUserText(c);
+  if (Array.isArray(c)) {
+    if (c.some(b => b?.type === 'tool_result')) return false;
+    const text = c.filter(b => b?.type === 'text' && typeof b.text === 'string').map(b => b.text).join('\n').trim();
+    if (text) return !isSystemInjectedUserText(text);
+    return c.some(b => b?.type === 'image');
+  }
+  return false;
+}
+
 // Newer Claude Code doesn't inline image bytes in JSONL — it writes the
 // bytes to `~/.claude/image-cache/<sessionId>/<n>.png` and embeds a literal
 // text marker. Resolve those markers against the realpath-resolved cache
@@ -430,16 +466,24 @@ function createParser({ fileMetaCache, userdata }) {
     // detail-view path (`getSessionMessages`) still warns the renderer
     // before loading huge files because *that* path builds an in-memory
     // messages array the renderer holds onto.
-    let firstUser = '', summary = '';
+    let firstUser = '', summary = '', aiTitle = '';
     let firstTs = null, lastTs = null;
     let userMsgs = 0, assistantMsgs = 0;
-    let cwd = '', gitBranch = '', model = '', version = '';
+    let cwd = '', firstCwd = '', gitBranch = '', model = '', version = '';
     let tokensIn = 0, tokensOut = 0, tokensCacheRead = 0, tokensCacheCreate = 0;
     const tokenEvents = [];
 
     await forEachJsonlLine(filePath, (obj) => {
-      if (obj.type === 'summary' && typeof obj.summary === 'string' && !summary) summary = obj.summary;
-      if (obj.cwd) cwd = obj.cwd;
+      if (obj.type === 'summary' && typeof obj.summary === 'string' && obj.summary.trim() && !summary) summary = obj.summary.trim();
+      // Newer Claude Code emits an `ai-title` line (concise auto-generated
+      // title) instead of a `summary`. Use it as the title when no summary
+      // exists so these sessions don't fall back to a giant pasted firstUser.
+      if (!aiTitle && obj.type === 'ai-title' && typeof obj.aiTitle === 'string' && obj.aiTitle.trim()) aiTitle = obj.aiTitle.trim();
+      // `cwd` tracks the last-seen working dir (→ lastCwd); `firstCwd` pins the
+      // one the session launched in (→ projectCwd, what `claude --resume` needs).
+      // A tool that `cd`s into a build/temp dir mid-session overwrites cwd but
+      // must not move projectCwd.
+      if (obj.cwd) { if (!firstCwd) firstCwd = obj.cwd; cwd = obj.cwd; }
       if (obj.gitBranch) gitBranch = obj.gitBranch;
       if (obj.version) version = obj.version;
 
@@ -463,9 +507,10 @@ function createParser({ fileMetaCache, userdata }) {
       }
 
       if (obj.type === 'user' || obj.type === 'assistant') {
-        if (obj.type === 'user' && typeof obj.message?.content === 'string'
-            && !isSystemInjectedUserText(obj.message.content)) {
-          userMsgs++;
+        if (obj.type === 'user') {
+          if (isHumanUserTurn(obj)) userMsgs++;
+          const ut = humanUserText(obj);
+          if (ut && !firstUser) firstUser = ut;
         }
         else if (obj.type === 'assistant') {
           // Skip pure tool_use turns. Token/model extraction below runs
@@ -496,14 +541,13 @@ function createParser({ fileMetaCache, userdata }) {
           if (!firstTs) firstTs = obj.timestamp;
           lastTs = obj.timestamp;
         }
-        if (!firstUser && isHumanUserLine(obj)) firstUser = obj.message.content.trim();
       }
     });
 
     return {
-      summary, firstUser, firstTs, lastTs,
+      summary: summary || aiTitle, firstUser, firstTs, lastTs,
       userMsgs, assistantMsgs,
-      cwd, gitBranch, model, version,
+      cwd, firstCwd, gitBranch, model, version,
       tokensIn, tokensOut, tokensCacheRead, tokensCacheCreate,
       tokenEvents,
       fileSize: stat.size, mtime: stat.mtimeMs,
@@ -645,7 +689,14 @@ function createParser({ fileMetaCache, userdata }) {
     const k = compositeKey('claude', sessionId);
     try {
       const meta = await readSessionMetadata(filePath);
-      const projectCwd = decodeProjectDir(projectDir);
+      // Prefer the real launch cwd recorded in the JSONL over decoding the
+      // project-folder name. The folder encoding replaces every `/` with `-`,
+      // so a literal hyphen in a path segment (e.g. `taskever-desktop`) is
+      // indistinguishable from a separator and decodeProjectDir splits it wrong
+      // (`/Users/.../taskever/desktop`) — a dir that doesn't exist, which then
+      // breaks `claude --resume` (scoped to the current project dir). Fall back
+      // to the lossy decode only when no line carried a cwd.
+      const projectCwd = meta.firstCwd || decodeProjectDir(projectDir);
       // Seed numeric fields so subagent-merge `+= ` lands on a number
       // even when the parent meta is incomplete (e.g. an older `tooLarge`
       // cache entry that pre-dates the no-cap parser). Without these
@@ -690,7 +741,7 @@ function createParser({ fileMetaCache, userdata }) {
       return {
         source: 'claude',
         id: sessionId, projectDir,
-        decodedCwd: projectCwd,
+        decodedCwd: decodeProjectDir(projectDir),
         projectCwd,
         lastCwd: merged.cwd || projectCwd,
         filePath,
@@ -699,6 +750,9 @@ function createParser({ fileMetaCache, userdata }) {
         alias: getAlias(k),
         ...merged,
         cwd: undefined,
+        // projectCwd already carries the launch dir; drop the duplicate so it
+        // doesn't bloat the persisted cache (round-tripped via projectCwd).
+        firstCwd: undefined,
       };
     } catch (e) {
       return {

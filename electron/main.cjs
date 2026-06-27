@@ -282,21 +282,25 @@ function makeTrayIcon() {
 }
 
 function showOrCreateWindow() {
-  if (process.platform === 'darwin' && app.dock) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (process.platform === 'darwin' && app.dock) { try { app.dock.show(); } catch {} }
+    createWindow();
+    return;
+  }
+  // Only act on the states that actually need changing. Redundant show()/focus()
+  // calls on a window macOS is already activating produce a focus->blur->focus
+  // flicker — the window visibly de- and re-activates.
+  if (process.platform === 'darwin' && app.dock && !app.dock.isVisible()) {
     try { app.dock.show(); } catch {}
   }
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-  } else {
-    createWindow();
-  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  if (!mainWindow.isFocused()) mainWindow.focus();
 }
 
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
-    { label: 'Show Lens', click: showOrCreateWindow },
+    { label: 'Show Lens', click: () => showOrCreateWindow() },
     { type: 'separator' },
     { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
   ]);
@@ -639,6 +643,11 @@ if (!_gotLock) {
   });
 
   app.on('activate', () => {
+    // macOS already activates+focuses a visible, non-minimized window on dock
+    // click — re-issuing show()/focus() here is what causes a focus→blur→focus
+    // flicker (the window visibly de- and re-activates). Only step in when the
+    // window genuinely needs bringing back.
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized()) return;
     showOrCreateWindow();
   });
 }
