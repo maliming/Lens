@@ -50,8 +50,6 @@ jobs:
 
       - name: Build ${{ matrix.target }}
         run: npm run dist:${{ matrix.target }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/upload-artifact@v4
         with:

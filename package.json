@@ -18,8 +18,8 @@
     "preview": "electron .",
     "start": "npm run dev",
     "dist": "npm run build && electron-builder",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win"
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never"
   },
   "author": "maliming",
   "license": "MIT",
