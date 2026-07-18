@@ -38,6 +38,7 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
   const showTerminalChoice = caps?.platform === 'darwin' && caps.terminals.iterm;
   const [appPrefs, setAppPrefs] = useAppPrefs();
   const isMac = caps?.platform === 'darwin';
+  const supportsLaunchAtLogin = caps?.platform === 'darwin' || caps?.platform === 'win32';
 
   return (
     <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
@@ -146,9 +147,11 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
               </button>
             </div>
           </Row>
-          <Row label={t('settings.launchAtLogin')} hint={t('settings.launchAtLogin.hint')}>
-            <Switch checked={appPrefs.launchAtLogin} onChange={v => setAppPrefs({ launchAtLogin: v })} />
-          </Row>
+          {supportsLaunchAtLogin && (
+            <Row label={t('settings.launchAtLogin')} hint={t('settings.launchAtLogin.hint')}>
+              <Switch checked={appPrefs.launchAtLogin} onChange={v => setAppPrefs({ launchAtLogin: v })} />
+            </Row>
+          )}
         </Section>
 
         {/* Usage — subscription quota probe */}

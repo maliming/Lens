@@ -3,6 +3,7 @@
   "version": "2.0.3",
   "description": "Search, resume, and understand your AI coding sessions",
   "main": "electron/main.cjs",
+  "desktopName": "io.maliming.lens.desktop",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -19,7 +20,8 @@
     "start": "npm run dev",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
-    "dist:win": "npm run build && electron-builder --win --publish never"
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never"
   },
   "author": "maliming",
   "license": "MIT",
@@ -36,6 +38,9 @@
     "productName": "Lens",
     "copyright": "Copyright © 2026 maliming",
     "compression": "maximum",
+    "toolsets": {
+      "appimage": "1.0.3"
+    },
     "electronLanguages": [
       "en-US"
     ],
@@ -101,6 +106,20 @@
           ]
         }
       ]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Development",
+      "syncDesktopName": true,
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
     }
   },
   "dependencies": {

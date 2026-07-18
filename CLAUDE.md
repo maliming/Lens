@@ -18,6 +18,7 @@ npm run preview      # run Electron against built dist/
 
 npm run dist:mac     # release/Lens-<ver>-(arm64|x64).zip
 npm run dist:win     # release/Lens-<ver>-win.zip
+npm run dist:linux   # release/Lens-<ver>-linux-x86_64.AppImage
 
 npm run build:icon   # regenerate build/icon.{icns,ico,png} from icon.svg
 DEMO_BUILD=1 npm run dist:mac   # screenshot-ready build with fake data forced on

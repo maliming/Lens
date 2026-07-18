@@ -13,6 +13,7 @@ Search, resume, and understand every conversation either tool writes to disk —
 [![Release](https://img.shields.io/github/v/release/maliming/Lens?logo=github&logoColor=fff&label=latest)](https://github.com/maliming/Lens/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-13%2B-000?logo=apple&logoColor=fff)](#install)
 [![Windows](https://img.shields.io/badge/Windows-10%2B-0078D4?logo=windows&logoColor=fff)](#install)
+[![Linux](https://img.shields.io/badge/Linux-x64-FCC624?logo=linux&logoColor=000)](#install)
 [![License](https://img.shields.io/badge/license-MIT-22c55e)](#license)
 [![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=fff)](https://electronjs.org/)
 
@@ -115,7 +116,7 @@ System / Light / Dark themes. UI localized into **English, 简体中文, Türkç
 - **Inline images** — pasted screenshots and tool-result attachments render in the conversation view; click for an in-app lightbox
 - **Favorites, excludes, aliases** — stored per AI source, so Claude and Codex selections never collide
 - **⌘K opens search** — full-text grep + title / project / branch / model filter in one keystroke
-- **Tray / menu-bar resident** on macOS so the window can sleep without losing state
+- **Tray / menu-bar resident** across macOS, Windows, and Linux so the window can sleep without losing state
 - **No network** — everything in the UI comes from local JSONL files; the live-quota probe is the one exception and is gated behind an explicit consent prompt
 
 ---
@@ -153,6 +154,20 @@ App data: `%APPDATA%\Lens\`
 
 </details>
 
+<details>
+<summary><b>Linux</b> &mdash; portable <code>.AppImage</code> (x64)</summary>
+
+Download `Lens-<ver>-linux-x86_64.AppImage`, make it executable, and run it directly. No installer, root access, or FUSE2 runtime is required.
+
+```bash
+chmod +x Lens-<ver>-linux-x86_64.AppImage
+./Lens-<ver>-linux-x86_64.AppImage
+```
+
+App data lives at `~/.config/Lens/` by default.
+
+</details>
+
 
 ---
 
@@ -173,6 +188,7 @@ npm run preview     # run Electron against built dist/
 
 npm run dist:mac    # → release/Lens-<ver>-(arm64|x64)-mac.zip
 npm run dist:win    # → release/Lens-<ver>-win.zip
+npm run dist:linux  # → release/Lens-<ver>-linux-x86_64.AppImage
 ```
 
 Distribution defaults trim Chromium locales (English only) and enable maximum compression — the macOS zip sits around 96 MB.
