@@ -502,15 +502,25 @@ function createParser({ fileMetaCache, userdata }) {
           if (!firstTs) firstTs = obj.timestamp;
           lastTs = obj.timestamp;
         }
-        if (!firstUser) firstUser = obj.attachment.prompt.trim();
+        if (!firstUser) {
+          const clean = stripImagePlaceholders(obj.attachment.prompt);
+          if (clean) firstUser = clean;
+        }
         return;
       }
 
       if (obj.type === 'user' || obj.type === 'assistant') {
         if (obj.type === 'user') {
           if (isHumanUserTurn(obj)) userMsgs++;
-          const ut = humanUserText(obj);
-          if (ut && !firstUser) firstUser = ut;
+          // Newer Claude Code inlines pasted-image references (`[Image #1]`)
+          // into the human text block, so strip them before firstUser — the
+          // detail view already strips the same markers (see below). An
+          // image-only paste strips to empty and falls through to the next
+          // turn instead of titling the row `[Image #1] [Image #2]`.
+          if (!firstUser) {
+            const ut = stripImagePlaceholders(humanUserText(obj));
+            if (ut) firstUser = ut;
+          }
         }
         else if (obj.type === 'assistant') {
           // Skip pure tool_use turns. Token/model extraction below runs

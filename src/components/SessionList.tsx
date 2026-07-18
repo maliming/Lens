@@ -8,7 +8,7 @@ import { cleanDisplayText, fmtTime, fmtDate, fmtTokens, kbdShortcut, projectColo
 import { resolveSessionTitle, projectShortName, meaningfulBranch } from '../lib/sessionTitle';
 import { groupSessions, type GroupKey } from '../lib/timelineGroup';
 import { matchesExcludeRule } from '../lib/excludeRules';
-import { srcKey } from '../lib/sources';
+import { srcKey, useCurrentSource } from '../lib/sources';
 import type { SessionMeta } from '../types';
 import type { Filters } from './SessionsView';
 import { useTranslation } from '../lib/I18nProvider';
@@ -58,6 +58,16 @@ const SORT_OPTIONS: Array<{ value: Filters['sort']; labelKey: TKey }> = [
 
 export function SessionList({ items, projectChoices, sessions, favorites, excluded, manualExcluded, excludeRules, onExcludeRulesChange, activeId, filters, view, onSelect, onFilters, onToggleFavorite, onToggleExclude, loading = false, onStatus }: Props) {
   const { t } = useTranslation();
+  const [currentSource] = useCurrentSource();
+  // Signature of everything that changes the list's length/contents/order.
+  // Feeds VirtualList's `key` so a wholesale swap (source flip, sort, project,
+  // time window, or filter query) remounts the virtualizer instead of reusing
+  // it with a stale scroll offset + measurement cache — the reuse left ghost
+  // rows from the previous source/filter stranded at old positions. Background
+  // SWR refreshes replace `sessions` WITHOUT changing this signature, so a
+  // silent refresh keeps the user's scroll position (the virtualizer handles
+  // incremental item changes fine — only wholesale swaps need the reset).
+  const listKey = `${view}:${currentSource}:${filters.sort}:${filters.project}:${filters.time}:${filters.query}`;
   // Build the project dropdown from `projectChoices` — the same slice as
   // `items` but BEFORE the project filter applies. Using `items` collapses the
   // dropdown to just the current project after one selection, so the user can
@@ -173,11 +183,13 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
       </div>
 
       {/* List — virtualized so 670+ sessions don't blow up the DOM.
-          Keyed by view so History / Favorites / Excluded each get their own
-          virtualizer instance — switching views shouldn't preserve scroll
-          offset across lists that differ in length and contents. */}
+          Keyed by `listKey` (view + source + sort + project + time + query) so
+          each distinct list gets its own virtualizer instance — a list that
+          differs in length and contents shouldn't inherit the previous one's
+          scroll offset or measurement cache. Reusing it stranded ghost rows
+          from the old source/filter at their stale positions. */}
       <VirtualList
-        key={view}
+        key={listKey}
         groups={groups}
         items={items}
         view={view}
@@ -263,10 +275,13 @@ function VirtualList({
     for (const g of groups) {
       if (g.key) r.push({ kind: 'header', key: g.key, height: 38 });
       g.items.forEach((s, idx) => {
-        const hasAlias = !!s.alias;
-        // Aliased rows surface the original title underneath; bump the
-        // estimate so the virtualizer doesn't visibly resnap on first paint.
-        const base = 80 + (hasAlias ? 16 : 0);
+        // Rows carry a second line either from an alias (original title shown
+        // underneath) or from a smart-title sub (abp.io / GitHub / Taskever
+        // ref). Fold both into the estimate so the virtualizer doesn't visibly
+        // resnap on first paint — matters more now that the list remounts on
+        // every filter change and re-measures from the estimate each time.
+        const hasSecondLine = s.alias ? true : !!resolveSessionTitle(s).sub;
+        const base = 80 + (hasSecondLine ? 16 : 0);
         r.push({ kind: 'item', session: s, isFirst: idx === 0, isLast: idx === g.items.length - 1, height: base });
       });
     }
@@ -477,6 +492,14 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
             </div>
           </div>
 
+          {/* Smart-title sub-line: question title / path tail derived from a leading URL.
+              Only present for URL-lead sessions; aliased rows resolve to no sub. */}
+          {!s.alias && title.sub && (
+            <div className={cn('text-[12px] font-medium truncate min-w-0', active ? 'text-accent/80' : 'text-text-dim')}>
+              {title.sub}
+            </div>
+          )}
+
           {/* Aliased rows: surface the auto-derived original so users still see what the session originally was. */}
           {s.alias && (
             <div className={cn('text-[11px] italic truncate min-w-0', active ? 'text-accent/60' : 'text-text-muted')} title={t('list.aliasedOriginal', { title: resolveSessionTitle(s, { includeAlias: false }).primary })}>
@@ -484,44 +507,61 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
             </div>
           )}
 
-          {/* Row 2: project (with initial badge) + branch on left, stats right. */}
+          {/* Row 2: project (with initial badge) + branch on left, stats right.
+              Project + branch share a flex-1 min-w-0 group so when BOTH are long
+              they shrink/truncate against each other (proportionally to length —
+              a short "main" stays intact while a long project name truncates)
+              instead of pushing the stats off the right edge into the card's
+              overflow clip. Stats + fav stay flex-shrink-0 → always visible. */}
           <div className="flex items-center gap-x-2 mt-1.5 text-[11px] min-w-0">
-            {projName && (
-              <span className="flex items-center gap-1.5 truncate flex-shrink-0 max-w-[140px]">
-                <span className={cn(
-                  'w-3.5 h-3.5 rounded-[3px] flex items-center justify-center text-white text-[8.5px] font-bold flex-shrink-0',
-                  projectColor(s.projectCwd || s.projectDir).bg
-                )}>
-                  {projectInitial(s.projectCwd || s.projectDir)}
-                </span>
-                <span className={cn('font-semibold truncate text-[11.5px]', active ? 'text-accent/90' : projectTextColor(s.projectCwd || s.projectDir))}>
-                  {projName}
-                </span>
-              </span>
-            )}
-            {branch && (
-              <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 truncate flex items-center gap-0.5 flex-shrink-0 max-w-[140px]">
-                <GitBranch className="w-3 h-3 flex-shrink-0" />
-                <span className="truncate">{branch}</span>
-              </span>
-            )}
-            <span className="ml-auto flex items-center gap-2 text-[10.5px] tabular-nums text-text-muted/80 flex-shrink-0">
-              {tokens > 0 && (
-                <span className={cn(active && 'text-accent/70', !active && tokens >= 5_000_000 && 'text-text-dim font-medium')}>
-                  {fmtTokens(tokens)}
+            <div className="flex items-center gap-x-2 min-w-0 flex-1">
+              {projName && (
+                <span className="flex items-center gap-1.5 min-w-0 truncate">
+                  <span className={cn(
+                    'w-3.5 h-3.5 rounded-[3px] flex items-center justify-center text-white text-[8.5px] font-bold flex-shrink-0',
+                    projectColor(s.projectCwd || s.projectDir).bg
+                  )}>
+                    {projectInitial(s.projectCwd || s.projectDir)}
+                  </span>
+                  <span className={cn('font-semibold truncate min-w-0 text-[11.5px]', active ? 'text-accent/90' : projectTextColor(s.projectCwd || s.projectDir))}>
+                    {projName}
+                  </span>
                 </span>
               )}
-              <span>{msgs} {t('units.msgs')}</span>
-            </span>
-            {!isFav && (
-              <button
-                onClick={e => { e.stopPropagation(); onToggleFav(); }}
-                className="p-0.5 rounded opacity-0 group-hover:opacity-100 flex-shrink-0"
-                title={t('ctx.addFav')}
-              >
-                <Star className="w-4 h-4 text-text-muted hover:text-amber-400" />
-              </button>
-            )}
+              {branch && (
+                <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 truncate flex items-center gap-0.5 min-w-0">
+                  <GitBranch className="w-3 h-3 flex-shrink-0" />
+                  <span className="truncate min-w-0">{branch}</span>
+                </span>
+              )}
+            </div>
+            {/* Stats + quick-add star share the same right-aligned slot: stats
+                stay flush to the edge (so they align with the row-1 time column),
+                and on hover of a non-favorited row the stats cross-fade out while
+                the star fades in over the same spot — nothing shifts, no reserved
+                gutter. Favorited rows keep stats visible (no quick-add star). */}
+            <div className="relative flex-shrink-0 flex items-center">
+              <span className={cn(
+                'flex items-center gap-2 text-[10.5px] tabular-nums text-text-muted/80 transition-opacity',
+                !isFav && 'group-hover:opacity-0'
+              )}>
+                {tokens > 0 && (
+                  <span className={cn(active && 'text-accent/70', !active && tokens >= 5_000_000 && 'text-text-dim font-medium')}>
+                    {fmtTokens(tokens)}
+                  </span>
+                )}
+                <span>{msgs} {t('units.msgs')}</span>
+              </span>
+              {!isFav && (
+                <button
+                  onClick={e => { e.stopPropagation(); onToggleFav(); }}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                  title={t('ctx.addFav')}
+                >
+                  <Star className="w-4 h-4 text-text-muted hover:text-amber-400" />
+                </button>
+              )}
+            </div>
           </div>
 
         </div>

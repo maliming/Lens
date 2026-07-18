@@ -146,6 +146,37 @@ function flushPushSessionsNow() {
   _pendingPushPayload = null;
 }
 
+// A codex session that spawns subagents writes each subagent as its own rollout
+// file, sitting right beside the parent in the same day-directory, and each one
+// embeds the parent's transcript — so they share the parent's opening messages
+// (identical title) and all resolve to the parent's root id (session_id). Left
+// alone, the scanner shows one row per spawned agent (the "many duplicates" the
+// user sees). Collapse everything under a root id to one row.
+//
+// Representative preference: the real root over a subagent, then the fullest
+// transcript, then most recent. Root-first matters because a subagent file is
+// `parent-prefix + subagent-task` and can be LONGER than the root, so a plain
+// fullest-first rule could promote a subagent thread to be the whole session.
+// Claude subagents live in a `subagents/` subdir and are folded upstream;
+// Claude top-level sessions carry unique per-file ids, so keying them on
+// filePath leaves them untouched here.
+function betterCodexRep(a, b) {
+  if (!!a.isSubagent !== !!b.isSubagent) return !a.isSubagent;
+  const ma = (a.userMsgs || 0) + (a.assistantMsgs || 0);
+  const mb = (b.userMsgs || 0) + (b.assistantMsgs || 0);
+  if (ma !== mb) return ma > mb;
+  return (a.mtime || 0) > (b.mtime || 0);
+}
+function dedupeCodexForks(sessions) {
+  const best = new Map();
+  for (const s of sessions) {
+    const key = s.source === 'codex' && s.id ? `codex:${s.id}` : `file:${s.filePath}`;
+    const prev = best.get(key);
+    if (!prev || betterCodexRep(s, prev)) best.set(key, s);
+  }
+  return [...best.values()];
+}
+
 async function refreshSessionsInBackground() {
   if (backgroundScanInflight) return backgroundScanInflight;
   // First-batch barrier so first-boot callers can await something
@@ -175,7 +206,7 @@ async function refreshSessionsInBackground() {
       const topFiles = statted.slice(0, TOP_BATCH);
       const top = await mapPool(topFiles, 16, buildOne);
       if (isCold) {
-        setCachedSessions(top.slice());
+        setCachedSessions(dedupeCodexForks(top));
         pushSessions(getCachedSessions());
       }
       if (firstBatchResolver) { firstBatchResolver(); firstBatchResolver = null; }
@@ -192,7 +223,7 @@ async function refreshSessionsInBackground() {
         collected.push(s);
         if (isCold && collected.length - lastFlushIdx >= FLUSH_EVERY) {
           lastFlushIdx = collected.length;
-          const merged = [...getCachedSessions(), ...collected].sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+          const merged = dedupeCodexForks([...getCachedSessions(), ...collected]).sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
           setCachedSessions(merged);
           pushSessions(merged);
         }
@@ -201,7 +232,7 @@ async function refreshSessionsInBackground() {
       // Final flush + sort + persist. This is the only push on a refresh, so
       // the renderer sees one atomic swap from old-cache → fresh-list, no count
       // wobble in between.
-      const all = [...top, ...collected].sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+      const all = dedupeCodexForks([...top, ...collected]).sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
       setCachedSessions(all);
       pushSessions(all);
       saveSessionsCache(all).catch(() => {});

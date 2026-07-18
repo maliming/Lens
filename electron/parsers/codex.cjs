@@ -78,7 +78,8 @@ function createParser({ fileMetaCache, userdata }) {
     // size. The detail-view path still consults size before loading the
     // full messages array into the renderer.
 
-    let id = '', cwd = '', model = '', version = '';
+    let id = '', rootId = '', cwd = '', model = '', version = '';
+    let isSubagent = false, sawFirstMeta = false;
     let firstUser = '', summary = '';
     let firstTs = null, lastTs = null;
     let userMsgs = 0, assistantMsgs = 0;
@@ -96,6 +97,21 @@ function createParser({ fileMetaCache, userdata }) {
       const p = obj.payload || {};
 
       if (t === 'session_meta') {
+        // A codex subagent rollout file carries TWO session_meta lines: line 1
+        // is the subagent's own identity (thread_source='subagent', its own
+        // id), then it embeds the parent transcript whose session_meta
+        // (thread_source='user', the root id) comes later. `session_id` is the
+        // root-thread id on every line, so it's the stable logical-session key
+        // — group on it so a whole subagent tree (framework_inventory,
+        // pro_ddd_inventory, …) collapses to one row instead of one row per
+        // spawned agent. Read isSubagent from the FIRST meta only (the file's
+        // own identity); the later embedded parent meta must not relabel a
+        // subagent file as the root.
+        if (!sawFirstMeta) {
+          sawFirstMeta = true;
+          isSubagent = p.thread_source === 'subagent' || !!(p.source && p.source.subagent);
+        }
+        rootId = p.session_id || rootId;
         id = p.id || id;
         cwd = p.cwd || cwd;
         // session_meta only carries `model_provider` ("openai") — the real
@@ -121,8 +137,15 @@ function createParser({ fileMetaCache, userdata }) {
           : '';
         if (role === 'user') {
           userMsgs++;
-          if (!firstUser && text && !looksLikeCodexAgentPrelude(text)) {
-            firstUser = text;
+          // Codex stores pasted-image placeholders (`<image name=[Image #1]
+          // path="...">`, `[Image #1]`) as input_text, so strip them before
+          // firstUser — an image-only turn strips to empty and falls through
+          // to the next real message instead of titling the row `[Image #1]`.
+          if (!firstUser) {
+            const clean = stripImagePlaceholders(text);
+            if (clean && !looksLikeCodexAgentPrelude(clean)) {
+              firstUser = clean;
+            }
           }
         } else if (role === 'assistant') {
           assistantMsgs++;
@@ -169,7 +192,11 @@ function createParser({ fileMetaCache, userdata }) {
       tokensIn, tokensOut, tokensCacheRead, tokensCacheCreate,
       tokenEvents,
       fileSize: stat.size, mtime: stat.mtimeMs,
-      codexId: id || null,
+      // Group by the root-thread id (session_id) so subagent rollout files fold
+      // under their parent. Falls back to the file's own id for older codex
+      // sessions that predate session_id.
+      codexId: rootId || id || null,
+      isSubagent,
       planType: lastPlanType,
     };
     fileMetaCache.set(filePath, { mtime: stat.mtimeMs, meta });

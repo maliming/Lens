@@ -10,31 +10,35 @@ import { cleanDisplayText } from './format';
 export type SmartTitle = { label: string; sub?: string; generic?: boolean } | null;
 
 const PATTERNS: Array<{ test: RegExp; build: (m: RegExpExecArray) => { label: string; sub?: string } }> = [
-  // abp.io support questions
   {
     test: /abp\.io\/support\/questions\/(\d+)(?:[/?#-]([^/?#\s]+))?/i,
-    build: (m) => ({ label: `ABP QA: ${m[1]}`, sub: m[2] ? prettifySlug(m[2]) : undefined }),
+    // Question slug (human-readable) is the primary title; the cross-reference id
+    // drops to the sub-line. No slug → the id alone is the title.
+    build: (m) =>
+      m[2]
+        ? { label: prettifySlug(m[2]), sub: `abp.io/support#${m[1]}` }
+        : { label: `abp.io/support#${m[1]}`, sub: 'abp.io' },
   },
-  // github issue / pull
+  {
+    test: /projects\/([\w.-]+)\/tasks\/(\d+)/i,
+    build: (m) => ({ label: `${m[1]}#${m[2]}`, sub: `Taskever task` }),
+  },
+  {
+    test: /projects\/([\w.-]+)\/requests\/(\d+)/i,
+    build: (m) => ({ label: `${m[1]}#${m[2]}`, sub: `Taskever request` }),
+  },
   {
     test: /github\.com\/([\w.-]+)\/([\w.-]+)\/(issues|pull)\/(\d+)/i,
-    build: (m) => ({ label: `${m[2]} ${m[3] === 'pull' ? 'PR' : '#'}${m[4]}`, sub: m[1] }),
+    build: (m) => ({ label: `${m[1]}/${m[2]}#${m[4]}`, sub: `github.com/${m[1]}/${m[2]}` }),
   },
-  // github commit
   {
     test: /github\.com\/([\w.-]+)\/([\w.-]+)\/commit\/([0-9a-f]{7,40})/i,
-    build: (m) => ({ label: `${m[2]} ${m[3].slice(0, 7)}`, sub: m[1] }),
+    build: (m) => ({ label: `${m[1]}/${m[2]}@${m[3].slice(0, 7)}`, sub: `github.com/${m[1]}/${m[2]}` }),
   },
-  // github repo
   {
     test: /github\.com\/([\w.-]+)\/([\w.-]+)\/?$/i,
-    build: (m) => ({ label: `${m[1]}/${m[2]}`, sub: 'GitHub' }),
-  },
-  // claude.ai conversation
-  {
-    test: /claude\.ai\/(chat|share)\/([\w-]+)/i,
-    build: (m) => ({ label: `Claude ${m[1] === 'share' ? 'shared' : 'chat'}`, sub: m[2].slice(0, 8) }),
-  },
+    build: (m) => ({ label: `${m[1]}/${m[2]}`, sub: `github.com/${m[1]}/${m[2]}` }),
+  }
 ];
 
 function prettifySlug(s: string): string {

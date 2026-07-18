@@ -41,7 +41,19 @@ const { readJsonFileSafe, atomicWriteJson } = require('./json-io.cjs');
 // v12: userMsgs now counts image-only user turns (a paste with no text), which
 //     the detail view already renders as a message — v11 caches undercounted
 //     the row's "N msgs" by one per such session, so a re-parse realigns them.
-const SESSIONS_CACHE_VERSION = 12;
+// v13: firstUser now strips pasted-image placeholders (`<image name=[Image #1]
+//     path="...">`, bare `[Image #1]`). Both Claude (inlined into the human
+//     text block) and Codex (emitted as input_text) leaked them into the
+//     title, so v12 caches show rows titled `[Image #1] [Image #2]`; a
+//     re-parse rebuilds those titles from the real text.
+// v14: Codex rollout files sharing a root id now collapse to one list row, so a
+//     session that spawned subagents no longer shows one row per spawned agent.
+// v15: that collapse now groups on codex's explicit `session_id` (root thread)
+//     and records `isSubagent`, so the kept representative is the real root
+//     rather than whichever fork happened to be longest — a subagent file is
+//     `parent-prefix + task` and can outsize the root. Re-parse to populate
+//     isSubagent and the session_id-based id.
+const SESSIONS_CACHE_VERSION = 15;
 
 // Bumped any time the cached schema changes (new field, dropped field,
 // changed type, renamed field). Older caches are dropped on load so a
@@ -141,6 +153,7 @@ function extractMetaFromSession(s) {
     tooLarge: s.tooLarge || false,
     fileSize: s.fileSize || 0, mtime: s.mtime || 0,
     codexId: s.codexId ?? null,
+    isSubagent: s.isSubagent ?? false,
     planType: s.planType ?? null,
   };
 }

@@ -104,14 +104,24 @@ function extractMessageImages(message) {
 }
 
 // Strip image-attachment placeholder text that gets injected next to the
-// real image content. Without this the renderer prints raw `<image name>`
-// / `[Image #1]` / `[Image: source: /path]` next to the rendered image.
+// real image content. Without this the renderer — and the session-list title
+// derived from firstUser — prints raw `<image name=[Image #1] path="...">`,
+// its `</image>` close tag, or the bare `[Image #1]` reference next to (or
+// instead of) the rendered image. Codex emits all three as `input_text`
+// blocks, so they otherwise leak straight into the title.
 function stripImagePlaceholders(text) {
   if (!text) return text;
   return text
-    .replace(/<image\s+name=[^>]*?>/g, '')
+    // Whole `<image …>…</image>` block first, then any lone open/close tag
+    // left over when Codex splits them across adjacent content parts.
+    .replace(/<image\b[^>]*>[\s\S]*?<\/image>/gi, '')
+    .replace(/<image\b[^>]*>/gi, '')
+    .replace(/<\/image>/gi, '')
     .replace(/\[Image:\s*source:\s*[^\]]+\]/g, '')
-    .replace(/^\s*\[Image\s*#\d+\]\s*$/gm, '')
+    // Bare `[Image #N]` reference, inline or on its own line — Codex repeats
+    // one per attachment, so a multi-image paste would otherwise render
+    // `[Image #1] [Image #2] …`.
+    .replace(/\[Image\s*#\d+\]/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
