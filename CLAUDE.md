@@ -26,13 +26,13 @@ DEMO_BUILD=1 npm run dist:mac   # screenshot-ready build with fake data forced o
 
 There are no tests and no linter configured. `npm run build` runs `tsc --noEmit && vite build`. **`npm run check:i18n` is NOT in build** — running it reveals real gaps (non-English locales miss ~200 keys each); wire to CI only after you've committed to translating, otherwise it'll fail every build.
 
-Renderer hot-reloads under `npm run dev`. **Main-process edits (`electron/main.cjs`) require a full restart** — there is no main-process reload. Sessions cache (`~/Library/Application Support/Lens/sessions-cache.json` on mac, equivalent on Win/Linux) survives across restarts; when changing the parser, **delete that file** before testing or the old cached meta will mask your changes.
+Renderer hot-reloads under `npm run dev`. **Main-process edits (`electron/main.cjs`) require a full restart** — there is no main-process reload. Session cache manifests (`sessions-cache-claude.json` / `sessions-cache-codex.json`, plus bounded shards when a source exceeds the single-file limit) under the platform userData directory survive across restarts. Parser/cache schema changes require a versioned migration in `electron/lib/sessions-cache.cjs`; do not rely on manually deleting caches.
 
 ## High-level architecture
 
 ### Two-process boundary
 
-- `electron/main.cjs` (Node) — all filesystem IO, JSONL parsing, sub-process spawning (terminal launchers, `claude`/`codex` CLI probes), persistence (`favorites.json` / `excludes.json` / `aliases.json` / `sessions-cache.json` / `app-prefs.json` under `app.getPath('userData')`).
+- `electron/main.cjs` (Node) — all filesystem IO, JSONL parsing, sub-process spawning (terminal launchers, `claude`/`codex` CLI probes), persistence (`favorites.json` / `excludes.json` / `aliases.json` / per-source session caches / `app-prefs.json` under `app.getPath('userData')`).
 - `src/` (React 18 + TypeScript + Vite + Tailwind) — pure renderer. **No Node access.** Talks to main only via `window.api.*`.
 - `electron/preload.cjs` — `contextBridge.exposeInMainWorld('api', ...)`. This is the IPC contract; any new feature that crosses the boundary needs an entry here + a matching `ipcMain.handle` in `main.cjs` + a typed signature in `src/types.ts` under `declare global { interface Window { api: { ... } } }`.
 
@@ -90,15 +90,15 @@ Reading the **ref** (not the closure value) is critical — a stale closure woul
 
 `listSessions()` in `main.cjs` never blocks on a full scan:
 
-1. First boot with no cache → `refreshSessionsInBackground()` deep-reads `TOP_BATCH` newest files, resolves `firstBatchPromise`, then continues reading the long tail.
+1. First boot with no cache → each source owns a `state.firstBatch` barrier; the first completed `TOP_BATCH` push releases the initial inventory request while both long-tail scans continue.
 2. Subsequent calls → return `cachedSessions` immediately, kick off a background refresh.
-3. Background refresh pushes fresh batches via `sessions:updated` IPC; `App.tsx` swaps state silently (no loading skeleton).
+3. Background refreshes run per source and push `{source, revision, sessions}` only when the SHA-256 visible revision changed. Only `ENOENT` means a source disappeared; other traversal errors abort the scan, preserve the last complete snapshot, and force-push it with `error` so the active source can leave its loading state. Renderer list responses never overwrite a source after a newer push, including an authoritative empty push.
 4. `fileMetaCache` keyed by `filePath → { mtime, meta }` means unchanged sessions don't re-read at all.
-5. `sessions-cache.json` persists the list across launches so the next cold start is instant.
+5. Compact per-source cache files persist bounded metadata across launches. `firstUser` is capped, recent token events stay exact for rolling windows, older events fold into daily aggregates, and oversized sources switch to two-generation atomic shards. Saves are queued per source across revision checks, generation selection, writes, manifest commit, and cleanup. Referenced shards survive until the new manifest commits; cleanup runs again on load and revision-equal saves, and startup removes cache-owned atomic-write temps left by a crashed process. Unknown cache versions are read-only so an older app cannot overwrite a newer schema.
 
-`App.tsx` keeps `reloadSeqRef` and `usageSeqRef` as **separate** monotonic counters: a usage-only refresh from `onSessionsUpdated` must not invalidate an in-flight full reload's session/favorites writes. If you add another background refresher, give it its own counter rather than sharing one.
+Source switching filters the already-loaded renderer inventory and reuses per-source Usage snapshots on the critical path. After paint it sends a payload-free `sessions:refresh` request for the activated source; fresh rows still arrive only through SWR push, so switching never clones the cached inventory as a request result. `App.tsx` keeps `reloadSeqRef` and `usageSeqRef` as separate monotonic counters so explicit reloads and usage refreshes cannot invalidate each other.
 
-Filesystem watch is intentionally **disabled** (`main.cjs:2505` comment) — recursive `fs.watch` on `~/.claude/projects` blows up under heavy write traffic on macOS. Manual ⌘R / focus-tick / 5-min poll is the supported model. Don't re-add a naive watcher.
+Filesystem watch is intentionally **disabled** — recursive `fs.watch` on `~/.claude/projects` blows up under heavy write traffic on macOS. Source activation, manual ⌘R, focus-tick, and the 5-min poll use bounded background scans instead. Don't re-add a naive watcher.
 
 ### Demo mode swap
 
@@ -159,7 +159,7 @@ Every user-displayed string from JSONL goes through `cleanDisplayText()` (`src/l
 
 ### Persistence — atomic writes
 
-`atomicWriteJson(filePath, value)` (`main.cjs`) is the only allowed write path for `favorites.json` / `excludes.json` / `aliases.json` / `app-prefs.json` / `sessions-cache.json`. It serializes per-path (Promise queue) + writes to `.tmp-<pid>-<seq>` + `fsync` the file + `rename` + `fsync` the parent directory (non-Win). On the quit path (`mainWindow.on('close')` when `closeBehavior='quit'` or `!canHide`), a synchronous variant runs (`openSync` + `writeFileSync` + `fsyncSync` + `renameSync` + dir fsync) because the async pipeline won't finish before Electron tears the process down.
+`atomicWriteJson(filePath, value)` is the only allowed async JSON write path for userData. It serializes per-path (Promise queue) + writes to `.tmp-<pid>-<seq>` + `fsync` the file + `rename` + `fsync` the parent directory (non-Win). Per-source session caches pass `{pretty:false}` to avoid multi-megabyte indentation overhead; user-edited small files keep pretty output. On quit, the existing synchronous atomic path protects prefs/userdata that must land before Electron exits.
 
 `readJsonFileSafe(path, maxBytes = MAX_USERDATA_FILE_SIZE)` is the reader: `lstat` rejects symlinks (containment defense for tampered userData), size check, then UTF-8 read. **Every persistence loader uses it** (not bare `fs.readFile`).
 

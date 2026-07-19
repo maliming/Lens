@@ -18,50 +18,80 @@ const path = require('path');
 
 const AGENT_JSONL_RE = /^agent-.+\.jsonl$/;
 
-async function isRealDir(p) {
-  try { const st = await fsp.lstat(p); return !st.isSymbolicLink() && st.isDirectory(); } catch { return false; }
+async function realPathState(p, kind) {
+  try {
+    const st = await fsp.lstat(p);
+    const exists = !st.isSymbolicLink() && (kind === 'dir' ? st.isDirectory() : st.isFile());
+    return { exists, complete: true };
+  } catch (error) {
+    return { exists: false, complete: error?.code === 'ENOENT' };
+  }
 }
-async function isRealFile(p) {
-  try { const st = await fsp.lstat(p); return !st.isSymbolicLink() && st.isFile(); } catch { return false; }
-}
-async function safeReaddir(p) {
-  try { return await fsp.readdir(p); } catch { return []; }
+async function readdirState(p) {
+  try { return { entries: await fsp.readdir(p), complete: true }; }
+  catch (error) { return { entries: [], complete: error?.code === 'ENOENT' }; }
 }
 
 // Returns [{ filePath, kind: 'task' | 'workflow', runId? }], deduped by
 // filePath. `journal.jsonl` is excluded naturally (doesn't match agent-*.jsonl).
-async function listClaudeSubagentTranscriptFiles(sessionDir) {
+async function listClaudeSubagentTranscriptFilesWithStatus(sessionDir) {
   const out = [];
   const seen = new Set();
+  let complete = true;
   const subagentsDir = path.join(sessionDir, 'subagents');
-  if (!(await isRealDir(subagentsDir))) return out;
+  const subagentsState = await realPathState(subagentsDir, 'dir');
+  complete &&= subagentsState.complete;
+  if (!subagentsState.exists) return { files: out, complete };
 
   // Task agents — directly under subagents/.
-  for (const name of await safeReaddir(subagentsDir)) {
+  const taskEntries = await readdirState(subagentsDir);
+  complete &&= taskEntries.complete;
+  for (const name of taskEntries.entries) {
     if (!AGENT_JSONL_RE.test(name)) continue;
     const fp = path.join(subagentsDir, name);
-    if (seen.has(fp) || !(await isRealFile(fp))) continue;
+    if (seen.has(fp)) continue;
+    const fileState = await realPathState(fp, 'file');
+    complete &&= fileState.complete;
+    if (!fileState.exists) continue;
     seen.add(fp);
     out.push({ filePath: fp, kind: 'task' });
   }
 
   // Workflow agents — one level deeper, under subagents/workflows/<runId>/.
   const workflowsDir = path.join(subagentsDir, 'workflows');
-  if (await isRealDir(workflowsDir)) {
-    for (const runId of await safeReaddir(workflowsDir)) {
+  const workflowsState = await realPathState(workflowsDir, 'dir');
+  complete &&= workflowsState.complete;
+  if (workflowsState.exists) {
+    const workflowEntries = await readdirState(workflowsDir);
+    complete &&= workflowEntries.complete;
+    for (const runId of workflowEntries.entries) {
       const runDir = path.join(workflowsDir, runId);
-      if (!(await isRealDir(runDir))) continue;
-      for (const name of await safeReaddir(runDir)) {
+      const runState = await realPathState(runDir, 'dir');
+      complete &&= runState.complete;
+      if (!runState.exists) continue;
+      const runEntries = await readdirState(runDir);
+      complete &&= runEntries.complete;
+      for (const name of runEntries.entries) {
         if (!AGENT_JSONL_RE.test(name)) continue;
         const fp = path.join(runDir, name);
-        if (seen.has(fp) || !(await isRealFile(fp))) continue;
+        if (seen.has(fp)) continue;
+        const fileState = await realPathState(fp, 'file');
+        complete &&= fileState.complete;
+        if (!fileState.exists) continue;
         seen.add(fp);
         out.push({ filePath: fp, kind: 'workflow', runId });
       }
     }
   }
 
-  return out;
+  return { files: out, complete };
 }
 
-module.exports = { listClaudeSubagentTranscriptFiles };
+async function listClaudeSubagentTranscriptFiles(sessionDir) {
+  return (await listClaudeSubagentTranscriptFilesWithStatus(sessionDir)).files;
+}
+
+module.exports = {
+  listClaudeSubagentTranscriptFiles,
+  listClaudeSubagentTranscriptFilesWithStatus,
+};

@@ -18,7 +18,7 @@ const { isInsideBase } = require('../lib/fs-safety.cjs');
 const { forEachJsonlLine, MAX_SESSION_FILE_SIZE } = require('../lib/jsonl.cjs');
 const { mapPool } = require('../lib/concurrency.cjs');
 const { readJsonFileSafe } = require('../lib/json-io.cjs');
-const { listClaudeSubagentTranscriptFiles } = require('../lib/claude-subagents.cjs');
+const { listClaudeSubagentTranscriptFilesWithStatus } = require('../lib/claude-subagents.cjs');
 const {
   MAX_INLINE_IMAGE_B64,
   MAX_IMAGES_PER_MESSAGE,
@@ -28,6 +28,12 @@ const {
   capSessionImages,
 } = require('../lib/images.cjs');
 const { isSyntheticModel, compositeKey } = require('./shared.cjs');
+const {
+  FIRST_USER_MAX_LENGTH,
+  capText,
+  compactTokenUsage,
+  createRevisionHasher,
+} = require('../lib/session-data.cjs');
 
 // ===========================================================================
 // Leaf helpers — pure, no injected state. Re-exported so other modules can
@@ -440,6 +446,15 @@ async function scanSessionSubagents(parentFilePath) {
 function createParser({ fileMetaCache, userdata }) {
   const { isFavorite, isExcluded, getAlias } = userdata;
 
+  function subagentSignature(subagents) {
+    const rows = (subagents || [])
+      .map(subagent => `${subagent.filePath}\0${subagent.mtime || 0}`)
+      .sort();
+    const hasher = createRevisionHasher();
+    for (const row of rows) hasher.write(row);
+    return hasher.digest(rows.length);
+  }
+
   // Cache wrapper. `tooLarge` entries get re-checked against the current
   // MAX_SESSION_FILE_SIZE so a bumped cap can rehabilitate the entry
   // without a manual cache wipe.
@@ -554,12 +569,17 @@ function createParser({ fileMetaCache, userdata }) {
       }
     });
 
+    const usage = compactTokenUsage(tokenEvents);
     return {
-      summary: summary || aiTitle, firstUser, firstTs, lastTs,
+      summary: capText(summary || aiTitle, 1000),
+      firstUser: capText(firstUser, FIRST_USER_MAX_LENGTH),
+      firstTs, lastTs,
       userMsgs, assistantMsgs,
       cwd, firstCwd, gitBranch, model, version,
       tokensIn, tokensOut, tokensCacheRead, tokensCacheCreate,
-      tokenEvents,
+      tokenEvents: usage.tokenEvents,
+      tokenDays: usage.tokenDays,
+      usageRevision: usage.usageRevision,
       fileSize: stat.size, mtime: stat.mtimeMs,
     };
   }
@@ -579,16 +599,28 @@ function createParser({ fileMetaCache, userdata }) {
   // 2.0+ where many tools delegate to sidechain agents).
   async function statAllJsonl() {
     let projectDirs;
-    try { projectDirs = await fsp.readdir(PROJECTS_DIR); } catch { return []; }
+    try { projectDirs = await fsp.readdir(PROJECTS_DIR); }
+    catch (error) {
+      if (error?.code === 'ENOENT') return [];
+      throw error;
+    }
     const allFiles = [];
     for (const projectDir of projectDirs) {
       const projectPath = path.join(PROJECTS_DIR, projectDir);
       let stat;
-      try { stat = await fsp.lstat(projectPath); } catch { continue; }
+      try { stat = await fsp.lstat(projectPath); }
+      catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        throw error;
+      }
       if (stat.isSymbolicLink()) continue;
       if (!stat.isDirectory()) continue;
       let entries;
-      try { entries = await fsp.readdir(projectPath); } catch { continue; }
+      try { entries = await fsp.readdir(projectPath); }
+      catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        throw error;
+      }
       // First pass: top-level *.jsonl AND record session-id directories that
       // may hold subagents. Keep a Set of known session-ids so the second
       // pass only walks dirs that have a matching parent file.
@@ -597,7 +629,11 @@ function createParser({ fileMetaCache, userdata }) {
       for (const entry of entries) {
         const filePath = path.join(projectPath, entry);
         let lst;
-        try { lst = await fsp.lstat(filePath); } catch { continue; }
+        try { lst = await fsp.lstat(filePath); }
+        catch (error) {
+          if (error?.code === 'ENOENT') continue;
+          throw error;
+        }
         if (lst.isSymbolicLink()) continue;
         if (lst.isFile() && entry.endsWith('.jsonl')) {
           topLevel.push({ projectDir, entry, filePath });
@@ -613,32 +649,52 @@ function createParser({ fileMetaCache, userdata }) {
       // enumerator so Usage/Heatmap rolls in workflow tokens too, and the rule
       // stays in sync with deep search.
       const subagentsBySessionId = new Map(); // sessionId → [{filePath}]
+      const subagentCompleteness = new Map();
       for (const sid of sessionDirs) {
         const sessionDir = path.join(projectPath, sid);
-        const subFiles = await listClaudeSubagentTranscriptFiles(sessionDir);
-        if (subFiles.length) subagentsBySessionId.set(sid, subFiles.map(s => ({ filePath: s.filePath })));
+        const result = await listClaudeSubagentTranscriptFilesWithStatus(sessionDir);
+        subagentCompleteness.set(sid, result.complete);
+        if (result.files.length) {
+          subagentsBySessionId.set(sid, result.files.map(s => ({ filePath: s.filePath })));
+        }
       }
       for (const f of topLevel) {
         const sid = f.entry.replace(/\.jsonl$/, '');
         const sa = subagentsBySessionId.get(sid);
         if (sa) f.subagents = sa;
+        if (subagentCompleteness.get(sid) === false) f.subagentsComplete = false;
         allFiles.push(f);
       }
     }
     // Stat both the parent file and any subagents in one concurrent pass so
     // the SWR push has accurate mtimes for cache invalidation.
-    return mapPool(allFiles, 32, async (f) => {
+    const statted = await mapPool(allFiles, 32, async (f) => {
       let mtime = 0;
-      try { mtime = (await fsp.stat(f.filePath)).mtimeMs; } catch {}
-      let subagents;
-      if (f.subagents && f.subagents.length) {
-        subagents = await Promise.all(f.subagents.map(async (s) => {
-          try { return { ...s, mtime: (await fsp.stat(s.filePath)).mtimeMs }; }
-          catch { return { ...s, mtime: 0 }; }
-        }));
+      try { mtime = (await fsp.stat(f.filePath)).mtimeMs; }
+      catch (error) {
+        if (error?.code === 'ENOENT') return null;
+        throw error;
       }
-      return subagents ? { ...f, mtime, subagents } : { ...f, mtime };
+      let subagents;
+      let subagentsComplete = f.subagentsComplete !== false;
+      if (f.subagents && f.subagents.length) {
+        const values = await Promise.all(f.subagents.map(async (s) => {
+          try { return { ...s, mtime: (await fsp.stat(s.filePath)).mtimeMs }; }
+          catch (error) {
+            if (error?.code !== 'ENOENT') subagentsComplete = false;
+            return null;
+          }
+        }));
+        subagents = values.filter(Boolean);
+      }
+      return {
+        ...f,
+        mtime,
+        ...(subagents ? { subagents } : {}),
+        ...(subagentsComplete ? {} : { subagentsComplete: false }),
+      };
     });
+    return statted.filter(Boolean);
   }
 
   // Subagent metadata: just the bits buildSession folds into the parent
@@ -680,7 +736,15 @@ function createParser({ fileMetaCache, userdata }) {
         lastTs = obj.timestamp;
       }
     });
-    const meta = { __subagent: true, tokensIn, tokensOut, tokensCacheRead, tokensCacheCreate, firstTs, lastTs, tokenEvents };
+    const usage = compactTokenUsage(tokenEvents);
+    const meta = {
+      __subagent: true,
+      tokensIn, tokensOut, tokensCacheRead, tokensCacheCreate,
+      firstTs, lastTs,
+      tokenEvents: usage.tokenEvents,
+      tokenDays: usage.tokenDays,
+      usageRevision: usage.usageRevision,
+    };
     fileMetaCache.set(filePath, { mtime: stat.mtimeMs, meta });
     return meta;
   }
@@ -694,11 +758,34 @@ function createParser({ fileMetaCache, userdata }) {
   // conversation but lives in `<sessionId>/subagents/*.jsonl` — without this
   // merge, Usage/Heatmap silently drop every project that delegated to a
   // sidechain agent (the common case under Claude Code 2.0+).
-  async function buildSession({ projectDir, entry, filePath, subagents }) {
+  async function buildSession({ projectDir, entry, filePath, mtime, subagents, subagentsComplete = true }) {
     const sessionId = entry.replace(/\.jsonl$/, '');
     const k = compositeKey('claude', sessionId);
     try {
+      const signature = subagentsComplete ? subagentSignature(subagents) : null;
+      const cached = fileMetaCache.get(filePath);
+      const parentUnchanged = cached && (typeof mtime !== 'number' || cached.mtime === mtime);
+      let canReuseFolded = subagentsComplete
+        && parentUnchanged
+        && cached.meta?.subagentsFolded === true
+        && cached.meta.subagentSignature === signature;
+
+      // A persisted parent contains its previous subagent totals. If either
+      // the parent or a subagent changed, rebuild the parent base from disk
+      // before folding the current subagents so totals cannot accumulate on
+      // every app launch. A legacy null signature means "unknown", including
+      // the case where all former subagents were deleted, so every legacy
+      // parent pays one base-file read before receiving an explicit signature.
+      if (subagentsComplete && cached?.meta?.subagentsFolded === true && !canReuseFolded) {
+        fileMetaCache.delete(filePath);
+      }
       const meta = await readSessionMetadata(filePath);
+      // The parent can be appended after statAllJsonl captured `mtime` but
+      // before readSessionMetadata performs its own stat. In that window the
+      // pre-read reuse decision describes the old parent while `meta` contains
+      // the new base-only totals. Re-check the actual mtime read with `meta`
+      // before deciding whether the cached folded totals are still reusable.
+      if (canReuseFolded && cached.mtime !== meta.mtime) canReuseFolded = false;
       // Prefer the real launch cwd recorded in the JSONL over decoding the
       // project-folder name. The folder encoding replaces every `/` with `-`,
       // so a literal hyphen in a path segment (e.g. `taskever-desktop`) is
@@ -712,13 +799,28 @@ function createParser({ fileMetaCache, userdata }) {
       // cache entry that pre-dates the no-cap parser). Without these
       // defaults the merge produces NaN and the by-model / total token
       // displays silently break.
-      const merged = {
+      let merged = {
         tokensIn: 0, tokensOut: 0, tokensCacheRead: 0, tokensCacheCreate: 0,
         userMsgs: 0, assistantMsgs: 0,
         tokenEvents: [],
+        tokenDays: [],
         ...meta,
       };
-      if (subagents && subagents.length) {
+      let foldSucceeded = subagentsComplete;
+      if (!subagentsComplete) {
+        if (cached?.meta?.subagentsFolded === true) {
+          merged = { ...cached.meta };
+        } else {
+          merged = {
+            tokensIn: 0, tokensOut: 0, tokensCacheRead: 0, tokensCacheCreate: 0,
+            userMsgs: 0, assistantMsgs: 0,
+            tokenEvents: [], tokenDays: [],
+            ...meta,
+            subagentsFolded: false,
+            subagentSignature: null,
+          };
+        }
+      } else if (!canReuseFolded && subagents && subagents.length) {
         // mapPool concurrency bound at 8 because each subagent JSONL is
         // streamed in full, and a project can have dozens — opening all at
         // once would spike fd usage on a cold scan.
@@ -726,28 +828,58 @@ function createParser({ fileMetaCache, userdata }) {
           try { return await readSubagentMetadata(s.filePath); }
           catch { return null; }
         });
-        for (const sm of subMetas) {
-          if (!sm) continue;
-          merged.tokensIn += sm.tokensIn;
-          merged.tokensOut += sm.tokensOut;
-          merged.tokensCacheRead += sm.tokensCacheRead;
-          merged.tokensCacheCreate += sm.tokensCacheCreate;
-          if (sm.tokenEvents.length) {
-            merged.tokenEvents = (merged.tokenEvents || []).concat(sm.tokenEvents);
+        foldSucceeded = subMetas.every(Boolean);
+        if (foldSucceeded) {
+          for (const sm of subMetas) {
+            merged.tokensIn += sm.tokensIn;
+            merged.tokensOut += sm.tokensOut;
+            merged.tokensCacheRead += sm.tokensCacheRead;
+            merged.tokensCacheCreate += sm.tokensCacheCreate;
+            if (sm.tokenEvents.length) {
+              merged.tokenEvents = (merged.tokenEvents || []).concat(sm.tokenEvents);
+            }
+            if (sm.tokenDays?.length) {
+              merged.tokenDays = (merged.tokenDays || []).concat(sm.tokenDays);
+            }
+            // Widen firstTs/lastTs to cover the subagent's window so the
+            // session's calendar-day key in usageSummary lands on the right
+            // bucket. Compare via Date.parse so ISO strings compare as
+            // monotonic — string compare happens to work for ISO 8601 but
+            // is fragile if the timezone format ever drifts.
+            if (sm.firstTs && (!merged.firstTs || new Date(sm.firstTs) < new Date(merged.firstTs))) {
+              merged.firstTs = sm.firstTs;
+            }
+            if (sm.lastTs && (!merged.lastTs || new Date(sm.lastTs) > new Date(merged.lastTs))) {
+              merged.lastTs = sm.lastTs;
+            }
           }
-          // Widen firstTs/lastTs to cover the subagent's window so the
-          // session's calendar-day key in usageSummary lands on the right
-          // bucket. Compare via Date.parse so ISO strings compare as
-          // monotonic — string compare happens to work for ISO 8601 but
-          // is fragile if the timezone format ever drifts.
-          if (sm.firstTs && (!merged.firstTs || new Date(sm.firstTs) < new Date(merged.firstTs))) {
-            merged.firstTs = sm.firstTs;
-          }
-          if (sm.lastTs && (!merged.lastTs || new Date(sm.lastTs) > new Date(merged.lastTs))) {
-            merged.lastTs = sm.lastTs;
-          }
+        } else if (cached?.meta?.subagentsFolded === true) {
+          // Keep the last known-complete row. Its old signature guarantees the
+          // next scan retries the new subagent set even if every mtime stays
+          // unchanged after a transient EACCES/EBUSY failure.
+          merged = { ...cached.meta };
+        } else {
+          // No complete fallback exists. Cache only the parent base, never the
+          // successfully-read subset, so a retry cannot double-count it.
+          merged = {
+            tokensIn: 0, tokensOut: 0, tokensCacheRead: 0, tokensCacheCreate: 0,
+            userMsgs: 0, assistantMsgs: 0,
+            tokenEvents: [], tokenDays: [],
+            ...meta,
+            subagentsFolded: false,
+            subagentSignature: null,
+          };
         }
       }
+      const usage = compactTokenUsage(merged.tokenEvents, merged.tokenDays);
+      merged.tokenEvents = usage.tokenEvents;
+      merged.tokenDays = usage.tokenDays;
+      merged.usageRevision = usage.usageRevision;
+      if (foldSucceeded) {
+        merged.subagentsFolded = true;
+        merged.subagentSignature = signature;
+      }
+      fileMetaCache.set(filePath, { mtime: merged.mtime || mtime || 0, meta: merged });
       return {
         source: 'claude',
         id: sessionId, projectDir,

@@ -14,6 +14,7 @@ const claudeParser = require('./parsers/claude.cjs');
 const codexParser = require('./parsers/codex.cjs');
 const { mapPool } = require('./lib/concurrency.cjs');
 const { fixPath } = require('./lib/system-caps.cjs');
+const { toRendererSessionsWithRevision } = require('./lib/session-data.cjs');
 
 // Resolve real PATH so packaged GUI launches see ~/.local/bin / homebrew /
 // NVM shims (see lib/system-caps.cjs).
@@ -65,7 +66,7 @@ let codex = null;          // codexParser.createParser(...)
 // and is touched only via the IPC layer in `ipc.cjs`.
 let appPrefs = {};
 async function saveAppPrefs() { return prefsStore.save(); }
-async function saveSessionsCache(sessions) { return sessionsStore.save(sessions); }
+async function saveSessionsCache(sessions, source) { return sessionsStore.save(sessions, source); }
 function getCachedSessions() { return sessionsStore.getCachedSessions(); }
 function setCachedSessions(v) { sessionsStore.setCachedSessions(v); }
 
@@ -97,12 +98,13 @@ async function loadPersistedSets() {
 
 
 
-// SWR (stale-while-revalidate) — pattern used by Linear / VS Code / SWR /
-// React-Query. Disk-persisted last result is returned instantly; a fresh
-// scan runs in the background; renderer gets pushed the updated list via
-// an event. State lives in `sessionsStore` (lib/sessions-cache.cjs); only
-// the in-flight scanner promise is local to main.cjs.
-let backgroundScanInflight = null;
+// SWR (stale-while-revalidate) — disk-persisted rows return immediately;
+// source-specific background scans push a bounded renderer projection only
+// when that source's revision changes. Source switching paints from renderer
+// memory first, then starts a fire-and-forget source refresh with no list
+// payload on the request path.
+const SESSION_SOURCES = ['claude', 'codex'];
+const backgroundScans = new Map();
 
 // Two-phase scan:
 //   1. Cheap pass — readdir + stat every .jsonl. ~50ms for 600+ files.
@@ -110,8 +112,6 @@ let backgroundScanInflight = null;
 //      newest sessions in ~500ms regardless of total count.
 //   3. Background-read the rest, push the full list when done.
 const TOP_BATCH = 30;
-let firstBatchResolver = null;
-let firstBatchPromise = null;
 
 
 
@@ -123,27 +123,52 @@ let firstBatchPromise = null;
 
 
 
-// Coalesce rapid pushSessions calls (Phase B emits one per FLUSH_EVERY batch).
+// Coalesce rapid source-specific pushes (Phase B emits one per FLUSH_EVERY batch).
 // Leading-edge + 220ms trailing-edge throttle so renderers don't thrash the
 // virtualizer with overlapping setSessions during a large scan.
-let _pushTimer = null;
-let _pendingPushPayload = null;
-let _lastPushAt = 0;
+const _pushTimers = new Map();
+const _pendingPushPayloads = new Map();
+const _lastPushAt = new Map();
+const _lastPushedRevision = new Map();
 const PUSH_THROTTLE_MS = 220;
-function pushSessions(sessions) {
+function pushSessions(source, sessions, { force = false, error = null } = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  _pendingPushPayload = sessions;
-  const sinceLast = Date.now() - _lastPushAt;
-  if (sinceLast >= PUSH_THROTTLE_MS) { flushPushSessionsNow(); return; }
-  if (_pushTimer) return;
-  _pushTimer = setTimeout(flushPushSessionsNow, PUSH_THROTTLE_MS - sinceLast);
+  const projected = toRendererSessionsWithRevision(sessions, source);
+  if (!force && _lastPushedRevision.get(source) === projected.revision) return;
+  _pendingPushPayloads.set(source, {
+    source,
+    revision: projected.revision,
+    sessions: projected.sessions,
+    ...(error ? { error } : {}),
+  });
+  const sinceLast = Date.now() - (_lastPushAt.get(source) || 0);
+  if (sinceLast >= PUSH_THROTTLE_MS) { flushPushSessionsNow(source); return; }
+  if (_pushTimers.has(source)) return;
+  _pushTimers.set(source, setTimeout(() => flushPushSessionsNow(source), PUSH_THROTTLE_MS - sinceLast));
 }
-function flushPushSessionsNow() {
-  if (_pushTimer) { clearTimeout(_pushTimer); _pushTimer = null; }
-  if (!_pendingPushPayload || !mainWindow || mainWindow.isDestroyed()) return;
-  try { mainWindow.webContents.send('sessions:updated', _pendingPushPayload); } catch {}
-  _lastPushAt = Date.now();
-  _pendingPushPayload = null;
+function flushPushSessionsNow(source) {
+  const timer = _pushTimers.get(source);
+  if (timer) clearTimeout(timer);
+  _pushTimers.delete(source);
+  const payload = _pendingPushPayloads.get(source);
+  if (!payload || !mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.webContents.send('sessions:updated', {
+      source,
+      revision: payload.revision,
+      sessions: payload.sessions,
+      ...(payload.error ? { error: payload.error } : {}),
+    });
+    _lastPushedRevision.set(source, payload.revision);
+  } catch {}
+  _lastPushAt.set(source, Date.now());
+  _pendingPushPayloads.delete(source);
+}
+
+function markSessionsDelivered(source, revision, count) {
+  if (SESSION_SOURCES.includes(source) && count > 0) {
+    _lastPushedRevision.set(source, revision);
+  }
 }
 
 // A codex session that spawns subagents writes each subagent as its own rollout
@@ -177,21 +202,34 @@ function dedupeCodexForks(sessions) {
   return [...best.values()];
 }
 
-async function refreshSessionsInBackground() {
-  if (backgroundScanInflight) return backgroundScanInflight;
-  // First-batch barrier so first-boot callers can await something
-  // meaningful without blocking on the full scan.
-  firstBatchPromise = new Promise((r) => { firstBatchResolver = r; });
-  backgroundScanInflight = (async () => {
-    try {
-      // Stat both source roots in parallel so the merged list reflects each
-      // tool's most recent files in one pass.
-      const [claudeStats, codexStats] = await Promise.all([claude.statAllJsonl(), codex.statAllCodexJsonl()]);
-      const taggedClaude = claudeStats.map(f => ({ ...f, kind: 'claude' }));
-      const taggedCodex = codexStats.map(f => ({ ...f, kind: 'codex' }));
-      const statted = [...taggedClaude, ...taggedCodex].sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+function sourceSessions(source) {
+  return (getCachedSessions() || []).filter(session => session.source === source);
+}
 
-      const buildOne = async (f) => f.kind === 'codex' ? codex.buildCodexSession(f) : claude.buildSession(f);
+function replaceSourceSessions(source, sessions) {
+  const other = (getCachedSessions() || []).filter(session => session.source !== source);
+  const merged = [...other, ...sessions].sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+  setCachedSessions(merged);
+  return merged;
+}
+
+function refreshSourceInBackground(source) {
+  const existing = backgroundScans.get(source);
+  if (existing) return existing;
+
+  let resolveFirstBatch;
+  const state = {
+    firstBatch: new Promise(resolve => { resolveFirstBatch = resolve; }),
+    full: null,
+  };
+
+  state.full = (async () => {
+    try {
+      const statted = (source === 'codex'
+        ? await codex.statAllCodexJsonl()
+        : await claude.statAllJsonl())
+        .sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+      const buildOne = source === 'codex' ? codex.buildCodexSession : claude.buildSession;
 
       // Whether this is a cold scan (no prior cache) or a refresh of an existing
       // cache. Cold path uses progressive pushes so users see the list fill in
@@ -199,17 +237,19 @@ async function refreshSessionsInBackground() {
       // cached list visible and only swaps once the full rescan is done — that
       // way the sidebar History count doesn't dip from 543 → 30 → 180 → ...
       // → 543 every time the window regains focus.
-      const prevCached = getCachedSessions();
-      const isCold = !prevCached || prevCached.length === 0;
+      const previous = sourceSessions(source);
+      const isCold = previous.length === 0;
 
       // Phase A — deep-read the most recent TOP_BATCH.
       const topFiles = statted.slice(0, TOP_BATCH);
       const top = await mapPool(topFiles, 16, buildOne);
       if (isCold) {
-        setCachedSessions(dedupeCodexForks(top));
-        pushSessions(getCachedSessions());
+        const firstRows = source === 'codex' ? dedupeCodexForks(top) : top;
+        replaceSourceSessions(source, firstRows);
+        pushSessions(source, firstRows);
       }
-      if (firstBatchResolver) { firstBatchResolver(); firstBatchResolver = null; }
+      resolveFirstBatch();
+      resolveFirstBatch = null;
 
       // Phase B — read the rest. mtime cache makes most of these instant.
       // On cold boot we push periodically (list grows progressively). On a
@@ -223,40 +263,58 @@ async function refreshSessionsInBackground() {
         collected.push(s);
         if (isCold && collected.length - lastFlushIdx >= FLUSH_EVERY) {
           lastFlushIdx = collected.length;
-          const merged = dedupeCodexForks([...getCachedSessions(), ...collected]).sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
-          setCachedSessions(merged);
-          pushSessions(merged);
+          const partial = source === 'codex' ? dedupeCodexForks([...top, ...collected]) : [...top, ...collected];
+          partial.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+          replaceSourceSessions(source, partial);
+          pushSessions(source, partial);
         }
       });
 
       // Final flush + sort + persist. This is the only push on a refresh, so
       // the renderer sees one atomic swap from old-cache → fresh-list, no count
       // wobble in between.
-      const all = dedupeCodexForks([...top, ...collected]).sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
-      setCachedSessions(all);
-      pushSessions(all);
-      saveSessionsCache(all).catch(() => {});
+      const all = source === 'codex' ? dedupeCodexForks([...top, ...collected]) : [...top, ...collected];
+      all.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+      const merged = replaceSourceSessions(source, all);
+      pushSessions(source, all);
+      saveSessionsCache(merged, source).catch(() => {});
       return all;
+    } catch (error) {
+      const message = String(error?.message || error).slice(0, 2000);
+      pushSessions(source, sourceSessions(source), { force: true, error: message });
+      throw error;
     } finally {
-      backgroundScanInflight = null;
-      // Make sure the barrier resolves even on error paths.
-      if (firstBatchResolver) { firstBatchResolver(); firstBatchResolver = null; }
+      if (resolveFirstBatch) resolveFirstBatch();
+      if (backgroundScans.get(source) === state) backgroundScans.delete(source);
     }
   })();
-  return backgroundScanInflight;
+  backgroundScans.set(source, state);
+  return state;
 }
 
-async function listSessions({ force = false, noRefresh = false } = {}) {
+async function refreshSessionsInBackground(source = null) {
+  const sources = SESSION_SOURCES.includes(source) ? [source] : SESSION_SOURCES;
+  const states = sources.map(refreshSourceInBackground);
+  await Promise.all(states.map(state => state.full));
+  return getCachedSessions() || [];
+}
+
+async function listSessions({ force = false, noRefresh = false, source = null } = {}) {
   // Force or cached → return what we have RIGHT NOW; background fills in via push.
   const cached = getCachedSessions();
   if (cached || force) {
-    if (!noRefresh && !backgroundScanInflight) refreshSessionsInBackground().catch(() => {});
-    return cached || [];
+    if (!noRefresh) refreshSessionsInBackground(source).catch(() => {});
+    const rows = cached || [];
+    return SESSION_SOURCES.includes(source) ? rows.filter(session => session.source === source) : rows;
   }
   // First boot, no cache → wait only for the TOP_BATCH push, not the full scan.
-  if (!noRefresh) refreshSessionsInBackground().catch(() => {});
-  if (firstBatchPromise) await firstBatchPromise;
-  return getCachedSessions() || [];
+  if (!noRefresh) {
+    const sources = SESSION_SOURCES.includes(source) ? [source] : SESSION_SOURCES;
+    const states = sources.map(refreshSourceInBackground);
+    await Promise.race(states.map(state => state.firstBatch));
+  }
+  const rows = getCachedSessions() || [];
+  return SESSION_SOURCES.includes(source) ? rows.filter(session => session.source === source) : rows;
 }
 
 /* ---------- Tray + window mgmt ---------- */
@@ -636,6 +694,8 @@ if (!_gotLock) {
     // the live values (the window can be recreated after a hide-close).
     registerIpc({
       listSessions, claude, codex,
+      markSessionsDelivered,
+      refreshSessionsInBackground,
       userData, prefsStore,
       usageSummary,
       probeCodexLimits,

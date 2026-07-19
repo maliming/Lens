@@ -37,6 +37,13 @@ export type SessionMeta = {
   error?: string;
 };
 
+export type SessionsUpdate = {
+  source: SessionMeta['source'];
+  revision: string;
+  sessions: SessionMeta[];
+  error?: string;
+};
+
 export type MessageImage = {
   // 'image/png', 'image/jpeg', etc — or the literal 'url' when data is an http(s) URL.
   mediaType: string;
@@ -241,8 +248,9 @@ declare global {
 
   interface Window {
     api: {
-      listSessions: (opts?: { force?: boolean }) => Promise<SessionMeta[]>;
-      onSessionsUpdated: (cb: (sessions: SessionMeta[]) => void) => () => void;
+      listSessions: (opts?: { force?: boolean; source?: SessionMeta['source'] }) => Promise<SessionMeta[]>;
+      refreshSessions: (source: SessionMeta['source']) => Promise<boolean>;
+      onSessionsUpdated: (cb: (update: SessionsUpdate) => void) => () => void;
       getSession: (filePath: string) => Promise<MessageItem[]>;
       getSubagents: (filePath: string) => Promise<SessionSubagents>;
       deepSearch: (query: string, source?: 'claude' | 'codex') => Promise<Array<{

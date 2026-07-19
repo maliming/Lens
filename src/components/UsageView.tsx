@@ -9,10 +9,12 @@ import { pct, resetInLabel, type RateLimitsState } from '../lib/rateLimits';
 
 type Props = {
   usage: UsageSummary | null;
+  error?: string | null;
   demoMode: boolean;
   rlConsent: 'pending' | 'granted' | 'denied';
   rateLimits: RateLimitsState;
-  loading?: boolean;
+  isActive?: boolean;
+  onRetry: () => void;
   onOpenRlPrompt: () => void;
   onRefreshRateLimits: () => void;
 };
@@ -33,11 +35,28 @@ function billed(x: { input: number; output: number }): number {
   return (x.input || 0) + (x.output || 0);
 }
 
-export function UsageView({ usage, demoMode, rlConsent, rateLimits, onOpenRlPrompt, onRefreshRateLimits }: Props) {
+export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isActive = true, onRetry, onOpenRlPrompt, onRefreshRateLimits }: Props) {
   const { t } = useTranslation();
   const [currentSource] = useCurrentSource();
   const sourceDef = getSource(currentSource);
   const Glyph = sourceDef.Glyph;
+  const hasBeenActive = useRef(isActive);
+  if (isActive) hasBeenActive.current = true;
+  if (!hasBeenActive.current) return null;
+  if (!usage && error) {
+    return (
+      <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto bg-surface border border-border rounded-2xl">
+        <div className="h-full min-h-[320px] flex flex-col items-center justify-center gap-3 px-8 text-center">
+          <AlertCircle className="w-7 h-7 text-rose-500" />
+          <div className="text-[14px] font-semibold text-text">{t('status.error', { error })}</div>
+          <button onClick={onRetry} className="px-3 py-1.5 rounded-md border border-border-soft hover:bg-muted text-[12px] flex items-center gap-1.5">
+            <RefreshCw className="w-3.5 h-3.5" />
+            {t('common.retry')}
+          </button>
+        </div>
+      </main>
+    );
+  }
   if (!usage) {
     return <UsageSkeleton />;
   }

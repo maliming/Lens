@@ -29,7 +29,7 @@ async function readJsonFileSafe(filePath, maxBytes = MAX_USERDATA_FILE_SIZE) {
 }
 
 const _writeQueues = new Map();
-async function atomicWriteJson(filePath, value) {
+async function atomicWriteJson(filePath, value, { pretty = true } = {}) {
   const prev = _writeQueues.get(filePath) || Promise.resolve();
   const next = prev.catch(() => {}).then(async () => {
     const dir = path.dirname(filePath);
@@ -37,7 +37,7 @@ async function atomicWriteJson(filePath, value) {
     const tmp = filePath + '.tmp-' + process.pid + '-' + (++_writeQueues.tmpSeq || (_writeQueues.tmpSeq = 1));
     const fh = await fsp.open(tmp, 'w');
     try {
-      await fh.writeFile(JSON.stringify(value, null, 2), 'utf8');
+      await fh.writeFile(JSON.stringify(value, null, pretty ? 2 : undefined), 'utf8');
       try { await fh.sync(); } catch {}
     } finally {
       await fh.close();

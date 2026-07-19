@@ -4,11 +4,9 @@
 // Produces (per source):
 //   buckets      — total / last 1d / 7d / 30d / this calendar month
 //   currentWindows — fine-grained rolling windows (5h / today / 24h / 3d / 7d)
-//                    computed from `tokenEvents` for accuracy, not whole-
-//                    session aggregates. `tokenEvents` is persisted in the
-//                    sessions-cache (since v8) so warm-launch rolling windows
-//                    survive without re-reading every JSONL; we still read
-//                    fresh events from in-memory parses when the cache misses.
+//                    computed from exact recent `tokenEvents`. Events older
+//                    than 30 days are stored as daily `tokenDays` aggregates,
+//                    keeping historical heatmaps accurate with bounded growth.
 //   byModel      — per-model tokens + session count
 //   byProject    — top 20 projects by total tokens
 //   byDay        — newest first, up to 400 days (covers ~52-week heatmap)
@@ -165,8 +163,20 @@ function createUsage({ listSessions, readClaudeStatsCache }) {
       // calendar bucket. Sessions count still counts once per session per
       // unique day touched, so "Active days" / streaks stay meaningful.
       const events = s.tokenEvents || [];
-      if (events.length) {
+      const compactDays = s.tokenDays || [];
+      if (events.length || compactDays.length) {
         const daysTouched = new Set();
+        for (const usageDay of compactDays) {
+          if (!usageDay || typeof usageDay.day !== 'string') continue;
+          const key = usageDay.day;
+          const dcur = byDay.get(key) || { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, sessions: 0 };
+          dcur.input += usageDay.i || 0;
+          dcur.output += usageDay.o || 0;
+          dcur.cacheRead += usageDay.cr || 0;
+          dcur.cacheCreate += usageDay.cc || 0;
+          if (!daysTouched.has(key)) { dcur.sessions++; daysTouched.add(key); }
+          byDay.set(key, dcur);
+        }
         for (const ev of events) {
           const ts = Math.min(ev.ts, now);
           const d = new Date(ts);

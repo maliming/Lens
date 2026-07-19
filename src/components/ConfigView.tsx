@@ -50,7 +50,7 @@ function loadCollapsed(source: SessionSource): Set<string> {
   return new Set();
 }
 
-export function ConfigView({ demoMode = false, onStatus, refreshTick = 0 }: { demoMode?: boolean; onStatus?: (msg: string) => void; refreshTick?: number }) {
+export function ConfigView({ demoMode = false, onStatus, refreshTick = 0, isActive = true }: { demoMode?: boolean; onStatus?: (msg: string) => void; refreshTick?: number; isActive?: boolean }) {
   const { t: tConfigRoot } = useTranslationLocal();
   const [config, setConfig] = useState<ConfigPayload | null>(null);
   const [active, setActive] = useState<string | null>(null);
@@ -73,6 +73,7 @@ export function ConfigView({ demoMode = false, onStatus, refreshTick = 0 }: { de
   };
 
   useEffect(() => {
+    if (!isActive) return;
     // Source-flip side effects (reset selection / filter / collapsed) only
     // run when the source actually changed — refreshTick re-fires this effect
     // too (to re-read disk), and clearing the user's filter+collapsed state
@@ -98,7 +99,7 @@ export function ConfigView({ demoMode = false, onStatus, refreshTick = 0 }: { de
         // hanging on a stale "loading" overlay.
       });
     return () => { cancelled = true; };
-  }, [demoMode, currentSource, refreshTick]);
+  }, [demoMode, currentSource, refreshTick, isActive]);
 
   // Source flip: reset the prior source's selection / filter / collapsed
   // state — they are conceptually about different resource sets and

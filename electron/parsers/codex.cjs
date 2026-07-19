@@ -25,6 +25,11 @@ const {
   capSessionImages,
 } = require('../lib/images.cjs');
 const { compositeKey } = require('./shared.cjs');
+const {
+  FIRST_USER_MAX_LENGTH,
+  capText,
+  compactTokenUsage,
+} = require('../lib/session-data.cjs');
 
 // ===========================================================================
 // Leaf helpers
@@ -185,12 +190,17 @@ function createParser({ fileMetaCache, userdata }) {
       }
     });
 
+    const usage = compactTokenUsage(tokenEvents);
     const meta = {
-      summary, firstUser, firstTs, lastTs,
+      summary: capText(summary, 1000),
+      firstUser: capText(firstUser, FIRST_USER_MAX_LENGTH),
+      firstTs, lastTs,
       userMsgs, assistantMsgs,
       cwd, gitBranch: '', model, version,
       tokensIn, tokensOut, tokensCacheRead, tokensCacheCreate,
-      tokenEvents,
+      tokenEvents: usage.tokenEvents,
+      tokenDays: usage.tokenDays,
+      usageRevision: usage.usageRevision,
       fileSize: stat.size, mtime: stat.mtimeMs,
       // Group by the root-thread id (session_id) so subagent rollout files fold
       // under their parent. Falls back to the file's own id for older codex
@@ -209,44 +219,62 @@ function createParser({ fileMetaCache, userdata }) {
   async function statAllCodexJsonl() {
     const isPlainDir = async (p) => {
       try { const st = await fsp.lstat(p); return st.isDirectory() && !st.isSymbolicLink(); }
-      catch { return false; }
+      catch (error) {
+        if (error?.code === 'ENOENT') return false;
+        throw error;
+      }
+    };
+    const readDir = async (p) => {
+      try { return await fsp.readdir(p); }
+      catch (error) {
+        if (error?.code === 'ENOENT') return null;
+        throw error;
+      }
     };
     const allFiles = [];
-    let years;
-    try { years = await fsp.readdir(CODEX_SESSIONS_DIR); } catch { return []; }
+    const years = await readDir(CODEX_SESSIONS_DIR);
+    if (!years) return [];
     for (const y of years) {
       if (!/^\d{4}$/.test(y)) continue;
       const yp = path.join(CODEX_SESSIONS_DIR, y);
       if (!(await isPlainDir(yp))) continue;
-      let months;
-      try { months = await fsp.readdir(yp); } catch { continue; }
+      const months = await readDir(yp);
+      if (!months) continue;
       for (const m of months) {
         if (!/^\d{2}$/.test(m)) continue;
         const mp = path.join(yp, m);
         if (!(await isPlainDir(mp))) continue;
-        let days;
-        try { days = await fsp.readdir(mp); } catch { continue; }
+        const days = await readDir(mp);
+        if (!days) continue;
         for (const d of days) {
           if (!/^\d{2}$/.test(d)) continue;
           const dayPath = path.join(mp, d);
           if (!(await isPlainDir(dayPath))) continue;
-          let entries;
-          try { entries = await fsp.readdir(dayPath); } catch { continue; }
+          const entries = await readDir(dayPath);
+          if (!entries) continue;
           for (const entry of entries) {
             if (!entry.endsWith('.jsonl')) continue;
             const filePath = path.join(dayPath, entry);
             let lst;
-            try { lst = await fsp.lstat(filePath); } catch { continue; }
+            try { lst = await fsp.lstat(filePath); }
+            catch (error) {
+              if (error?.code === 'ENOENT') continue;
+              throw error;
+            }
             if (lst.isSymbolicLink() || !lst.isFile()) continue;
             allFiles.push({ filePath, entry });
           }
         }
       }
     }
-    return mapPool(allFiles, 32, async (f) => {
+    const statted = await mapPool(allFiles, 32, async (f) => {
       try { const st = await fsp.stat(f.filePath); return { ...f, mtime: st.mtimeMs }; }
-      catch { return { ...f, mtime: 0 }; }
+      catch (error) {
+        if (error?.code === 'ENOENT') return null;
+        throw error;
+      }
     });
+    return statted.filter(Boolean);
   }
 
   async function buildCodexSession({ filePath, entry }) {
@@ -276,7 +304,9 @@ function createParser({ fileMetaCache, userdata }) {
         excluded: isExcluded(k),
         alias: getAlias(k),
         ...meta,
-        codexId: undefined,
+        // Kept in the main-process cache so a warm launch still groups fork
+        // files by their authoritative root id. Renderer projection omits it.
+        codexId: meta.codexId,
         cwd: undefined,
       };
     } catch (e) {

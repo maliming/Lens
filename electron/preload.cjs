@@ -2,8 +2,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   listSessions: (opts) => ipcRenderer.invoke('sessions:list', opts || {}),
+  refreshSessions: (source) => ipcRenderer.invoke('sessions:refresh', source),
   onSessionsUpdated: (cb) => {
-    const listener = (_e, sessions) => cb(sessions);
+    const listener = (_e, update) => cb(update);
     ipcRenderer.on('sessions:updated', listener);
     return () => ipcRenderer.removeListener('sessions:updated', listener);
   },

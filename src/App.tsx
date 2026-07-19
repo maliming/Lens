@@ -19,7 +19,7 @@ import { DEMO_SESSIONS, DEMO_USAGE, DEMO_PROFILE, DEMO_RATE_LIMITS } from './lib
 import { useRateLimitsConsent, useRateLimits, type RateLimitsState } from './lib/rateLimits';
 import { RateLimitsConsentModal } from './components/RateLimitsConsentModal';
 import { useTranslation } from './lib/I18nProvider';
-import type { SessionMeta, View, UsageSummary } from './types';
+import type { SessionMeta, SessionsUpdate, View, UsageSummary } from './types';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -68,6 +68,20 @@ function ViewSlot({ active, children }: { active: boolean; children: React.React
   );
 }
 
+function replaceSourceRows(previous: SessionMeta[], update: SessionsUpdate | { source: SessionMeta['source']; sessions: SessionMeta[] }) {
+  return [
+    ...previous.filter(session => session.source !== update.source),
+    ...update.sessions,
+  ].sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+}
+
+function mergeUnseenSourceRows(previous: SessionMeta[], incoming: SessionMeta[], seenSources: ReadonlyMap<SessionSource, unknown>) {
+  const present = new Set(previous.map(session => session.source));
+  const missingRows = incoming.filter(session => !seenSources.has(session.source) && !present.has(session.source));
+  if (missingRows.length === 0) return previous;
+  return [...previous, ...missingRows].sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+}
+
 export default function App() {
   const { t } = useTranslation();
   const [view, setView] = useState<View>(() => {
@@ -95,21 +109,23 @@ export default function App() {
   useEffect(() => { currentSourceRef.current = currentSource; }, [currentSource]);
   // Two separate monotonic counters so each path only invalidates its own
   // class of writes:
-  //   • reloadSeqRef — full reload (sessions + favorites + excludes + usage)
+  //   • reloadSeqRef — explicit active-source reload + userdata refresh
   //   • usageSeqRef  — usage-only refresh (SWR push handler + silentRefresh)
-  // A SWR push must not cancel an in-flight full reload's session/favorites
+  // A SWR push must not cancel an in-flight explicit reload's session/favorites
   // writes, only its own usage write. Sharing one counter meant the lower-
   // priority usage refresh could trample the freshly-arrived sessions list.
   const reloadSeqRef = useRef(0);
   const usageSeqRef = useRef(0);
+  const sessionRevisionsRef = useRef(new Map<SessionSource, string>());
+  const previousSourceRef = useRef(currentSource);
   // Coalesces the visibilitychange + focus pair that both fire on a single dock
   // re-activation, so silentRefresh doesn't rescan/probe twice per activation.
   const lastSilentRefreshRef = useRef(0);
-  // Bumped on every full reload — ConfigView watches this so the Workspace
+  // Bumped on every explicit reload — ConfigView watches this so the Workspace
   // pane re-reads CLAUDE.md / skills / commands / hooks from disk on ⌘R or
   // the sidebar Rescan button. The renderer never watches the FS itself, so
   // without this an edit to ~/.claude/CLAUDE.md (or a new skill) wouldn't
-  // surface until the source flips or the window is restarted.
+  // surface until the pane is reopened or the window is restarted.
   const [refreshTick, setRefreshTick] = useState(0);
   const [demoAliases, setDemoAliases] = useState<Record<string, string | null>>({});
   const [rlConsent, setRlConsent] = useRateLimitsConsent();
@@ -146,13 +162,51 @@ export default function App() {
     () => computeEffectiveExcluded(sessions, excluded, excludeRules),
     [sessions, excluded, excludeRules]
   );
-  const [realUsage, setUsage] = useState<UsageSummary | null>(null);
-  const usage = demoMode ? DEMO_USAGE : realUsage;
+  const [usageBySource, setUsageBySource] = useState<Partial<Record<SessionSource, UsageSummary>>>({});
+  const [usageErrorBySource, setUsageErrorBySource] = useState<Partial<Record<SessionSource, string>>>({});
+  const storeUsage = useCallback((source: SessionSource, value: UsageSummary) => {
+    setUsageBySource(previous => previous[source] === value
+      ? previous
+      : { ...previous, [source]: value });
+    setUsageErrorBySource(previous => {
+      if (previous[source] == null) return previous;
+      const next = { ...previous };
+      delete next[source];
+      return next;
+    });
+  }, []);
+  const invalidateUsage = useCallback((source: SessionSource) => {
+    setUsageBySource(previous => {
+      if (previous[source] == null) return previous;
+      const next = { ...previous };
+      delete next[source];
+      return next;
+    });
+  }, []);
+  const currentUsage = usageBySource[currentSource] || null;
+  const usage = demoMode ? DEMO_USAGE : currentUsage;
   const [loading, setLoading] = useState(true);
   const [statusMsg, setStatusMsg] = useState('');
+  useEffect(() => {
+    if (previousSourceRef.current === currentSource) return;
+    previousSourceRef.current = currentSource;
+    // Source switches paint from the renderer's existing per-source snapshot.
+    // Cancel ownership of an explicit reload from the source we just left so
+    // its stale completion cannot keep the newly-active source in a skeleton.
+    reloadSeqRef.current++;
+    setLoading(false);
+  }, [currentSource]);
+  const reportUsageError = useCallback((source: SessionSource, error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    setUsageErrorBySource(previous => ({ ...previous, [source]: detail }));
+    const message = t('status.error', { error: detail });
+    setStatusMsg(message);
+    setTimeout(() => setStatusMsg(current => current === message ? '' : current), 4000);
+  }, [t]);
   // Per-source active selection so flipping Claude ↔ Codex restores each
   // tool's last-selected session instead of bleeding state across sources.
   const [activeId, setActiveId] = useState<string | null>(() => localStorage.getItem(`active-id:${currentSource}`));
+  const activeIdSourceRef = useRef(currentSource);
   const [realProfile, setProfile] = useProfile(currentSource);
   // Demo mode overlays a fixed profile so a localStorage-customised name
   // never leaks into demo views.
@@ -198,6 +252,7 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem('view', view); }, [view]);
   useEffect(() => {
+    if (activeIdSourceRef.current !== currentSource) return;
     const key = `active-id:${currentSource}`;
     if (activeId) localStorage.setItem(key, activeId);
     else localStorage.removeItem(key);
@@ -211,6 +266,7 @@ export default function App() {
   // would stay set and the "source-not-found" cleanup effect below would
   // immediately drop it, costing the user their previous selection.
   useEffect(() => {
+    activeIdSourceRef.current = currentSource;
     setActiveId(localStorage.getItem(`active-id:${currentSource}`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSource]);
@@ -221,6 +277,7 @@ export default function App() {
   // the selected session in Favorites left a ghost detail pane.
   useEffect(() => {
     if (!activeId) return;
+    if (!activeId.startsWith(`${currentSource}:`)) return;
     if (view !== 'sessions' && view !== 'favorites' && view !== 'excluded') return;
     let inView = false;
     if (view === 'sessions') inView = !effectiveExcluded.has(activeId);
@@ -230,7 +287,7 @@ export default function App() {
     // flip can leave activeId pointing at a row that's no longer reachable.
     if (inView && !sessions.some(s => srcKey(s) === activeId)) inView = false;
     if (!inView) setActiveId(null);
-  }, [view, activeId, favorites, effectiveExcluded, sessions]);
+  }, [view, activeId, favorites, effectiveExcluded, sessions, currentSource]);
 
   const reload = useCallback(async () => {
     // Stale guard: capture source + a monotonic request id at call time. If
@@ -239,6 +296,7 @@ export default function App() {
     // when neither source nor seq has shifted.
     const reqSource = currentSource;
     const reqSeq = ++reloadSeqRef.current;
+    const usageReqSeq = ++usageSeqRef.current;
     // Signal Workspace (ConfigView) to refetch CLAUDE.md / skills / etc.
     // Sessions + workspace live on disk side-by-side; a refresh that updates
     // one without the other left users wondering why their fresh
@@ -246,21 +304,30 @@ export default function App() {
     setRefreshTick(t => t + 1);
     setLoading(true);
     try {
-      const [s, f, e, u] = await Promise.all([
-        window.api.listSessions({ force: true }),
+      const [s, f, e, usageResult] = await Promise.all([
+        window.api.listSessions({ force: true, source: reqSource }),
         window.api.listFavorites(),
         window.api.listExcludes(),
-        window.api.getUsage(reqSource),
+        window.api.getUsage(reqSource).then(
+          value => ({ value, error: null }),
+          error => ({ value: null, error }),
+        ),
       ]);
       if (reqSource !== currentSourceRef.current || reqSeq !== reloadSeqRef.current) return;
-      setSessions(s);
+      // `sessions:list(force)` returns the current SWR snapshot immediately.
+      // A faster background push may already have installed fresher rows while
+      // this Promise.all was waiting for Usage/userdata. Only seed a source the
+      // renderer does not have yet; normal refresh results arrive via push.
+      setSessions(previous => sessionRevisionsRef.current.has(reqSource)
+        ? previous
+        : replaceSourceRows(previous, { source: reqSource, sessions: s }));
       setFavorites(new Set(f));
       setExcluded(new Set(e));
-      setUsage(u);
-      // Only release the skeleton when we have real rows. Empty array means
-      // first-boot with no cache — the SWR push handler below will turn off
-      // loading as soon as the first 30 sessions arrive (~500ms).
-      if (s.length > 0) setLoading(false);
+      if (usageReqSeq === usageSeqRef.current) {
+        if (usageResult.value) storeUsage(reqSource, usageResult.value);
+        else reportUsageError(reqSource, usageResult.error);
+      }
+      setLoading(false);
     } catch (err: any) {
       // Only surface the error if this is still the freshest reload for the
       // current source. A stale failure (user already moved on / triggered a
@@ -270,29 +337,96 @@ export default function App() {
       setStatusMsg(t('status.error', { error: err.message }));
       setLoading(false);
     }
-  }, [currentSource, t]);
+  }, [currentSource, reportUsageError, storeUsage, t]);
 
-  useEffect(() => { reload(); }, [reload]);
+  // Initial inventory load is intentionally source-independent. Source flips
+  // paint by filtering this in-memory list, then the source-activation effect
+  // below starts a payload-free background refresh.
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      window.api.listSessions({ force: true }),
+      window.api.listFavorites(),
+      window.api.listExcludes(),
+    ]).then(([s, f, e]) => {
+      if (cancelled) return;
+      // Preserve a progressive SWR push that won the race with these small
+      // favorites/excludes IPC calls.
+      setSessions(previous => mergeUnseenSourceRows(previous, s, sessionRevisionsRef.current));
+      setFavorites(new Set(f));
+      setExcluded(new Set(e));
+      // The response is an authoritative in-memory snapshot at its completion
+      // point even when the current source is empty. Fresh filesystem rows
+      // continue through SWR pushes, so an empty source never traps the app in
+      // its startup skeleton.
+      setLoading(false);
+    }).catch((err: any) => {
+      if (cancelled) return;
+      setStatusMsg(t('status.error', { error: err.message }));
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+    // This is the one boot-time inventory request. Locale changes update the
+    // translator without re-running a full filesystem scan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Paint from the per-source snapshots immediately, then refresh Usage in the
+  // background on every source activation. The fresh request keeps rolling
+  // today/3d/7d/30d windows correct after a source sat inactive overnight,
+  // while retaining the instant no-skeleton path for an already-cached value.
+  useEffect(() => {
+    const reqSource = currentSource;
+    const reqSeq = ++usageSeqRef.current;
+    window.api.getUsage(reqSource).then(u => {
+      if (reqSource === currentSourceRef.current && reqSeq === usageSeqRef.current) storeUsage(reqSource, u);
+    }).catch(error => {
+      if (reqSource === currentSourceRef.current && reqSeq === usageSeqRef.current) reportUsageError(reqSource, error);
+    });
+  }, [currentSource, reportUsageError, storeUsage]);
+
+  // Source switching remains renderer-local on the critical path. Once the
+  // new source has painted, ask main to refresh only that source without
+  // returning its multi-megabyte inventory through the request IPC. Any real
+  // changes arrive through the normal source-scoped SWR push.
+  useEffect(() => {
+    window.api.refreshSessions(currentSource).catch(() => {});
+  }, [currentSource]);
 
   // SWR push: main process pushes a fresh session list when its background
   // rescan completes. We replace state silently so the UI updates without a
   // visible "Loading…" cycle. Refresh usage in parallel since it's derived.
   useEffect(() => {
     if (!window.api.onSessionsUpdated) return;
-    return window.api.onSessionsUpdated((fresh) => {
-      setSessions(fresh);
-      setLoading(false);
+    return window.api.onSessionsUpdated((update) => {
+      if (update.error && update.source === currentSourceRef.current) {
+        setLoading(false);
+        const message = t('status.error', { error: update.error });
+        setStatusMsg(message);
+        setTimeout(() => setStatusMsg(current => current === message ? '' : current), 4000);
+      }
+      if (sessionRevisionsRef.current.get(update.source) === update.revision) return;
+      sessionRevisionsRef.current.set(update.source, update.revision);
+      setSessions(previous => replaceSourceRows(previous, update));
+      if (update.source === currentSourceRef.current) setLoading(false);
+      if (update.source !== currentSourceRef.current) {
+        invalidateUsage(update.source);
+        return;
+      }
       // Capture source + bump the USAGE-only seq so a concurrent silent
       // refresh's slower usage payload can't trample this one — without
-      // invalidating a separately-running full reload's sessions/favorites
+      // invalidating a separately-running explicit reload's sessions/favorites
       // writes.
-      const reqSource = currentSourceRef.current;
+      const reqSource = update.source;
       const reqSeq = ++usageSeqRef.current;
       window.api.getUsage(reqSource).then(u => {
-        if (reqSource === currentSourceRef.current && reqSeq === usageSeqRef.current) setUsage(u);
-      }).catch(() => {});
+        if (reqSource === currentSourceRef.current && reqSeq === usageSeqRef.current) storeUsage(reqSource, u);
+      }).catch(error => {
+        if (reqSource === currentSourceRef.current && reqSeq === usageSeqRef.current) reportUsageError(reqSource, error);
+      });
     });
-  }, []);
+  }, [invalidateUsage, reportUsageError, storeUsage, t]);
 
   // Components can dispatch this event to force a fresh listSessions() — e.g.
   // after the user renames a session via the context-menu dialog.
@@ -363,11 +497,29 @@ export default function App() {
     // Uses the USAGE-only seq — sessions data arrives via SWR push, which has
     // its own write path. We only protect against a stale usage payload.
     const reqSeq = ++usageSeqRef.current;
-    window.api.listSessions({ force: true }).catch(() => {});
+    window.api.listSessions({ force: true, source: reqSource }).catch(() => {});
     window.api.getUsage(reqSource).then(u => {
-      if (reqSource === currentSourceRef.current && reqSeq === usageSeqRef.current) setUsage(u);
-    }).catch(() => {});
-  }, [currentSource]);
+      if (reqSource === currentSourceRef.current && reqSeq === usageSeqRef.current) storeUsage(reqSource, u);
+    }).catch(error => {
+      if (reqSource === currentSourceRef.current && reqSeq === usageSeqRef.current) reportUsageError(reqSource, error);
+    });
+  }, [currentSource, reportUsageError, storeUsage]);
+
+  const retryUsage = useCallback(() => {
+    const reqSource = currentSource;
+    const reqSeq = ++usageSeqRef.current;
+    setUsageErrorBySource(previous => {
+      if (previous[reqSource] == null) return previous;
+      const next = { ...previous };
+      delete next[reqSource];
+      return next;
+    });
+    window.api.getUsage(reqSource).then(u => {
+      if (reqSource === currentSourceRef.current && reqSeq === usageSeqRef.current) storeUsage(reqSource, u);
+    }).catch(error => {
+      if (reqSource === currentSourceRef.current && reqSeq === usageSeqRef.current) reportUsageError(reqSource, error);
+    });
+  }, [currentSource, reportUsageError, storeUsage]);
 
   useEffect(() => {
     let timer: number | null = null;
@@ -596,10 +748,10 @@ export default function App() {
           />
         </ViewSlot>
         <ViewSlot active={view === 'usage'}>
-          <UsageView usage={usage} demoMode={demoMode} rlConsent={rlConsent} rateLimits={rateLimitsState} onOpenRlPrompt={() => setRlPromptOpen(true)} onRefreshRateLimits={refreshRateLimits} loading={loading} />
+          <UsageView usage={usage} error={usageErrorBySource[currentSource] || null} demoMode={demoMode} rlConsent={rlConsent} rateLimits={rateLimitsState} isActive={view === 'usage'} onRetry={retryUsage} onOpenRlPrompt={() => setRlPromptOpen(true)} onRefreshRateLimits={refreshRateLimits} />
         </ViewSlot>
         <ViewSlot active={view === 'config'}>
-          <ConfigView demoMode={demoMode} onStatus={setStatusMsg} refreshTick={refreshTick} />
+          <ConfigView demoMode={demoMode} onStatus={setStatusMsg} refreshTick={refreshTick} isActive={view === 'config'} />
         </ViewSlot>
         <ViewSlot active={view === 'settings'}>
           <SettingsView themeMode={themeMode} resolvedTheme={theme} onThemeChange={setThemeMode} demoMode={demoMode} onDemoModeChange={setDemoMode} rlConsent={rlConsent} onRlConsentChange={setRlConsent} />

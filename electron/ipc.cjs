@@ -38,6 +38,7 @@ const { deepSearch } = require('./search.cjs');
 const { readClaudeConfig, readCodexConfig } = require('./config.cjs');
 const { readClaudeOAuthToken, probeAnthropicLimits } = require('./auth/claude.cjs');
 const { applyLaunchAtLogin } = require('./lib/prefs.cjs');
+const { toRendererSessionsWithRevision } = require('./lib/session-data.cjs');
 
 // Deep search input caps. Keeps a misbehaving / hostile renderer from forcing
 // a many-second whole-corpus scan; a sane human query maxes out far below
@@ -53,6 +54,8 @@ const RATE_LIMITS_TTL = 5 * 60 * 1000;
 function registerIpc(deps) {
   const {
     listSessions,
+    markSessionsDelivered,
+    refreshSessionsInBackground,
     claude, codex,
     userData, prefsStore,
     usageSummary,
@@ -71,9 +74,27 @@ function registerIpc(deps) {
   const excludesPath  = userData.excludesPath;
 
   ipcMain.handle('sessions:list', async (_e, opts) => {
-    const sessions = await listSessions(opts || {});
-    // Strip large tokenEvents arrays — only used server-side for usageSummary().
-    return sessions.map(({ tokenEvents, ...rest }) => rest);
+    const source = opts?.source === 'claude' || opts?.source === 'codex' ? opts.source : null;
+    const sessions = await listSessions({ force: opts?.force === true, source });
+    if (source) {
+      const projected = toRendererSessionsWithRevision(sessions, source);
+      markSessionsDelivered?.(source, projected.revision, projected.sessions.length);
+      return projected.sessions;
+    }
+    const projected = ['claude', 'codex'].map(sessionSource => {
+      const result = toRendererSessionsWithRevision(sessions, sessionSource);
+      markSessionsDelivered?.(sessionSource, result.revision, result.sessions.length);
+      return result.sessions;
+    });
+    return projected.flat().sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+  });
+
+  ipcMain.handle('sessions:refresh', async (_e, source) => {
+    if (source !== 'claude' && source !== 'codex') throw new Error('Invalid session source');
+    refreshSessionsInBackground(source).catch(error => {
+      console.error('session refresh failed', source, error);
+    });
+    return true;
   });
 
   ipcMain.handle('sessions:get', async (_e, filePath) => {
@@ -182,7 +203,7 @@ function registerIpc(deps) {
   // downstream callers can quote/run it with one less worry.
   async function resolveSessionWithCwd(payload) {
     const source = await resolveSession(payload);
-    const sessions = await listSessions({});
+    const sessions = await listSessions({ noRefresh: true, source });
     const sess = sessions.find(s => s.source === source && s.id === payload.id);
     if (!sess) throw new Error('Unknown session');
     // Defense-in-depth: if the renderer supplied `filePath`, require it to
@@ -323,7 +344,7 @@ function registerIpc(deps) {
   });
 
   // Reveal the Electron userData directory — the same folder that holds
-  // favorites.json / excludes.json / aliases.json / sessions-cache.json /
+  // favorites.json / excludes.json / aliases.json / per-source session caches /
   // app-prefs.json plus the bundled Chromium profile (cookies, Cache,
   // IndexedDB). Surfaced from Settings so users can back up or clear local
   // state without hunting for the platform-specific path.
