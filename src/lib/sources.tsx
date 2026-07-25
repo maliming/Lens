@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode, ComponentType } from 'react';
+import type { TKey } from './i18n';
 
 // ===========================================================================
 //  Provider registry
@@ -31,6 +32,10 @@ export type SourceDef = {
   id: SessionSource;
   label: string;
   pathHint: string;            // displayed in Manage Tools / about pages
+  // i18n key for the "version" row in the session info drawer. The stored
+  // `version` means the CLI that wrote the session — Claude Code's for claude,
+  // Codex CLI's for codex — so the label must not be hard-coded to "CC version".
+  versionLabelKey: TKey;
   // Visual identity for chips, dropdowns, message-avatar backgrounds.
   accent: string;
   accentSoft: string;
@@ -149,6 +154,7 @@ export const SOURCES: Record<SessionSource, SourceDef> = {
     id: 'claude',
     label: 'Claude Code',
     pathHint: '~/.claude/projects/',
+    versionLabelKey: 'info.row.ccVersion',
     accent: '#D97757',
     accentSoft: '#fde6da',
     Glyph: ClaudeGlyph,
@@ -160,6 +166,7 @@ export const SOURCES: Record<SessionSource, SourceDef> = {
     id: 'codex',
     label: 'Codex',
     pathHint: '~/.codex/sessions/',
+    versionLabelKey: 'info.row.codexVersion',
     accent: '#1f1f24',
     accentSoft: '#e8e8ec',
     Glyph: OpenAIGlyph,

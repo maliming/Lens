@@ -62,7 +62,10 @@ const { normalizeSessionForCache, cacheRevision } = require('./session-data.cjs'
 //     whitelist and never receives these usage-only fields.
 // v17: large per-source caches use an atomic two-generation shard manifest so
 //     the writer can never create a file that the next launch refuses to read.
-const SESSIONS_CACHE_VERSION = 17;
+// v18: Codex rows round-trip `reasoningEffort` (the turn's thinking level). v17
+//     caches can be sharded, a shape the legacy flat-array migration does not
+//     handle, so they are simply ignored and re-scanned rather than migrated.
+const SESSIONS_CACHE_VERSION = 18;
 const LEGACY_SOURCE_CACHE_VERSION = 16;
 const LEGACY_CACHE_VERSION = 15;
 const SESSION_SOURCES = ['claude', 'codex'];
@@ -407,9 +410,11 @@ function createSessionsCache({ userDataDir }) {
 //                  filename-derived id, breaking favorite / alias /
 //                  exclude lookups that key on the real id.
 //   • `planType` — last seen plan tier; the Sidebar quota card displays it.
-// Both are Codex-only; cached Claude sessions never populate them, so
-// `s.codexId === undefined` and `planType === undefined` round-trip as
-// `null` which the parser treats as "no info" without any branching.
+//   • `reasoningEffort` — last seen thinking level ("high" etc); the session
+//                  info drawer shows it. Codex-only; Claude never records one.
+// All three are Codex-only; cached Claude sessions never populate them, so
+// `s.codexId === undefined` and `planType`/`reasoningEffort === undefined`
+// round-trip as `null` which the parser treats as "no info" without branching.
 function extractMetaFromSession(s) {
   return {
     summary: s.summary || '', firstUser: s.firstUser || '',
@@ -429,6 +434,7 @@ function extractMetaFromSession(s) {
     subagentsFolded: s.subagentsFolded ?? false,
     subagentSignature: s.subagentSignature ?? null,
     planType: s.planType ?? null,
+    reasoningEffort: s.reasoningEffort ?? null,
   };
 }
 

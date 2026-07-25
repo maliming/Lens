@@ -28,6 +28,11 @@ export type SessionMeta = {
   // extracted from session_meta. Claude sessions don't populate this; the
   // field stays undefined.
   planType?: string | null;
+  // Codex sessions record the reasoning ("thinking") effort in each
+  // turn_context — "low" | "medium" | "high" | "xhigh" | ... The info drawer
+  // surfaces it. Claude sessions don't persist a thinking level, so this
+  // stays undefined for them and the row is hidden.
+  reasoningEffort?: string | null;
   // Carries the size-cap label state when the on-disk file once exceeded the
   // metadata cap and the cached entry hasn't been refreshed yet. Metadata
   // streaming (since v9) no longer produces new `tooLarge` rows, but older

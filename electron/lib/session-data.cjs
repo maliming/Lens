@@ -143,6 +143,7 @@ function normalizeSessionForCache(session, now = Date.now()) {
   return {
     ...normalizeCommonSessionFields(session),
     planType: session?.planType == null ? null : capText(session.planType, SMALL_TEXT_MAX_LENGTH),
+    reasoningEffort: session?.reasoningEffort == null ? null : capText(session.reasoningEffort, SMALL_TEXT_MAX_LENGTH),
     codexId: session?.codexId == null ? undefined : capText(String(session.codexId), SMALL_TEXT_MAX_LENGTH),
     isSubagent: session?.isSubagent === true,
     // v15 and earlier persisted final Claude rows after subagents had already
@@ -163,6 +164,7 @@ function toRendererSession(session) {
   return {
     ...normalizeCommonSessionFields(session),
     ...(session.planType == null ? {} : { planType: capText(session.planType, SMALL_TEXT_MAX_LENGTH) }),
+    ...(session.reasoningEffort == null ? {} : { reasoningEffort: capText(session.reasoningEffort, SMALL_TEXT_MAX_LENGTH) }),
     ...(session.tooLarge === true ? { tooLarge: true } : {}),
     ...(session.error ? { error: capText(String(session.error), ERROR_MAX_LENGTH) } : {}),
   };
@@ -258,6 +260,7 @@ function cacheRevision(sessions) {
     hasher.write(session.usageRevision || tokenUsageRevision(session.tokenEvents, session.tokenDays));
     hasher.write(session.subagentSignature);
     hasher.write(session.planType);
+    hasher.write(session.reasoningEffort);
   }
   return hasher.digest(sessions.length);
 }

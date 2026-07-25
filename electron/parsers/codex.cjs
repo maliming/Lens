@@ -91,6 +91,7 @@ function createParser({ fileMetaCache, userdata }) {
     let tokensIn = 0, tokensOut = 0, tokensCacheRead = 0, tokensCacheCreate = 0;
     const tokenEvents = [];
     let lastPlanType = null;
+    let reasoningEffort = null;
 
     await forEachJsonlLine(filePath, (obj) => {
       if (obj.timestamp) {
@@ -129,9 +130,18 @@ function createParser({ fileMetaCache, userdata }) {
         return;
       }
 
-      if (t === 'turn_context' && p.model) {
+      if (t === 'turn_context') {
         // Real model name lives here: "gpt-5.5", "gpt-5-codex", etc.
-        model = p.model;
+        if (p.model) model = p.model;
+        // Reasoning ("thinking") effort for the turn: "low" | "medium" |
+        // "high" | "xhigh" | ... Prefer the flat `effort`; fall back to the
+        // nested collaboration_mode settings some shapes use. Last
+        // turn_context wins so the row reflects the session's latest setting.
+        // Claude sessions have no equivalent field, so this stays Codex-only.
+        const eff = p.effort
+          || (p.collaboration_mode && p.collaboration_mode.settings
+              && p.collaboration_mode.settings.reasoning_effort);
+        if (eff) reasoningEffort = eff;
         return;
       }
 
@@ -208,6 +218,7 @@ function createParser({ fileMetaCache, userdata }) {
       codexId: rootId || id || null,
       isSubagent,
       planType: lastPlanType,
+      reasoningEffort,
     };
     fileMetaCache.set(filePath, { mtime: stat.mtimeMs, meta });
     return meta;

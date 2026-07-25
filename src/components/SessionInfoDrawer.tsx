@@ -1,7 +1,8 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, Copy, GitBranch, Calendar, MessageSquare, FileText, Cpu } from 'lucide-react';
-import { fmtBytes, fmtModel, fmtTime, fmtTokens, shortCwd, isUsableModel, visibleMessageCount } from '../lib/format';
+import { fmtBytes, fmtModel, fmtTime, fmtTokens, shortCwd, isUsableModel, visibleMessageCount, cleanDisplayText } from '../lib/format';
 import { meaningfulBranch } from '../lib/sessionTitle';
+import { getSource } from '../lib/sources';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/I18nProvider';
 import type { SessionMeta } from '../types';
@@ -95,15 +96,19 @@ export function SessionInfoDrawer({ open, onOpenChange, session }: Props) {
             </section>
 
             {/* Model */}
-            {(isUsableModel(session.model) || session.version) && (
+            {(isUsableModel(session.model) || session.version || session.reasoningEffort) && (
               <section>
                 <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t('info.section.runtime')}</h3>
                 <dl className="space-y-1.5 text-[12.5px]">
                   {isUsableModel(session.model) && (
                     <Row label={<><Cpu className="w-3 h-3 inline mr-1 -mt-0.5" />{t('info.row.model')}</>}>{fmtModel(session.model)}</Row>
                   )}
+                  {/* Codex-only: Claude sessions never carry a thinking level. */}
+                  {session.reasoningEffort && (
+                    <Row label={t('info.row.reasoningEffort')}>{cleanDisplayText(session.reasoningEffort)}</Row>
+                  )}
                   {session.version && (
-                    <Row label={t('info.row.ccVersion')}>v{session.version}</Row>
+                    <Row label={t(getSource(session.source).versionLabelKey)}>v{session.version}</Row>
                   )}
                 </dl>
               </section>

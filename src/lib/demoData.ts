@@ -144,6 +144,7 @@ function buildSession(seed: Seed, i: number, source: 'claude' | 'codex'): Sessio
     gitBranch: p.branch,
     model: seed.model,
     version: source === 'codex' ? '0.20.0' : '0.4.12',
+    reasoningEffort: source === 'codex' ? 'high' : undefined,
     tokensIn: seed.tokensIn,
     tokensOut: seed.tokensOut,
     tokensCacheRead: seed.tokensCacheRead,
