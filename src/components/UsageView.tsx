@@ -5,7 +5,7 @@ import { useCurrentSource, getSource } from '../lib/sources';
 import { Coins, TrendingUp, Zap, Database, Activity, Hourglass, RefreshCw, AlertCircle, Wifi, Flame, Calendar as CalendarIcon, Trophy } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/I18nProvider';
-import { pct, resetInLabel, rateStatusKind, type RateLimitsState } from '../lib/rateLimits';
+import { pct, resetInLabel, rateStatusKind, isWindowExpired, useNowTick, type RateLimitsState } from '../lib/rateLimits';
 
 type Props = {
   usage: UsageSummary | null;
@@ -774,6 +774,9 @@ function InsightCard({ eyebrow, title, metric, sub, tint }: { eyebrow: string; t
 
 function LiveQuotaHero({ rateLimits, onRefresh, demoMode }: { rateLimits: RateLimitsState; onRefresh: () => void; demoMode?: boolean }) {
   const { t } = useTranslation();
+  // The "Updated …" line below reads the clock at render time, and a tick in
+  // the child rings does not re-render this parent — it would sit frozen.
+  useNowTick();
   return (
     <div className="mb-8 rounded-2xl border border-accent/20 bg-gradient-to-br from-accent-soft/50 to-surface p-5">
       <div className="flex items-center justify-between mb-4">
@@ -784,7 +787,11 @@ function LiveQuotaHero({ rateLimits, onRefresh, demoMode }: { rateLimits: RateLi
           <div>
             <h2 className="text-[14px] font-semibold text-text leading-tight">{t('usage.liveSubscriptionQuota')}</h2>
             <div className="text-[10.5px] text-text-muted">
-              {demoMode ? 'demo data · for screenshots only' : `Updated ${rateLimits.fetchedAt ? humanAgo(Date.now() - rateLimits.fetchedAt) : '—'}`}
+              {demoMode
+                ? 'demo data · for screenshots only'
+                /* Without the error branch a probe that keeps failing leaves the
+                   last good numbers on screen indefinitely, dated but unqualified. */
+                : `${rateLimits.error ? `${t('usage.status.updateFailed')} · ` : ''}Updated ${rateLimits.fetchedAt ? humanAgo(Date.now() - rateLimits.fetchedAt) : '—'}`}
             </div>
           </div>
         </div>
@@ -805,13 +812,20 @@ function LiveQuotaHero({ rateLimits, onRefresh, demoMode }: { rateLimits: RateLi
 
 function QuotaRing({ label, window: w }: { label: string; window: { utilization: number | null; status: string | null; reset: number | null } }) {
   const { t } = useTranslation();
+  useNowTick();
   const p = pct(w);
   const left = p == null ? null : Math.max(0, 100 - p);
-  const statusKind = rateStatusKind(w.status);
+  // A rolled-over window keeps its old utilization until the next probe lands;
+  // suppress the verdict badge rather than assert a limit that no longer holds.
+  const expired = isWindowExpired(w);
+  const statusKind = expired ? 'ok' : rateStatusKind(w.status);
   const resetLabel = resetInLabel(w.reset, t);
   // Color scales with remaining headroom — same thresholds as Sidebar.RateBar
   // so quota signaling reads identically across the app.
-  const barGradient = left == null ? 'from-text-muted/30 to-text-muted/30'
+  // A rolled-over window's old fill is not just stale, it is wrong: utilization
+  // restarts near zero after the reset, so a red 3%-left bar would be the
+  // opposite of the truth. Drain it to a neutral track until fresh data lands.
+  const barGradient = left == null || expired ? 'from-text-muted/30 to-text-muted/30'
     : left <= 10 ? 'from-rose-400 to-rose-600'
     : left <= 30 ? 'from-amber-400 to-orange-500'
     : 'from-accent to-purple-500';
@@ -821,7 +835,7 @@ function QuotaRing({ label, window: w }: { label: string; window: { utilization:
   // React 18's automatic batching, which was collapsing the
   // "render at 0% → setState to target" pair into a single paint with
   // nothing to interpolate.
-  const targetWidth = left == null ? 0 : Math.max(left, 2);
+  const targetWidth = left == null || expired ? 0 : Math.max(left, 2);
   const barRef = useRef<HTMLDivElement | null>(null);
   const prevWidthRef = useRef(0);
   useEffect(() => {
@@ -854,7 +868,7 @@ function QuotaRing({ label, window: w }: { label: string; window: { utilization:
           )}
         </div>
         <div className="text-[15px] font-bold tabular-nums text-text leading-none flex-shrink-0">
-          {left != null ? <>{left.toFixed(1)}<span className="text-[11px] font-semibold text-text-muted ml-0.5">% left</span></> : '—'}
+          {left != null && !expired ? <>{left.toFixed(1)}<span className="text-[11px] font-semibold text-text-muted ml-0.5">% left</span></> : '—'}
         </div>
       </div>
       <div className="h-[8px] bg-border rounded-full overflow-hidden">
@@ -865,7 +879,7 @@ function QuotaRing({ label, window: w }: { label: string; window: { utilization:
         />
       </div>
       <div className="text-[10.5px] text-text-muted tabular-nums mt-1.5">
-        {left == null ? 'No data' : resetLabel ? <>resets in {resetLabel}</> : ' '}
+        {expired ? t('usage.status.refreshing') : left == null ? 'No data' : resetLabel ? <>resets in {resetLabel}</> : ' '}
       </div>
     </div>
   );

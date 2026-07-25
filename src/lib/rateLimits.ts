@@ -50,10 +50,36 @@ export function useRateLimitsConsent(): [Consent, (v: Consent) => void] {
 }
 
 const POLL_INTERVAL = 5 * 60 * 1000;
+// A window that resets in 10 minutes would otherwise sit at "limit reached"
+// until the next 5-minute tick happens to land (and even then main's own
+// 5-minute cache can hand back the pre-reset snapshot). So each successful
+// probe also arms a one-shot forced re-probe just after the earliest reset.
+// One-shot matters: the Claude probe is a real Messages API POST that spends
+// the user's own quota, so this must never become a repeating retry — a stale
+// answer costs one extra call and then waits for the ordinary poll.
+const RESET_REFRESH_BUFFER = 10_000;
+// Floor so a reset that is already in the past when the timer is armed doesn't
+// fire a probe in the same tick as the response that reported it.
+const MIN_RESET_REFRESH_DELAY = 60_000;
+// Two windows rolling over this close together are treated as one event. Kept
+// separate from the floor above: they answer different questions (how long to
+// wait vs. which resets are the same rollover) and want to move independently.
+const RESET_MERGE_WINDOW = 60_000;
+// Sanity bound on a reset timestamp. A malformed header far enough in the
+// future overflows setTimeout's 2^31-1 ms argument, which the spec turns into
+// "fire immediately" — the opposite of what the value asks for, and a wasted
+// paid probe. The real windows are 5 hours and 7 days.
+const MAX_RESET_HORIZON = 30 * 24 * 60 * 60 * 1000;
 
 export type RateLimitsDebug = { status: number; headers: Record<string, string>; body: string };
 export type RateLimitsState = {
   limits: RateLimits | null;
+  // Which provider the current `limits` came from. The hook deliberately keeps
+  // the previous provider's numbers on screen across a source flip, so without
+  // this the reset scheduler cannot tell whose resets it is looking at — and
+  // arming a Claude probe (a paid API call) off Codex's schedule is exactly the
+  // kind of mistake that costs the user quota.
+  limitsSource: 'claude' | 'codex' | null;
   fetchedAt: number | null;
   loading: boolean;
   error: string | null;
@@ -64,7 +90,7 @@ export function useRateLimits(enabled: boolean, source: 'claude' | 'codex' = 'cl
   state: RateLimitsState;
   refresh: () => void;
 } {
-  const [state, setState] = useState<RateLimitsState>({ limits: null, fetchedAt: null, loading: false, error: null, debug: null });
+  const [state, setState] = useState<RateLimitsState>({ limits: null, limitsSource: null, fetchedAt: null, loading: false, error: null, debug: null });
   const timerRef = useRef<number | null>(null);
   // Two-layer staleness guard (see useSourceAuth for the rationale):
   // 1. Drop results belonging to a source the user has flipped away from.
@@ -82,7 +108,7 @@ export function useRateLimits(enabled: boolean, source: 'claude' | 'codex' = 'cl
       const r = await window.api.getRateLimits({ force, source: fetchSource });
       if (activeSourceRef.current !== fetchSource || seq !== seqRef.current) return;
       if (r.ok) {
-        setState({ limits: r.limits, fetchedAt: r.fetchedAt, loading: false, error: null, debug: (r.debug ?? null) as RateLimitsDebug | null });
+        setState({ limits: r.limits, limitsSource: fetchSource, fetchedAt: r.fetchedAt, loading: false, error: null, debug: (r.debug ?? null) as RateLimitsDebug | null });
       } else {
         setState(s => ({ ...s, loading: false, error: r.message, debug: (r.debug ?? null) as RateLimitsDebug | null }));
       }
@@ -92,6 +118,38 @@ export function useRateLimits(enabled: boolean, source: 'claude' | 'codex' = 'cl
     }
   }, [source]);
 
+  // Latest state, readable from event handlers that must not re-subscribe every
+  // time the numbers change.
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
+  const sourceRef = useRef(source);
+  useEffect(() => { sourceRef.current = source; }, [source]);
+  // The reset whose forced refresh has already been spent. Waking the app up
+  // repeatedly must not re-buy the same rollover.
+  const forcedResetKeyRef = useRef<string | null>(null);
+
+  // Refresh on becoming visible again. Forced only when a window has actually
+  // rolled over and this rollover has not been paid for yet; otherwise plain,
+  // which main's TTL usually answers from cache at no cost.
+  const wake = useCallback(() => {
+    const s = stateRef.current;
+    const key = s.limitsSource === sourceRef.current ? resetSchedule(s.limits).join(',') : '';
+    if (hasRolledOver(s) && key && forcedResetKeyRef.current !== key) {
+      forcedResetKeyRef.current = key;
+      tick(true);
+    } else {
+      tick(false);
+    }
+  }, [tick]);
+
+  // Focus fires every time the user clicks back into an already-visible window,
+  // so it only acts when a window has actually rolled over. That is the case
+  // visibilitychange can miss: after a laptop sleeps with Lens on screen the
+  // page never goes hidden, it just wakes up holding a window that has expired.
+  const onFocus = useCallback(() => {
+    if (hasRolledOver(stateRef.current)) wake();
+  }, [wake]);
+
   useEffect(() => {
     if (!enabled) {
       // Bump the seq counter so any in-flight tick() from before the flip lands
@@ -100,7 +158,7 @@ export function useRateLimits(enabled: boolean, source: 'claude' | 'codex' = 'cl
       seqRef.current++;
       // Clear cached data when consent is revoked / demo mode toggled on, so the
       // sidebar bars and Usage hero stop showing stale numbers immediately.
-      setState({ limits: null, fetchedAt: null, loading: false, error: null, debug: null });
+      setState({ limits: null, limitsSource: null, fetchedAt: null, loading: false, error: null, debug: null });
       if (timerRef.current != null) { clearInterval(timerRef.current); timerRef.current = null; }
       return;
     }
@@ -113,15 +171,124 @@ export function useRateLimits(enabled: boolean, source: 'claude' | 'codex' = 'cl
     // worse-of-two-evils tradeoff we're explicitly making; the active
     // source label in the sidebar makes the brief inconsistency obvious.
     seqRef.current++;
-    setState(s => ({ ...s, loading: true }));
-    tick(false);
-    timerRef.current = window.setInterval(() => tick(false), POLL_INTERVAL);
-    return () => {
+    // Visibility gate. Lens hides to the tray instead of quitting and can even
+    // launch hidden at login, so an ungated interval keeps buying Claude probes
+    // while nobody is looking at the numbers. Nothing is lost by pausing: the
+    // wake handler above catches up the moment the window comes back.
+    const stop = () => {
       if (timerRef.current != null) { clearInterval(timerRef.current); timerRef.current = null; }
     };
-  }, [enabled, tick]);
+    const start = () => {
+      stop();
+      timerRef.current = window.setInterval(() => tick(false), POLL_INTERVAL);
+    };
+    const onVisibility = () => {
+      if (document.hidden) { stop(); return; }
+      wake();
+      start();
+    };
+    if (!document.hidden) {
+      setState(s => ({ ...s, loading: true }));
+      tick(false);
+      start();
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [enabled, tick, wake, onFocus]);
+
+  // Reset-aligned refresh. `force` skips main's TTL cache, which would
+  // otherwise replay the pre-reset snapshot for up to five more minutes.
+  // Keyed on the reset values alone — deliberately NOT on `fetchedAt`, which
+  // would re-arm after every probe and turn a reset the API keeps reporting as
+  // past into a standing drain on the user's quota. One arm per distinct set of
+  // resets is what makes this "refresh once when a window rolls over": every
+  // poll in between reports the same resets and leaves the pending timers
+  // alone, and if a forced probe comes back with the same stale reset, nothing
+  // re-arms — the ordinary poll takes it from there. Re-arming on a changed key
+  // is free: the targets are absolute, so a timer cannot fire twice for one
+  // rollover.
+  const scheduleKey = state.limitsSource === source ? resetSchedule(state.limits).join(',') : '';
+  useEffect(() => {
+    if (!enabled || !scheduleKey) return;
+    const fire = () => {
+      // Hidden: skip the paid probe entirely. The rollover is not lost — the
+      // wake handler sees the expired window and buys the refresh then, when
+      // there is someone to read it.
+      if (document.hidden) return;
+      forcedResetKeyRef.current = scheduleKey;
+      tick(true);
+    };
+    const ids = scheduleKey.split(',').map(value => {
+      const delay = Number(value) + RESET_REFRESH_BUFFER - Date.now();
+      return window.setTimeout(fire, Math.max(delay, MIN_RESET_REFRESH_DELAY));
+    });
+    return () => ids.forEach(clearTimeout);
+  }, [enabled, tick, scheduleKey]);
 
   return { state, refresh: () => tick(true) };
+}
+
+// Every window's reset moment, epoch ms, ascending. Each one gets its own
+// timer: the 7-day rollover sits hours or days away from the 5-hour one, so
+// watching only the earliest would leave the weekly badge stale until an
+// unrelated poll happened to land on it. Nulls and non-finite values are
+// skipped so a malformed header can't take the whole schedule down.
+function resetSchedule(limits: RateLimits | null): number[] {
+  if (!limits) return [];
+  const stamps: number[] = [];
+  const horizon = Date.now() + MAX_RESET_HORIZON;
+  for (const w of [limits.fiveHour, limits.weekly]) {
+    if (w?.reset == null) continue;
+    const ms = w.reset * 1000;
+    if (Number.isFinite(ms) && ms <= horizon) stamps.push(ms);
+  }
+  stamps.sort((a, b) => a - b);
+  // Collapse resets landing close together — when both windows roll over at
+  // nearly the same moment, a second probe seconds later reports the same thing
+  // and costs the same quota. The cluster keeps its LATEST member: probing at
+  // the earliest one would run before the later window has actually rolled
+  // over, so that window would silently lose its aligned refresh.
+  const merged: number[] = [];
+  for (const ms of stamps) {
+    if (merged.length && ms - merged[merged.length - 1] < RESET_MERGE_WINDOW) merged.pop();
+    merged.push(ms);
+  }
+  return merged;
+}
+
+// Re-render driver for countdown labels. `resetInLabel` reads the clock at
+// render time, but nothing else re-renders between five-minute polls, so a
+// "10m" label would otherwise sit frozen until fresh data arrived.
+export function useNowTick(intervalMs = 30_000): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    // Skipped while hidden: nobody is reading the countdown, and re-rendering
+    // the quota cards behind a hidden window is pure waste. Coming back into
+    // view re-renders anyway.
+    const id = window.setInterval(() => { if (!document.hidden) setTick(t => t + 1); }, intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return tick;
+}
+
+// Whether either window in a snapshot has passed its reset moment.
+function hasRolledOver(state: RateLimitsState): boolean {
+  if (!state.limits) return false;
+  return [state.limits.fiveHour, state.limits.weekly].some(isWindowExpired);
+}
+
+// Whether a window's reset moment has already passed. Its numbers describe a
+// window that has since rolled over, so they say nothing about the live one —
+// callers drop the "limit reached" badge instead of asserting a stale verdict.
+export function isWindowExpired(w: { reset: number | null } | null | undefined): boolean {
+  if (!w || w.reset == null) return false;
+  const ms = w.reset * 1000;
+  return Number.isFinite(ms) && ms <= Date.now();
 }
 
 export function pct(w: { utilization: number | null }): number | null {
@@ -136,7 +303,11 @@ export function resetInLabel(reset: number | null, tr?: (key: any, vars?: Record
   const t = reset * 1000;
   if (!Number.isFinite(t)) return null;
   const ms = t - Date.now();
-  if (ms <= 0) return tr ? tr('time.now') : 'now';
+  // Past the reset the window has rolled over and these numbers are stale, so
+  // there is no countdown left to state — the old "now" read as "your quota is
+  // resetting right this second", which stayed on screen long after it wasn't.
+  // The reset-aligned refresh above replaces the data seconds later.
+  if (ms <= 0) return null;
   const min = Math.floor(ms / 60000);
   if (min < 60) return tr ? tr('time.minLeft', { n: min }) : `${min}m`;
   const h = Math.floor(min / 60);

@@ -9,7 +9,7 @@ import type { Profile } from '../lib/profile';
 import { useSourceAuth, planLabel, planBadgeClass } from '../lib/sourceAuth';
 import { useTranslation } from '../lib/I18nProvider';
 import type { TKey } from '../lib/i18n';
-import { pct, resetInLabel, agoLabel, type RateLimitsState } from '../lib/rateLimits';
+import { pct, resetInLabel, agoLabel, isWindowExpired, useNowTick, type RateLimitsState } from '../lib/rateLimits';
 import { DEMO_AUTH } from '../lib/demoData';
 import { AISourceSelector } from './AISourceSelector';
 import { useCurrentSource, getSource } from '../lib/sources';
@@ -226,8 +226,14 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
 
 function RateBar({ label, window, windowSize, className }: { label: string; window: { utilization: number | null; reset: number | null }; windowSize: string; className?: string }) {
   const { t } = useTranslation();
+  // Keeps the countdown honest between the five-minute polls.
+  useNowTick();
   const p = pct(window);
   const left = p == null ? null : Math.max(0, 100 - p);
+  // Past its reset the fill describes a window that no longer exists, so the
+  // bar falls back to the same shimmer it uses before any data has arrived —
+  // which is exactly what is happening: a refresh is on its way.
+  const expired = isWindowExpired(window);
   const resetLabel = resetInLabel(window.reset, t);
   // Bar color signals remaining headroom — same thresholds, inverted reading.
   // Low "left" = red (almost out), mid = amber, high = accent (plenty).
@@ -241,7 +247,7 @@ function RateBar({ label, window, windowSize, className }: { label: string; wind
   // `transition-[width]` and read as "bar grows from zero", even though no
   // refill ever happened. Skeleton → real-value mount transition feels
   // cleaner than width interpolation from a synthetic baseline.
-  const isSkeleton = left == null;
+  const isSkeleton = left == null || expired;
   // Target width (clamped to a 2% floor so a 0%-left bar is still visible).
   const targetWidth = isSkeleton ? 0 : Math.max(left as number, 2);
   // Width animation driven by the Web Animations API instead of CSS
@@ -281,7 +287,7 @@ function RateBar({ label, window, windowSize, className }: { label: string; wind
     <div className={cn('min-w-0', className)} title={`${label} window · ${resetLabel ?? '—'} until reset · window ${windowSize}`}>
       <div className="flex items-baseline justify-between gap-2 mb-1.5 min-w-0">
         <span className="text-[12.5px] font-semibold text-text">{label}</span>
-        <span className="text-[12.5px] tabular-nums text-text font-semibold">{left != null ? t('sidebar.quotaLeft', { n: left.toFixed(1) }) : '—'}</span>
+        <span className="text-[12.5px] tabular-nums text-text font-semibold">{left != null && !expired ? t('sidebar.quotaLeft', { n: left.toFixed(1) }) : '—'}</span>
       </div>
       <div className="h-[6px] bg-border rounded-full overflow-hidden">
         {isSkeleton ? (
@@ -342,6 +348,7 @@ function ProfileQuotaCard({
   liveLabel: string;
 }) {
   const { t } = useTranslation();
+  useNowTick();
   const hasQuota = !!rateLimits?.limits;
   // Mount the section once the probe is enabled — even before the first
   // response lands — so it doesn't blink in/out around source flips or

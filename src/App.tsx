@@ -135,7 +135,7 @@ export default function App() {
   const rlEnabled = !demoMode && (currentSource === 'codex' || rlConsent === 'granted');
   const { state: realRateLimits, refresh: refreshRateLimits } = useRateLimits(rlEnabled, currentSource);
   const rateLimitsState: RateLimitsState = demoMode
-    ? { limits: DEMO_RATE_LIMITS, fetchedAt: Date.now(), loading: false, error: null, debug: null }
+    ? { limits: DEMO_RATE_LIMITS, limitsSource: currentSource, fetchedAt: Date.now(), loading: false, error: null, debug: null }
     : realRateLimits;
   // In demo mode, layer user-set aliases on top of the static DEMO_SESSIONS so
   // Rename works in demo for screenshots without touching the real aliases.json.
