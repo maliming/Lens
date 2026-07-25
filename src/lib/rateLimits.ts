@@ -146,7 +146,28 @@ export function resetInLabel(reset: number | null, tr?: (key: any, vars?: Record
     return tr ? tr('time.hLeft', { n: h }) : `${h}h`;
   }
   const d = Math.floor(h / 24);
+  const remainingHours = h % 24;
+  if (remainingHours > 0) {
+    return tr
+      ? `${tr('time.dLeft', { n: d })} ${tr('time.hLeft', { n: remainingHours })}`
+      : `${d}d ${remainingHours}h`;
+  }
   return tr ? tr('time.dLeft', { n: d }) : `${d}d`;
+}
+
+// Anthropic's `anthropic-ratelimit-unified-*-status` header reports one of
+// 'allowed' | 'allowed_warning' | 'rejected' (not the 'warning'/'exceeded'
+// this code once assumed). Collapse it to a display kind so the badge colour
+// and label never leak the raw enum. Match on substrings so an unknown but
+// non-'allowed' value still surfaces as a limit hit rather than nothing.
+export type RateStatusKind = 'ok' | 'warning' | 'exceeded';
+
+export function rateStatusKind(status: string | null | undefined): RateStatusKind {
+  if (!status) return 'ok';
+  const s = status.toLowerCase();
+  if (s === 'allowed') return 'ok';
+  if (s.includes('warning')) return 'warning';
+  return 'exceeded';
 }
 
 // Short relative time since a timestamp — "just now" / "12s" / "3m" / "1h".

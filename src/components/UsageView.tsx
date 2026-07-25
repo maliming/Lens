@@ -5,7 +5,7 @@ import { useCurrentSource, getSource } from '../lib/sources';
 import { Coins, TrendingUp, Zap, Database, Activity, Hourglass, RefreshCw, AlertCircle, Wifi, Flame, Calendar as CalendarIcon, Trophy } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/I18nProvider';
-import { pct, resetInLabel, type RateLimitsState } from '../lib/rateLimits';
+import { pct, resetInLabel, rateStatusKind, type RateLimitsState } from '../lib/rateLimits';
 
 type Props = {
   usage: UsageSummary | null;
@@ -807,6 +807,7 @@ function QuotaRing({ label, window: w }: { label: string; window: { utilization:
   const { t } = useTranslation();
   const p = pct(w);
   const left = p == null ? null : Math.max(0, 100 - p);
+  const statusKind = rateStatusKind(w.status);
   const resetLabel = resetInLabel(w.reset, t);
   // Color scales with remaining headroom — same thresholds as Sidebar.RateBar
   // so quota signaling reads identically across the app.
@@ -846,10 +847,10 @@ function QuotaRing({ label, window: w }: { label: string; window: { utilization:
       <div className="flex items-center justify-between mb-2 min-w-0">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted truncate">{label}</span>
-          {w.status && w.status !== 'allowed' && (
+          {statusKind !== 'ok' && (
             <span className={cn('text-[9.5px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex-shrink-0',
-              w.status === 'warning' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
-            )}>{w.status}</span>
+              statusKind === 'warning' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
+            )}>{statusKind === 'warning' ? t('usage.status.warning') : t('usage.status.limitReached')}</span>
           )}
         </div>
         <div className="text-[15px] font-bold tabular-nums text-text leading-none flex-shrink-0">

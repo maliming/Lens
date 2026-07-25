@@ -205,7 +205,7 @@ export type AuthStatus = {
 
 export type RateWindow = {
   utilization: number | null;  // 0.0 - 1.0; multiply by 100 for percent
-  status: string | null;        // 'allowed' | 'warning' | 'exceeded'
+  status: string | null;        // 'allowed' | 'allowed_warning' | 'rejected' (raw Anthropic header) — classify via rateStatusKind()
   reset: number | null;         // Unix epoch seconds
 };
 export type RateLimits = {
