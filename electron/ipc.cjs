@@ -623,6 +623,7 @@ function registerIpc(deps) {
   // Per-source rate-limits provider registry. Dispatcher reads from here so
   // adding a new AI tool is one entry, not new branches in the IPC handler.
   const rateLimitsCacheBySource = new Map();
+  const rateLimitsInFlightBySource = new Map();
   const RATE_LIMIT_PROVIDERS = {
     claude: {
       needsToken: true,
@@ -671,14 +672,30 @@ function registerIpc(deps) {
     if (!force && cached && Date.now() - cached.fetchedAt < RATE_LIMITS_TTL) {
       return { ok: true, cached: true, ...cached.data };
     }
+    // Join a probe that is already running instead of starting a second one.
+    // The Claude probe is a paid Messages API call, and several triggers can
+    // land together — the reset-aligned refresh colliding with the ordinary
+    // poll, a manual refresh, or StrictMode's double effect in dev. A forced
+    // caller never joins: it is asking for data newer than anything already in
+    // flight (that is the whole point of skipping the TTL above).
+    const inFlight = rateLimitsInFlightBySource.get(source);
+    if (!force && inFlight) return inFlight;
+    const pending = (async () => {
+      try {
+        const res = await provider.probe();
+        if (!res.ok) return res;
+        const data = { limits: res.limits, fetchedAt: Date.now() };
+        rateLimitsCacheBySource.set(source, { fetchedAt: Date.now(), data });
+        return { ok: true, cached: false, ...data, debug: res.debug };
+      } catch (e) {
+        return { ok: false, error: 'network', message: String(e?.message || e) };
+      }
+    })();
+    rateLimitsInFlightBySource.set(source, pending);
     try {
-      const res = await provider.probe();
-      if (!res.ok) return res;
-      const data = { limits: res.limits, fetchedAt: Date.now() };
-      rateLimitsCacheBySource.set(source, { fetchedAt: Date.now(), data });
-      return { ok: true, cached: false, ...data, debug: res.debug };
-    } catch (e) {
-      return { ok: false, error: 'network', message: String(e?.message || e) };
+      return await pending;
+    } finally {
+      if (rateLimitsInFlightBySource.get(source) === pending) rateLimitsInFlightBySource.delete(source);
     }
   });
 
