@@ -14,7 +14,7 @@ const claudeParser = require('./parsers/claude.cjs');
 const codexParser = require('./parsers/codex.cjs');
 const { mapPool } = require('./lib/concurrency.cjs');
 const { fixPath } = require('./lib/system-caps.cjs');
-const { toRendererSessionsWithRevision } = require('./lib/session-data.cjs');
+const { toRendererSessionsWithRevision, isEmptySession } = require('./lib/session-data.cjs');
 
 // Resolve real PATH so packaged GUI launches see ~/.local/bin / homebrew /
 // NVM shims (see lib/system-caps.cjs).
@@ -240,9 +240,11 @@ function refreshSourceInBackground(source) {
       const previous = sourceSessions(source);
       const isCold = previous.length === 0;
 
-      // Phase A — deep-read the most recent TOP_BATCH.
+      // Phase A — deep-read the most recent TOP_BATCH. Prompt-less sessions are
+      // dropped here rather than in the renderer so they never reach the list,
+      // the cache, or the History count.
       const topFiles = statted.slice(0, TOP_BATCH);
-      const top = await mapPool(topFiles, 16, buildOne);
+      const top = (await mapPool(topFiles, 16, buildOne)).filter(s => !isEmptySession(s));
       if (isCold) {
         const firstRows = source === 'codex' ? dedupeCodexForks(top) : top;
         replaceSourceSessions(source, firstRows);
@@ -260,6 +262,7 @@ function refreshSourceInBackground(source) {
       let lastFlushIdx = 0;
       await mapPool(restFiles, 16, async (f) => {
         const s = await buildOne(f);
+        if (isEmptySession(s)) return;
         collected.push(s);
         if (isCold && collected.length - lastFlushIdx >= FLUSH_EVERY) {
           lastFlushIdx = collected.length;

@@ -108,6 +108,20 @@ function compactTokenUsage(tokenEvents, tokenDays, now = Date.now()) {
   };
 }
 
+// A row with nothing behind it: no counted human/assistant turn and no token
+// usage. Both CLIs write such a file whenever a session starts and exits
+// without a prompt — the JSONL still carries hook attachments and slash-command
+// system lines, so it is neither zero-length on disk nor parseable into a
+// single message, and the detail pane renders blank. Rows that failed to parse
+// (`error`) or hit the size cap (`tooLarge`) are never empty in this sense:
+// their transcript exists and the user still needs a way to reach it.
+function isEmptySession(session) {
+  if (!session || session.error || session.tooLarge) return false;
+  if ((session.userMsgs || 0) + (session.assistantMsgs || 0) > 0) return false;
+  return (session.tokensIn || 0) + (session.tokensOut || 0)
+    + (session.tokensCacheRead || 0) + (session.tokensCacheCreate || 0) === 0;
+}
+
 function normalizeCommonSessionFields(session) {
   return {
     source: session?.source === 'codex' ? 'codex' : 'claude',
@@ -275,6 +289,7 @@ module.exports = {
   compactTokenUsage,
   createRevisionHasher,
   tokenUsageRevision,
+  isEmptySession,
   normalizeSessionForCache,
   toRendererSession,
   toRendererSessions,

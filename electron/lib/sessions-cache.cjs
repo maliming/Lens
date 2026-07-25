@@ -18,7 +18,7 @@
 const path = require('path');
 const fsp = require('fs/promises');
 const { readJsonFileSafe, atomicWriteJson } = require('./json-io.cjs');
-const { normalizeSessionForCache, cacheRevision } = require('./session-data.cjs');
+const { normalizeSessionForCache, cacheRevision, isEmptySession } = require('./session-data.cjs');
 
 // v7: subagent JSONLs folded into parent token totals.
 // v8: tokenEvents now persisted on disk (previously stripped). Without
@@ -338,12 +338,18 @@ function createSessionsCache({ userDataDir }) {
       } catch {}
     }
 
-    cachedSessions = SESSION_SOURCES.flatMap(source => bySource.get(source) || [])
+    const loadedRows = SESSION_SOURCES.flatMap(source => bySource.get(source) || [])
       .sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+    // Caches written before empty rows were filtered still carry them; drop
+    // them here so a cold launch never flashes the rows the scanner is about
+    // to remove. The next save rewrites the file without them.
+    cachedSessions = loadedRows.filter(session => !isEmptySession(session));
 
     // Seed the per-file mtime cache so the background rescan can skip files
-    // that have not changed since they were last persisted.
-    for (const session of cachedSessions) {
+    // that have not changed since they were last persisted. Seeded from the
+    // unfiltered rows: an empty session's meta is still worth keeping so the
+    // rescan re-drops it from cache instead of re-reading the file.
+    for (const session of loadedRows) {
       if (session.filePath && typeof session.mtime === 'number') {
         fileMetaCache.set(session.filePath, { mtime: session.mtime, meta: extractMetaFromSession(session) });
       }
