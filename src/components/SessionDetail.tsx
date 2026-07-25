@@ -137,10 +137,26 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     setSearchShowAll(false);
   }, [localSearch]);
 
-  // Re-initialise the lazy-load window every time `messages` transitions
+  // Fresh-load window clamp, applied DURING render (React's derived-state-
+  // on-prop-change pattern). The post-paint reset effect below runs too late
+  // for the window size: by then the first frame of a newly loaded session
+  // has already been built with the previous session's visibleCount — which
+  // can be hundreds of rows if the user had scrolled deep into history.
+  // Keying on session identity (not a null transition) also stays correct
+  // when a null + populated messages pair gets batched into one render
+  // (the demo path sets both in the same effect).
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const currentLoadKey = session && messages != null ? `${session.source}:${session.id}` : null;
+  if (currentLoadKey !== loadedKey) {
+    setLoadedKey(currentLoadKey);
+    if (currentLoadKey != null) setVisibleCount(INITIAL_VISIBLE);
+  }
+
+  // Re-initialise the lazy-load flags every time `messages` transitions
   // from null back to a populated array — that's the session-switch flow
   // (the parent clears + refetches). Refresh keeps `messages` non-null so
-  // this doesn't fire there; the refresh path is handled below.
+  // this doesn't fire there; the refresh path is handled below. The window
+  // size itself is reset render-side above; this effect owns the refs.
   const prevMessagesNullRef = useRef(true);
   useEffect(() => {
     const wasNull = prevMessagesNullRef.current;
@@ -169,6 +185,15 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     prevSessionKeyRef.current = sessionKey;
     prevRawMsgsLenRef.current = rawLen;
     if (!messages || !sessionKey) return;
+    // Fresh load (messages was null on the previous render): the reset effect
+    // above owns that transition. The null render has already stamped
+    // prevSessionKey + prevRawLen(=0), so without this guard a session switch
+    // falls through to the grow path and renders the ENTIRE session in one
+    // frame — a multi-second reconcile on long sessions, and the follow-up
+    // scroll clamp can trip onScroll's user-takeover check and kill the
+    // auto-fill loop, leaving a short window with no scrollbar (and therefore
+    // no way to reach older turns).
+    if (prevMessagesNullRef.current) return;
     if (sessionKey !== prevSessionKey) return;
     if (rawLen <= prevRawLen) return;
     const root = scrollRef.current;
@@ -293,6 +318,36 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     }
   }, [want]);
 
+  // Re-run the auto-fill check when the scroll container is resized. The fill
+  // loop's stop decision is a one-shot measurement — if the window grows
+  // afterwards (or the initial measurement happened at a transient startup
+  // size), the content may no longer overflow, and without overflow the
+  // scroll-up loader is unreachable. A resize tick lets the effect below
+  // re-evaluate (and re-arm) instead of latching off forever.
+  // Both the viewport AND the message wrapper are observed: the wrapper
+  // catches content getting SHORTER without the viewport changing (compact
+  // toggle, MD/RAW flip, a long message collapsing) — those can also turn an
+  // overflowing pane into a no-scrollbar one.
+  const [viewportTick, setViewportTick] = useState(0);
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root || typeof ResizeObserver === 'undefined') return;
+    // Only tick while the content doesn't overflow — that's the only state
+    // the fill effect needs to revisit. Ticking on every resize would
+    // re-render the full message list per resize frame on long sessions.
+    const ro = new ResizeObserver(() => {
+      const el = scrollRef.current;
+      if (el && el.scrollHeight <= el.clientHeight) setViewportTick(t => t + 1);
+    });
+    ro.observe(root);
+    if (contentRef.current) ro.observe(contentRef.current);
+    return () => ro.disconnect();
+    // messages == null is in the deps so the wrapper (only mounted once
+    // messages render) gets observed after a fresh load completes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.source, session?.id, messages == null]);
+
   // Viewport-aware auto-fill. Each time the rendered set grows, peek at the
   // scroll container: if content still doesn't overflow comfortably AND
   // there's more to reveal, schedule another step. Stops on its own once the
@@ -300,6 +355,13 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
   useLayoutEffect(() => {
     const root = scrollRef.current;
     if (!root || !messages) return;
+    // Deadlock breaker: older turns exist but the content doesn't overflow,
+    // so the scroll-up loader can never fire. Whatever latched the fill flag
+    // off (a stop measured at a transient window size, a hidden window whose
+    // rAF froze mid-fill), re-arm and keep growing — this can't fight a real
+    // user scroll, because with no overflow there's nothing to scroll.
+    const noOverflow = root.scrollHeight <= root.clientHeight;
+    if (noOverflow && hiddenCount > 0) initialFillRef.current = true;
     if (!initialFillRef.current) return;
     if (hiddenCount <= 0) { initialFillRef.current = false; return; }
     if (root.scrollHeight >= root.clientHeight * FILL_RATIO) {
@@ -309,10 +371,14 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     // Defer to the next frame so layout has stabilised; otherwise short turns
     // (one-line text) measure as a few pixels before final fonts settle.
     const raf = requestAnimationFrame(() => {
+      // Re-check the latch at fire time: a user scroll between scheduling and
+      // this frame flips it off, and growing anyway would prepend a page with
+      // no scroll-position compensation (visible jump).
+      if (!initialFillRef.current) return;
       setVisibleCount(c => Math.min(c + LOAD_STEP, totalMsgs));
     });
     return () => cancelAnimationFrame(raf);
-  }, [want, hiddenCount, totalMsgs, messages]);
+  }, [want, hiddenCount, totalMsgs, messages, viewportTick]);
 
   // Scroll-driven lazy loader. Once the user scrolls within SCROLL_TRIGGER_PX
   // of the top, append the next batch. No button, no banner — the act of
@@ -609,7 +675,7 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
             {/* Width stretches to fill the available pane on any monitor; on
                very wide screens the cap kicks in only at xl breakpoints so
                narrow / mid screens never see uneven left/right padding. */}
-            <div className={cn('flex flex-col w-full', prefs.compact ? 'gap-2' : 'gap-5')}>
+            <div ref={contentRef} className={cn('flex flex-col w-full', prefs.compact ? 'gap-2' : 'gap-5')}>
               {visibleMessages.map((m, i) => (
                 <Message
                   // Key includes session.id so navigating to another session
