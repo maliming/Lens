@@ -3,7 +3,7 @@ import { Clock, Star, X, Coins, RefreshCw, Check, Command, Settings as Gear } fr
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { ClaudeIcon } from './ClaudeIcon';
 import type { View } from '../types';
-import { fmtTokens, kbdShortcut } from '../lib/format';
+import { fmtTokens, kbdShortcut, cleanDisplayText } from '../lib/format';
 import { cn } from '../lib/utils';
 import type { Profile } from '../lib/profile';
 import { useSourceAuth, planLabel, planBadgeClass } from '../lib/sourceAuth';
@@ -241,6 +241,17 @@ function RateBar({ label, window, windowSize, className }: { label: string; wind
     : left <= 10 ? 'from-rose-400 to-rose-600'
     : left <= 30 ? 'from-amber-400 to-orange-500'
     : 'from-accent to-purple-500';
+  // Same reasoning as UsageView.QuotaRing: the fill shrinks precisely as the
+  // situation gets worse, so the track carries the warning colour instead of
+  // leaning on a few pixels of fill.
+  // Expired windows render the shimmer skeleton, which must not sit on a red
+  // track — its numbers describe a window that no longer exists.
+  const depleted = left != null && !expired && left < 0.05;
+  const trackClass = left == null || expired ? 'bg-border'
+    : depleted ? 'quota-track-depleted'
+    : left <= 10 ? 'bg-rose-500/30'
+    : left <= 30 ? 'bg-amber-500/25'
+    : 'bg-border';
   // First-load skeleton: when utilization is still null (no data has ever
   // arrived for this source), render an indeterminate shimmer instead of a
   // 2% "fake" bar. The old fallback animated from 2% → real value through
@@ -248,8 +259,10 @@ function RateBar({ label, window, windowSize, className }: { label: string; wind
   // refill ever happened. Skeleton → real-value mount transition feels
   // cleaner than width interpolation from a synthetic baseline.
   const isSkeleton = left == null || expired;
-  // Target width (clamped to a 2% floor so a 0%-left bar is still visible).
-  const targetWidth = isSkeleton ? 0 : Math.max(left as number, 2);
+  // Target width, clamped to a 2% floor so a nearly-empty bar stays visible.
+  // The floor stops at `depleted`: a stub of fill under "0.0% left" reads as
+  // "a little left", which is the opposite of what the window is saying.
+  const targetWidth = isSkeleton || depleted ? 0 : Math.max(left as number, 2);
   // Width animation driven by the Web Animations API instead of CSS
   // `transition`. Earlier attempts used `setState(0)` + rAF to fake an
   // "enter at 0 → fill to target" sequence, but React 18 automatic
@@ -289,7 +302,7 @@ function RateBar({ label, window, windowSize, className }: { label: string; wind
         <span className="text-[12.5px] font-semibold text-text">{label}</span>
         <span className="text-[12.5px] tabular-nums text-text font-semibold">{left != null && !expired ? t('sidebar.quotaLeft', { n: left.toFixed(1) }) : '—'}</span>
       </div>
-      <div className="h-[6px] bg-border rounded-full overflow-hidden">
+      <div className={cn('h-[6px] rounded-full overflow-hidden', trackClass)}>
         {isSkeleton ? (
           // Shimmering placeholder — sized to match the real bar so the layout
           // doesn't shift when data finally lands.
@@ -413,6 +426,9 @@ function ProfileQuotaCard({
             </div>
             <RateBar label="5h" window={fiveHour} windowSize="5h" />
             <RateBar label="7d" window={weekly} windowSize="7d" className="mt-2" />
+            {(rateLimits?.limits?.modelWindows ?? []).map(w => (
+              <RateBar key={w.name} label={cleanDisplayText(w.name)} window={w} windowSize="7d" className="mt-2" />
+            ))}
             <div className="flex items-center justify-between gap-2 mt-2.5">
               <span className="text-[10.5px] text-text-muted truncate">
                 {headlineReset ? t('sidebar.resetsIn', { when: headlineReset }) : ''}

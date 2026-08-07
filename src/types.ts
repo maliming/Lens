@@ -208,16 +208,22 @@ export type RateWindow = {
   status: string | null;        // 'allowed' | 'allowed_warning' | 'rejected' (raw Anthropic header) — classify via rateStatusKind()
   reset: number | null;         // Unix epoch seconds
 };
+// Model-scoped weekly window (Fable etc.). `name` is the API's own
+// display_name so a model rename needs no Lens update; render it through
+// cleanDisplayText like every other externally-sourced string.
+export type ModelRateWindow = RateWindow & { name: string };
 export type RateLimits = {
   status: string | null;
   representativeClaim: string | null;  // 'five_hour' | 'seven_day' — which window is binding
   fiveHour: RateWindow;
   weekly: RateWindow;
   overage: RateWindow;
+  // Optional: Codex and pre-switch cached snapshots don't carry it.
+  modelWindows?: ModelRateWindow[];
 };
 export type RateLimitsResult =
   | { ok: true; cached: boolean; limits: RateLimits; fetchedAt: number; debug?: unknown }
-  | { ok: false; error: 'no-token' | 'unauthorized' | 'no-headers' | 'network' | 'no-data' | 'codex-probe-failed' | 'no-consent'; status?: number; message: string; debug?: unknown };
+  | { ok: false; error: 'no-token' | 'unauthorized' | 'network' | 'no-data' | 'codex-probe-failed' | 'no-consent'; status?: number; message: string; debug?: unknown };
 
 export type CredentialsLocation = { source: 'file'; path: string } | { source: 'keychain' } | { source: 'none' };
 

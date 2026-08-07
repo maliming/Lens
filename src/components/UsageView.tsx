@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { UsageSummary } from '../types';
-import { fmtTokens, fmtModel, shortCwd } from '../lib/format';
+import { fmtTokens, fmtModel, shortCwd, cleanDisplayText } from '../lib/format';
 import { useCurrentSource, getSource } from '../lib/sources';
 import { Coins, TrendingUp, Zap, Database, Activity, Hourglass, RefreshCw, AlertCircle, Wifi, Flame, Calendar as CalendarIcon, Trophy } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -452,12 +452,14 @@ function LiveQuotaCard({ demoMode, rlConsent, rateLimits, onOpenRlPrompt, onRefr
           <details className="mt-3 text-[11px] font-mono">
             <summary className="cursor-pointer text-text-muted hover:text-text select-none">Raw API response (status {rateLimits.debug.status})</summary>
             <div className="mt-2 space-y-2">
-              <div>
-                <div className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mb-1">Headers</div>
-                <pre className="bg-bg border border-border-soft rounded-md p-2 overflow-x-auto text-[11px] text-text-dim">
+              {rateLimits.debug.headers != null && (
+                <div>
+                  <div className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mb-1">Headers</div>
+                  <pre className="bg-bg border border-border-soft rounded-md p-2 overflow-x-auto text-[11px] text-text-dim">
 {JSON.stringify(rateLimits.debug.headers, null, 2)}
-                </pre>
-              </div>
+                  </pre>
+                </div>
+              )}
               <div>
                 <div className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mb-1">Body</div>
                 <pre className="bg-bg border border-border-soft rounded-md p-2 overflow-x-auto text-[11px] text-text-dim whitespace-pre-wrap">
@@ -796,15 +798,24 @@ function LiveQuotaHero({ rateLimits, onRefresh, demoMode }: { rateLimits: RateLi
           </div>
         </div>
         {!demoMode && (
-          <button onClick={onRefresh} disabled={rateLimits.loading} title="Refresh now (probes 1 token)" className="p-2 rounded-md border border-border-soft hover:bg-muted text-text-muted hover:text-text disabled:opacity-50">
+          <button onClick={onRefresh} disabled={rateLimits.loading} title="Refresh now" className="p-2 rounded-md border border-border-soft hover:bg-muted text-text-muted hover:text-text disabled:opacity-50">
             <RefreshCw className={cn('w-3.5 h-3.5', rateLimits.loading && 'animate-spin')} />
           </button>
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* Mirrors claude.ai's usage panel: "Current session" alone, then a
+          "Weekly limits" section holding "All models" plus one row per
+          model-scoped window under the API's own display name. */}
+      <div className="grid grid-cols-1 gap-4">
         <QuotaRing label={t('usage.fiveHourWindow')} window={rateLimits.limits!.fiveHour} />
-        <QuotaRing label={t('usage.weeklyWindow')} window={rateLimits.limits!.weekly} />
+      </div>
+      <div className="mt-5 mb-3 text-[12.5px] font-semibold text-text">{t('usage.weeklyLimits')}</div>
+      <div className="grid grid-cols-1 gap-4">
+        <QuotaRing label={t('usage.allModels')} window={rateLimits.limits!.weekly} />
+        {(rateLimits.limits!.modelWindows ?? []).map(w => (
+          <QuotaRing key={w.name} label={cleanDisplayText(w.name)} window={w} />
+        ))}
       </div>
     </div>
   );
@@ -829,13 +840,28 @@ function QuotaRing({ label, window: w }: { label: string; window: { utilization:
     : left <= 10 ? 'from-rose-400 to-rose-600'
     : left <= 30 ? 'from-amber-400 to-orange-500'
     : 'from-accent to-purple-500';
+  // The fill measures what is LEFT, so the scarcer the quota the thinner the
+  // bar: the state that most needs attention carries the least ink, and at 0%
+  // left there is nothing to colour at all. Move the signal onto the track.
+  // Threshold matches the readout's own rounding — anything that prints
+  // "0.0% left" gets the depleted hatch, so the number and the bar never
+  // disagree about whether the window is spent.
+  const depleted = left != null && !expired && left < 0.05;
+  const trackClass = left == null || expired ? 'bg-border'
+    : depleted ? 'quota-track-depleted'
+    : left <= 10 ? 'bg-rose-500/30'
+    : left <= 30 ? 'bg-amber-500/25'
+    : 'bg-border';
   // Mirror Sidebar.RateBar's Web Animations approach so the bar in the
   // Usage hero animates on mount and on source flip (Claude ↔ Codex)
   // instead of snapping. Driving width via `el.animate(...)` sidesteps
   // React 18's automatic batching, which was collapsing the
   // "render at 0% → setState to target" pair into a single paint with
   // nothing to interpolate.
-  const targetWidth = left == null || expired ? 0 : Math.max(left, 2);
+  // The 2% floor keeps a nearly-empty bar visible, but it must not apply once
+  // the window is spent: a sliver of fill under a LIMIT REACHED badge reads as
+  // "a little left". Depleted draws no fill at all and lets the hatch speak.
+  const targetWidth = left == null || expired || depleted ? 0 : Math.max(left, 2);
   const barRef = useRef<HTMLDivElement | null>(null);
   const prevWidthRef = useRef(0);
   useEffect(() => {
@@ -871,7 +897,7 @@ function QuotaRing({ label, window: w }: { label: string; window: { utilization:
           {left != null && !expired ? <>{left.toFixed(1)}<span className="text-[11px] font-semibold text-text-muted ml-0.5">% left</span></> : '—'}
         </div>
       </div>
-      <div className="h-[8px] bg-border rounded-full overflow-hidden">
+      <div className={cn('h-[8px] rounded-full overflow-hidden', trackClass)}>
         <div
           ref={barRef}
           className={cn('h-full rounded-full bg-gradient-to-r will-change-[width]', barGradient)}

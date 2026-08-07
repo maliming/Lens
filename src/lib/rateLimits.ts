@@ -54,9 +54,9 @@ const POLL_INTERVAL = 5 * 60 * 1000;
 // until the next 5-minute tick happens to land (and even then main's own
 // 5-minute cache can hand back the pre-reset snapshot). So each successful
 // probe also arms a one-shot forced re-probe just after the earliest reset.
-// One-shot matters: the Claude probe is a real Messages API POST that spends
-// the user's own quota, so this must never become a repeating retry — a stale
-// answer costs one extra call and then waits for the ordinary poll.
+// One-shot matters: a repeating retry against a stale answer would hammer
+// Anthropic's usage endpoint for nothing — one extra call, then wait for the
+// ordinary poll.
 const RESET_REFRESH_BUFFER = 10_000;
 // Floor so a reset that is already in the past when the timer is armed doesn't
 // fire a probe in the same tick as the response that reported it.
@@ -71,14 +71,14 @@ const RESET_MERGE_WINDOW = 60_000;
 // paid probe. The real windows are 5 hours and 7 days.
 const MAX_RESET_HORIZON = 30 * 24 * 60 * 60 * 1000;
 
-export type RateLimitsDebug = { status: number; headers: Record<string, string>; body: string };
+export type RateLimitsDebug = { status: number; headers?: Record<string, string>; body: string };
 export type RateLimitsState = {
   limits: RateLimits | null;
   // Which provider the current `limits` came from. The hook deliberately keeps
   // the previous provider's numbers on screen across a source flip, so without
   // this the reset scheduler cannot tell whose resets it is looking at — and
-  // arming a Claude probe (a paid API call) off Codex's schedule is exactly the
-  // kind of mistake that costs the user quota.
+  // arming a Claude network probe off Codex's schedule would fire requests at
+  // moments that mean nothing for the data on screen.
   limitsSource: 'claude' | 'codex' | null;
   fetchedAt: number | null;
   loading: boolean;
@@ -205,7 +205,7 @@ export function useRateLimits(enabled: boolean, source: 'claude' | 'codex' = 'cl
   // otherwise replay the pre-reset snapshot for up to five more minutes.
   // Keyed on the reset values alone — deliberately NOT on `fetchedAt`, which
   // would re-arm after every probe and turn a reset the API keeps reporting as
-  // past into a standing drain on the user's quota. One arm per distinct set of
+  // past into a standing stream of forced requests. One arm per distinct set of
   // resets is what makes this "refresh once when a window rolls over": every
   // poll in between reports the same resets and leaves the pending timers
   // alone, and if a forced probe comes back with the same stale reset, nothing
@@ -216,8 +216,8 @@ export function useRateLimits(enabled: boolean, source: 'claude' | 'codex' = 'cl
   useEffect(() => {
     if (!enabled || !scheduleKey) return;
     const fire = () => {
-      // Hidden: skip the paid probe entirely. The rollover is not lost — the
-      // wake handler sees the expired window and buys the refresh then, when
+      // Hidden: skip the probe entirely. The rollover is not lost — the
+      // wake handler sees the expired window and runs the refresh then, when
       // there is someone to read it.
       if (document.hidden) return;
       forcedResetKeyRef.current = scheduleKey;
@@ -242,7 +242,7 @@ function resetSchedule(limits: RateLimits | null): number[] {
   if (!limits) return [];
   const stamps: number[] = [];
   const horizon = Date.now() + MAX_RESET_HORIZON;
-  for (const w of [limits.fiveHour, limits.weekly]) {
+  for (const w of [limits.fiveHour, limits.weekly, ...(limits.modelWindows ?? [])]) {
     if (w?.reset == null) continue;
     const ms = w.reset * 1000;
     if (Number.isFinite(ms) && ms <= horizon) stamps.push(ms);
@@ -279,7 +279,7 @@ export function useNowTick(intervalMs = 30_000): number {
 // Whether either window in a snapshot has passed its reset moment.
 function hasRolledOver(state: RateLimitsState): boolean {
   if (!state.limits) return false;
-  return [state.limits.fiveHour, state.limits.weekly].some(isWindowExpired);
+  return [state.limits.fiveHour, state.limits.weekly, ...(state.limits.modelWindows ?? [])].some(isWindowExpired);
 }
 
 // Whether a window's reset moment has already passed. Its numbers describe a

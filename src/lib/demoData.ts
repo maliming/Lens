@@ -1482,4 +1482,14 @@ export const DEMO_RATE_LIMITS: RateLimits = {
     status: 'allowed',
     reset: Math.floor((NOW + 5 * 3600_000) / 1000),
   },
+  // Model-scoped weekly window as `/api/oauth/usage` reports it — the name
+  // comes from the API's display_name in real data.
+  modelWindows: [
+    {
+      name: 'Fable',
+      utilization: 0.12,
+      status: null,
+      reset: Math.floor((NOW + 9.8 * 3600_000) / 1000),
+    },
+  ],
 };

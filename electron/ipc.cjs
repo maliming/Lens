@@ -36,7 +36,7 @@ const {
 } = require('./lib/shell.cjs');
 const { deepSearch } = require('./search.cjs');
 const { readClaudeConfig, readCodexConfig } = require('./config.cjs');
-const { readClaudeOAuthToken, probeAnthropicLimits } = require('./auth/claude.cjs');
+const { readClaudeOAuthToken, fetchClaudeUsage } = require('./auth/claude.cjs');
 const { applyLaunchAtLogin } = require('./lib/prefs.cjs');
 const { toRendererSessionsWithRevision } = require('./lib/session-data.cjs');
 
@@ -630,16 +630,17 @@ function registerIpc(deps) {
       probe: async () => {
         const token = await readClaudeOAuthToken();
         if (!token) return { ok: false, error: 'no-token', message: 'Sign in via `claude` CLI first' };
-        const result = await probeAnthropicLimits(token);
+        const result = await fetchClaudeUsage(token);
         const bodyPreview = String(result.body || '').slice(0, 4000);
         if (result.status === 401 || result.status === 403) {
-          return { ok: false, error: 'unauthorized', status: result.status, message: 'Token expired — re-login Claude Code', debug: { status: result.status, headers: result.headersDump, body: bodyPreview } };
+          return { ok: false, error: 'unauthorized', status: result.status, message: 'Token expired — re-login Claude Code', debug: { status: result.status, body: bodyPreview } };
         }
-        const haveAny = result.limits.fiveHour.utilization != null || result.limits.weekly.utilization != null;
+        const haveAny = result.limits != null
+          && (result.limits.fiveHour.utilization != null || result.limits.weekly.utilization != null || result.limits.modelWindows.length > 0);
         if (!haveAny) {
-          return { ok: false, error: 'no-headers', status: result.status, message: 'API did not return rate limit headers', debug: { status: result.status, headers: result.headersDump, body: bodyPreview } };
+          return { ok: false, error: 'no-data', status: result.status, message: 'Usage endpoint returned no rate limit data', debug: { status: result.status, body: bodyPreview } };
         }
-        return { ok: true, limits: result.limits, debug: { status: result.status, headers: result.headersDump, body: bodyPreview } };
+        return { ok: true, limits: result.limits, debug: { status: result.status, body: bodyPreview } };
       },
     },
     codex: {
@@ -673,9 +674,9 @@ function registerIpc(deps) {
       return { ok: true, cached: true, ...cached.data };
     }
     // Join a probe that is already running instead of starting a second one.
-    // The Claude probe is a paid Messages API call, and several triggers can
-    // land together — the reset-aligned refresh colliding with the ordinary
-    // poll, a manual refresh, or StrictMode's double effect in dev. A forced
+    // Several triggers can land together — the reset-aligned refresh colliding
+    // with the ordinary poll, a manual refresh, or StrictMode's double effect
+    // in dev — and each would otherwise open its own network request. A forced
     // caller never joins: it is asking for data newer than anything already in
     // flight (that is the whole point of skipping the TTL above).
     const inFlight = rateLimitsInFlightBySource.get(source);

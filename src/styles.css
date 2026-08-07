@@ -127,6 +127,31 @@
     background: hsl(var(--bg) / 0.95);
   }
 
+  /* Depleted quota track. A quota bar measures what is LEFT, so the fill is at
+     its thinnest exactly when the state matters most — at 0% left there is
+     nothing to colour. The hatch carries the meaning on the track instead, and
+     reads as "closed / unavailable" rather than merely "low", which is the
+     distinction between a window at 3% and one that is spent.
+     Both themes use the same rose hue as the danger fill; the dark variant
+     lifts lightness and opacity because the stripes sit on a much darker
+     surface. Angle is -45deg to match the disabled-hatch convention. */
+  .quota-track-depleted {
+    background-color: hsl(350 89% 60% / 0.14);
+    background-image: repeating-linear-gradient(
+      -45deg,
+      hsl(350 89% 55% / 0.55) 0 2px,
+      transparent 2px 5px
+    );
+  }
+  [data-theme='dark'] .quota-track-depleted {
+    background-color: hsl(350 89% 60% / 0.18);
+    background-image: repeating-linear-gradient(
+      -45deg,
+      hsl(350 89% 68% / 0.6) 0 2px,
+      transparent 2px 5px
+    );
+  }
+
   .drag-region { -webkit-app-region: drag; }
   .no-drag { -webkit-app-region: no-drag; }
 
