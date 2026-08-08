@@ -415,7 +415,7 @@ function LiveQuotaCard({ demoMode, rlConsent, rateLimits, onOpenRlPrompt, onRefr
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-[13.5px] font-semibold text-text">Show real subscription usage</div>
-          <div className="text-[12px] text-text-muted mt-0.5">Probe Anthropic's API with your Claude Code OAuth token to see real 5h / 7d remaining quota. ~1 token per probe, every 5 min.</div>
+          <div className="text-[12px] text-text-muted mt-0.5">Read your Claude Code quota from Anthropic's usage endpoint to see real 5h / 7d remaining. Spends none of your quota, refreshed every 5 min.</div>
         </div>
         <button onClick={onOpenRlPrompt} className="px-3.5 py-2 rounded-md bg-accent text-white text-[12.5px] font-medium hover:opacity-90 flex-shrink-0">
           Enable

@@ -36,7 +36,7 @@ const {
 } = require('./lib/shell.cjs');
 const { deepSearch } = require('./search.cjs');
 const { readClaudeConfig, readCodexConfig } = require('./config.cjs');
-const { readClaudeOAuthToken, fetchClaudeUsage } = require('./auth/claude.cjs');
+const { readClaudeOAuthCredential, fetchClaudeUsage } = require('./auth/claude.cjs');
 const { applyLaunchAtLogin } = require('./lib/prefs.cjs');
 const { toRendererSessionsWithRevision } = require('./lib/session-data.cjs');
 
@@ -628,12 +628,22 @@ function registerIpc(deps) {
     claude: {
       needsToken: true,
       probe: async () => {
-        const token = await readClaudeOAuthToken();
-        if (!token) return { ok: false, error: 'no-token', message: 'Sign in via `claude` CLI first' };
-        const result = await fetchClaudeUsage(token);
+        const cred = await readClaudeOAuthCredential();
+        if (!cred) return { ok: false, error: 'no-token', message: 'Sign in via `claude` CLI first' };
+        // Short-circuit a request we know comes back 401: the CLI renews its
+        // access token only when it runs, so an idle machine keeps serving a
+        // dead one. Re-login is the wrong advice here — the refresh token is
+        // still good, it just needs the CLI to spend it.
+        if (cred.expired) {
+          return { ok: false, error: 'expired', message: 'Claude Code token expired — run any `claude` command to renew it (no re-login needed)' };
+        }
+        const result = await fetchClaudeUsage(cred.token);
         const bodyPreview = String(result.body || '').slice(0, 4000);
         if (result.status === 401 || result.status === 403) {
-          return { ok: false, error: 'unauthorized', status: result.status, message: 'Token expired — re-login Claude Code', debug: { status: result.status, body: bodyPreview } };
+          // Expiry is already ruled out above, so a rejection here means the
+          // credential itself is no longer accepted (revoked, logged out
+          // elsewhere) — that one really does need a fresh login.
+          return { ok: false, error: 'unauthorized', status: result.status, message: 'Anthropic rejected the token — re-login Claude Code', debug: { status: result.status, body: bodyPreview } };
         }
         const haveAny = result.limits != null
           && (result.limits.fiveHour.utilization != null || result.limits.weekly.utilization != null || result.limits.modelWindows.length > 0);

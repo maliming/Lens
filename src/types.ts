@@ -223,7 +223,7 @@ export type RateLimits = {
 };
 export type RateLimitsResult =
   | { ok: true; cached: boolean; limits: RateLimits; fetchedAt: number; debug?: unknown }
-  | { ok: false; error: 'no-token' | 'unauthorized' | 'network' | 'no-data' | 'codex-probe-failed' | 'no-consent'; status?: number; message: string; debug?: unknown };
+  | { ok: false; error: 'no-token' | 'expired' | 'unauthorized' | 'network' | 'no-data' | 'codex-probe-failed' | 'no-consent'; status?: number; message: string; debug?: unknown };
 
 export type CredentialsLocation = { source: 'file'; path: string } | { source: 'keychain' } | { source: 'none' };
 

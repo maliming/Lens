@@ -1,9 +1,10 @@
-// Real Anthropic rate-limit window data, obtained by probing the Messages API
+// Real Anthropic rate-limit window data, read from the OAuth usage endpoint
 // with the user's Claude Code OAuth token. Renderer-side consent + polling.
 //
 // Three states: 'pending' (haven't asked), 'granted', 'denied'. Pending makes
 // the renderer surface a one-shot consent modal explaining the trade-off
-// (~1 token per probe, possible Keychain prompt on macOS) before any IPC fires.
+// (token leaves for Anthropic, possible Keychain prompt on macOS) before any
+// IPC fires.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RateLimits, RateLimitsResult } from '../types';

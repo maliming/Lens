@@ -1,9 +1,9 @@
 // Claude OAuth credential read + subscription usage fetch.
 //
 // Two surfaces:
-//   - `readClaudeOAuthToken()`  — pulls the access token from either the
-//     CLI's `~/.claude/.credentials.json` or, on macOS, the system
-//     Keychain (`security find-generic-password -s "Claude Code-credentials"`).
+//   - `readClaudeOAuthCredential()` — pulls the access token *and its expiry*
+//     from either the CLI's `~/.claude/.credentials.json` or, on macOS, the
+//     system Keychain (`security find-generic-password -s "Claude Code-credentials"`).
 //     Returns null if neither yields a usable token.
 //   - `fetchClaudeUsage(token)` — GETs `/api/oauth/usage`, the same endpoint
 //     Claude Code's own /usage panel reads. Free (no Messages call, no token
@@ -32,13 +32,53 @@ function pickAccessToken(obj) {
     || null;
 }
 
-async function readClaudeOAuthToken() {
+// Claude Code stores the access token's expiry alongside it (epoch ms). The
+// CLI renews lazily — only a real session / API call refreshes the pair and
+// writes it back — so a credential left untouched for longer than its
+// lifetime (8h as issued today) still sits on disk with a dead token. Reading
+// the expiry lets the probe skip a request it knows will 401.
+//
+// Tolerate epoch seconds too: anything below year-2001 in ms is far more
+// likely a seconds value than a 1970 timestamp.
+const EPOCH_MS_FLOOR = 1e12;
+
+function pickExpiresAt(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  const raw = obj.claudeAiOauth?.expiresAt
+    ?? obj.expiresAt
+    ?? obj.expires_at
+    ?? obj.oauth?.expiresAt;
+  if (raw == null) return null;
+  const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n < EPOCH_MS_FLOOR ? n * 1000 : n;
+}
+
+// Treat a token that dies within the next minute as already dead — the probe
+// would otherwise race the expiry and come back 401 anyway. A credential with
+// no readable expiry fails open (expiresAt null → never reported expired) so
+// an unfamiliar on-disk shape degrades to the old behaviour instead of
+// blocking the probe outright.
+const EXPIRY_SKEW_MS = 60 * 1000;
+
+function toCredential(parsed) {
+  const token = pickAccessToken(parsed);
+  if (!token) return null;
+  const expiresAt = pickExpiresAt(parsed);
+  return {
+    token,
+    expiresAt,
+    expired: expiresAt != null && expiresAt - EXPIRY_SKEW_MS <= Date.now(),
+  };
+}
+
+async function readClaudeOAuthCredential() {
   const fp = path.join(CLAUDE_DIR, '.credentials.json');
   try {
     const raw = await readJsonFileSafe(fp);
     if (raw == null) throw new Error('credentials unreadable');
-    const t = pickAccessToken(JSON.parse(raw));
-    if (t) return t;
+    const cred = toCredential(JSON.parse(raw));
+    if (cred) return cred;
   } catch {}
   if (process.platform === 'darwin') {
     try {
@@ -47,8 +87,8 @@ async function readClaudeOAuthToken() {
         ['find-generic-password', '-s', 'Claude Code-credentials', '-w'],
         { encoding: 'utf8', timeout: 8000 },
       );
-      const t = pickAccessToken(JSON.parse(out.trim()));
-      if (t) return t;
+      const cred = toCredential(JSON.parse(out.trim()));
+      if (cred) return cred;
     } catch {}
   }
   return null;
@@ -230,6 +270,7 @@ function fetchClaudeUsage(token) {
 
 module.exports = {
   pickAccessToken,
-  readClaudeOAuthToken,
+  pickExpiresAt,
+  readClaudeOAuthCredential,
   fetchClaudeUsage,
 };
