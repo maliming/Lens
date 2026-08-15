@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Clock, Star, X, Coins, RefreshCw, Check, Command, Settings as Gear } from 'lucide-react';
+import { Clock, Star, X, Coins, RefreshCw, Check, Command, Settings as Gear, Terminal as TerminalIcon } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { ClaudeIcon } from './ClaudeIcon';
 import type { View } from '../types';
@@ -28,7 +28,7 @@ type Props = {
   onViewChange: (v: View) => void;
   theme: 'light' | 'dark';
   onThemeChange: (t: 'light' | 'dark') => void;
-  counts: { sessions: number; favorites: number; excluded: number };
+  counts: { sessions: number; favorites: number; excluded: number; terminals: number };
   totalTokens: number;
   onReload: () => void;
   profile: Profile;
@@ -43,10 +43,15 @@ type Props = {
 
 // Search lives as the first item — it's the hero workflow per v4 brief.
 // 'search' is not a real view; clicking it opens the command palette.
-const PRIMARY_NAV: Array<{ id: View | 'search'; labelKey: TKey; icon: any; countKey: 'sessions' | 'favorites' | null }> = [
+const PRIMARY_NAV: Array<{ id: View | 'search'; labelKey: TKey; icon: any; countKey: 'sessions' | 'favorites' | 'terminals' | null }> = [
   { id: 'search', labelKey: 'nav.search', icon: Command, countKey: null },
   { id: 'sessions', labelKey: 'nav.history', icon: Clock, countKey: 'sessions' },
   { id: 'favorites', labelKey: 'nav.favorites', icon: Star, countKey: 'favorites' },
+  // Sits with the other filtered views of the session list, because that is
+  // what it is: the sessions that happen to have a process running. A terminal
+  // outlives the session you opened it from, so without somewhere that lists
+  // them the only way back is remembering where you left one.
+  { id: 'terminals', labelKey: 'nav.terminals', icon: TerminalIcon, countKey: 'terminals' },
   { id: 'usage', labelKey: 'nav.usage', icon: Coins, countKey: null },
   { id: 'config', labelKey: 'nav.config', icon: WorkspaceNavIcon, countKey: null },
   { id: 'settings', labelKey: 'nav.settings', icon: Gear, countKey: null },

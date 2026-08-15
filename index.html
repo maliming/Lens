@@ -1,12 +1,151 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lens</title>
+
+    <!--
+      Startup shell.
+
+      The renderer bundle has to download, parse and mount before React can draw
+      anything, and until then #root is empty — which read as the window being
+      broken for a second or two on every launch. The list already has a
+      skeleton, but it only appears once React is running, which is after the
+      part that looked blank.
+
+      So the same skeleton is painted here, in markup the browser can put on
+      screen before any of the app's JavaScript runs. React replaces it on
+      mount, and because the geometry matches what the real skeleton draws,
+      there is nothing to see at the handover.
+
+      Everything here is inline on purpose: an external stylesheet is one more
+      round trip during exactly the window this is meant to cover.
+    -->
+    <script>
+      // Theme before first paint. `data-theme` used to be hardcoded to light,
+      // so anyone on the dark theme got a white flash on every launch — this
+      // has to run synchronously in <head>, before the body is painted, which
+      // is why it is not in a module.
+      (function () {
+        var mode = null;
+        try { mode = localStorage.getItem('theme-mode'); } catch (e) {}
+        var dark = mode === 'dark' || (mode !== 'light'
+          && window.matchMedia
+          && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      })();
+    </script>
+
+    <style>
+      :root { --boot-bg: #f1f1f4; --boot-surface: #fff; --boot-line: #eeeef0; --boot-fill: #e9e9ec; }
+      [data-theme='dark'] { --boot-bg: #131316; --boot-surface: #1b1b1f; --boot-line: #26262b; --boot-fill: #222227; }
+
+      html, body { height: 100%; margin: 0; background: var(--boot-bg); }
+
+      #boot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        background: var(--boot-bg);
+        /* Above nothing in particular — it is removed rather than layered
+           over, so it only needs to sit on its own. */
+        z-index: 1;
+      }
+      /* Fades out rather than vanishing, so the handover to React reads as the
+         same surface settling instead of a cut. */
+      #boot.boot-done { opacity: 0; transition: opacity .18s ease-out; pointer-events: none; }
+
+      /* Sidebar + list columns, at the widths the app itself uses so nothing
+         shifts when the real UI arrives. The list column follows the same
+         stored width the resizer writes. */
+      .boot-nav { width: var(--boot-nav-w, 220px); flex: 0 0 auto; border-right: 1px solid var(--boot-line); }
+      .boot-list { width: var(--boot-list-w, 420px); flex: 0 0 auto; border-right: 1px solid var(--boot-line); padding: 8px 12px; }
+      .boot-detail { flex: 1 1 auto; }
+
+      .boot-row {
+        height: 80px;
+        margin-bottom: 8px;
+        border: 1px solid var(--boot-line);
+        border-radius: 13px;
+        background: var(--boot-surface);
+        padding: 12px 16px;
+        box-sizing: border-box;
+      }
+      .boot-bar { height: 10px; border-radius: 5px; background: var(--boot-fill); }
+
+      /* One shared pulse. Rows are offset so the column breathes rather than
+         blinking in unison, which is the difference between "loading" and
+         "flickering". */
+      @keyframes boot-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+      .boot-row { animation: boot-pulse 1.6s ease-in-out infinite; }
+      .boot-row:nth-child(2) { animation-delay: .08s; }
+      .boot-row:nth-child(3) { animation-delay: .16s; }
+      .boot-row:nth-child(4) { animation-delay: .24s; }
+      .boot-row:nth-child(5) { animation-delay: .32s; }
+      .boot-row:nth-child(6) { animation-delay: .40s; }
+      .boot-row:nth-child(7) { animation-delay: .48s; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .boot-row { animation: none; opacity: .7; }
+        #boot.boot-done { transition: none; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <div id="boot" aria-hidden="true">
+      <div class="boot-nav"></div>
+      <div class="boot-list" id="boot-list">
+        <div class="boot-row"><div class="boot-bar" style="width:62%"></div><div class="boot-bar" style="width:38%;margin-top:12px;height:8px"></div></div>
+        <div class="boot-row"><div class="boot-bar" style="width:74%"></div><div class="boot-bar" style="width:30%;margin-top:12px;height:8px"></div></div>
+        <div class="boot-row"><div class="boot-bar" style="width:55%"></div><div class="boot-bar" style="width:44%;margin-top:12px;height:8px"></div></div>
+        <div class="boot-row"><div class="boot-bar" style="width:68%"></div><div class="boot-bar" style="width:34%;margin-top:12px;height:8px"></div></div>
+        <div class="boot-row"><div class="boot-bar" style="width:58%"></div><div class="boot-bar" style="width:41%;margin-top:12px;height:8px"></div></div>
+        <div class="boot-row"><div class="boot-bar" style="width:71%"></div><div class="boot-bar" style="width:28%;margin-top:12px;height:8px"></div></div>
+        <div class="boot-row"><div class="boot-bar" style="width:64%"></div><div class="boot-bar" style="width:36%;margin-top:12px;height:8px"></div></div>
+      </div>
+      <div class="boot-detail"></div>
+    </div>
+
+    <script>
+      (function () {
+        var boot = document.getElementById('boot');
+
+        // Cold process start only. Two independent signals, because they cover
+        // different things and neither covers both:
+        //
+        //   ?warm=1     main saying this process has already shown a window —
+        //               catches a window that was closed and reopened, which
+        //               arrives as a brand new renderer that would otherwise
+        //               have no way to know.
+        //   sessionStorage  survives a reload of THIS renderer, which is what
+        //               a dev-server reconnect does.
+        //
+        // This script sits directly after the markup and runs while the
+        // document is still parsing, so removing here happens before anything
+        // is painted. Leaving the skeleton visible by default means a thrown
+        // exception costs nothing.
+        if (location.search.indexOf('warm=1') !== -1) { boot.remove(); return; }
+        try {
+          if (sessionStorage.getItem('lens-booted')) { boot.remove(); return; }
+          sessionStorage.setItem('lens-booted', '1');
+        } catch (e) {}
+
+        // Match the widths the user dragged the panes to, so the skeleton lines
+        // up with the app that is about to replace it.
+        try {
+          // Same keys and same clamps as the resizers in the app, so a shell
+          // built here cannot land on a width the app would refuse.
+          var nav = parseInt(localStorage.getItem('sidebar-width'), 10);
+          if (nav >= 180 && nav <= 280) boot.style.setProperty('--boot-nav-w', nav + 'px');
+          var list = parseInt(localStorage.getItem('list-width'), 10);
+          if (list >= 320 && list <= 450) boot.style.setProperty('--boot-list-w', list + 'px');
+        } catch (e) {}
+      })();
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

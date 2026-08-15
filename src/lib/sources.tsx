@@ -50,6 +50,21 @@ export type SourceDef = {
   // Per-kind descriptions for the Workspace sidebar groups + overview cards.
   // Same keys across sources so the layout is identical; only the text shifts.
   kindMeta: Record<ResourceKindKey, KindMeta>;
+  // Whether a session from this provider can be continued in Lens's embedded
+  // terminal. Components gate on this rather than testing the source id.
+  terminal: {
+    supported: boolean;
+    // How much the agent may do on its own, offered when a terminal is
+    // started. Each CLI spells this differently, so the flag lives with the
+    // spawner in electron/pty.cjs and only the values are named here — that
+    // list is also what main validates against, since these end up in argv.
+    // `labelKey` is a Lens phrasing of the CLI's own value, which stays
+    // visible next to it: someone who knows `--permission-mode` should be able
+    // to find the one they mean, and someone who does not needs it in words.
+    modes: Array<{ value: string; labelKey: TKey }>;
+    modeLabelKey: TKey;
+    modeHintKey: TKey;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -161,6 +176,19 @@ export const SOURCES: Record<SessionSource, SourceDef> = {
     workspaceRoot: '~/.claude',
     workspaceBlurb: 'A map of your Claude Code environment — instructions, capabilities, and automations available across every session.',
     kindMeta: CLAUDE_KIND_META,
+    terminal: {
+      supported: true,
+      modeLabelKey: 'settings.termMode.claude',
+      modeHintKey: 'settings.termMode.claude.hint',
+      modes: [
+        { value: 'manual',           labelKey: 'termMode.claude.manual' },
+        { value: 'acceptEdits',      labelKey: 'termMode.claude.acceptEdits' },
+        { value: 'auto',             labelKey: 'termMode.claude.auto' },
+        { value: 'plan',             labelKey: 'termMode.claude.plan' },
+        { value: 'dontAsk',          labelKey: 'termMode.claude.dontAsk' },
+        { value: 'bypassPermissions', labelKey: 'termMode.claude.bypassPermissions' },
+      ],
+    },
   },
   codex: {
     id: 'codex',
@@ -173,6 +201,18 @@ export const SOURCES: Record<SessionSource, SourceDef> = {
     workspaceRoot: '~/.codex',
     workspaceBlurb: 'A map of your Codex environment — instructions, capabilities, and tool-permission rules picked up by every session.',
     kindMeta: CODEX_KIND_META,
+    // `codex resume <session-id>` — the id comes from inside the rollout file,
+    // not its timestamped name. See SOURCE_ADAPTERS in electron/pty.cjs.
+    terminal: {
+      supported: true,
+      modeLabelKey: 'settings.termMode.codex',
+      modeHintKey: 'settings.termMode.codex.hint',
+      modes: [
+        { value: 'untrusted',  labelKey: 'termMode.codex.untrusted' },
+        { value: 'on-request', labelKey: 'termMode.codex.onRequest' },
+        { value: 'never',      labelKey: 'termMode.codex.never' },
+      ],
+    },
   },
 };
 

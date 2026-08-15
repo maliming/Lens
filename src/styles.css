@@ -260,6 +260,27 @@ mark { background: hsl(45 95% 75%); color: hsl(240 10% 12%); padding: 0 2px; bor
 mark[data-current="true"] { background: hsl(22 95% 60%); color: white; box-shadow: 0 0 0 2px hsl(22 95% 60% / 0.35); }
 [data-theme='dark'] mark[data-current="true"] { background: hsl(22 90% 55%); color: white; box-shadow: 0 0 0 2px hsl(22 90% 55% / 0.45); }
 
+/* Force text presentation inside the terminal.
+   
+   Characters like U+23FA (the CLI's turn marker) default to emoji presentation,
+   so a browser will happily draw them as colour emoji even when the font stack
+   names no emoji family. A real terminal draws the text glyph. Chromium honours
+   this property from 131; on older builds it is ignored, which is why the emoji
+   family was also removed from the stack rather than relying on this alone. */
+.xterm, .xterm * {
+  font-variant-emoji: text;
+}
+
+/* Live-terminal mark in the session list: the prompt glyph plus a block that
+   blinks while the agent is working. A blinking cursor is what a terminal
+   looks like when something is happening in it, which beats a generic pulse —
+   and steps(1) makes it a hard on/off, like the real thing. */
+@keyframes term-cursor {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.term-cursor { animation: term-cursor 1s steps(1) infinite; }
+
 /* Respect prefers-reduced-motion: kills the message-card fade-in, sidebar/
    modal mounts, status-pulse dots, and spinner loops for users who flagged
    motion sensitivity in their OS. Keeps essential transitions (focus ring,
@@ -274,5 +295,20 @@ mark[data-current="true"] { background: hsl(22 95% 60%); color: white; box-shado
   .animate-spin {
     animation: none !important;
     transition: none !important;
+  }
+  /* Those entrances start from `opacity-0` and are carried to full opacity by
+     the animation itself, so cancelling the animation alone leaves the element
+     permanently invisible — the loading skeleton in particular renders as an
+     empty pane. Anything that fades in has to be pinned visible here. */
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-modal-in,
+  .animate-in {
+    opacity: 1 !important;
+  }
+  /* The cursor block stays visible; only its blinking stops. */
+  .term-cursor {
+    animation: none !important;
+    opacity: 1;
   }
 }

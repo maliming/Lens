@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   getSession: (filePath) => ipcRenderer.invoke('sessions:get', filePath),
   getSubagents: (filePath) => ipcRenderer.invoke('sessions:subagents', filePath),
+  statSession: (filePath) => ipcRenderer.invoke('sessions:stat', filePath),
   deepSearch: (query, source) => ipcRenderer.invoke('sessions:deepSearch', { query, source }),
   copyResumeCommand: (id, filePath, source) => ipcRenderer.invoke('sessions:copyResumeCommand', { id, filePath, source }),
   revealInFinder: (filePath) => ipcRenderer.invoke('sessions:revealInFinder', filePath),
@@ -36,6 +37,24 @@ contextBridge.exposeInMainWorld('api', {
   // Dedicated consent setter — not routed through setAppPrefs so a renderer
   // compromise can't smuggle 'granted' through the generic prefs path.
   setRateLimitsConsent: (v) => ipcRenderer.invoke('rateLimits:setConsent', v),
+  // Embedded terminal — a real PTY running the user's own CLI. Keystrokes go
+  // straight to the child's stdin; main owns spawn/containment and lifecycle.
+  ptyStart: (source, filePath, cols, rows, theme, mode) =>
+    ipcRenderer.invoke('pty:start', { source, filePath, cols, rows, theme, mode }),
+  ptyList: () => ipcRenderer.invoke('pty:list'),
+  ptyWrite: (termId, data) => ipcRenderer.invoke('pty:write', { termId, data }),
+  ptyResize: (termId, cols, rows) => ipcRenderer.invoke('pty:resize', { termId, cols, rows }),
+  ptyStop: (termId) => ipcRenderer.invoke('pty:stop', { termId }),
+  onPtyData: (cb) => {
+    const listener = (_e, u) => cb(u);
+    ipcRenderer.on('pty:data', listener);
+    return () => ipcRenderer.removeListener('pty:data', listener);
+  },
+  onPtyExit: (cb) => {
+    const listener = (_e, u) => cb(u);
+    ipcRenderer.on('pty:exit', listener);
+    return () => ipcRenderer.removeListener('pty:exit', listener);
+  },
   openLogsFolder: () => ipcRenderer.invoke('app:openLogsFolder'),
   openUserDataFolder: () => ipcRenderer.invoke('app:openUserDataFolder'),
   setTitleBarTheme: (theme) => ipcRenderer.invoke('win:setTitleBarTheme', theme),

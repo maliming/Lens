@@ -1,4 +1,4 @@
-import { Search, Star, GitBranch, X, Play, Copy, FolderOpen, StarOff, Filter, Plus, Pencil } from 'lucide-react';
+import { Search, Star, GitBranch, X, Play, Copy, FolderOpen, StarOff, Filter, Plus, Pencil, Terminal } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
@@ -15,6 +15,7 @@ import { useTranslation } from '../lib/I18nProvider';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
 import { useDisplayPrefs } from '../lib/displayPrefs';
 import type { TKey } from '../lib/i18n';
+import { hasLiveTerminal, subscribeTerminals, terminalCount, terminalsSignature } from '../lib/terminals';
 
 type Props = {
   items: SessionMeta[];
@@ -34,12 +35,13 @@ type Props = {
   onExcludeRulesChange: (next: string[]) => void;
   activeId: string | null;
   filters: Filters;
-  view: 'sessions' | 'favorites' | 'excluded';
+  view: 'sessions' | 'favorites' | 'terminals' | 'excluded';
   onSelect: (id: string) => void;
   onFilters: (f: Filters) => void;
   onToggleFavorite: (id: string) => void;
   onToggleExclude: (id: string) => void;
   loading?: boolean;
+  inventoryReady?: boolean;
   onStatus: (msg: string) => void;
 };
 
@@ -56,7 +58,13 @@ const SORT_OPTIONS: Array<{ value: Filters['sort']; labelKey: TKey }> = [
   { value: 'messages', labelKey: 'list.sortMessages' },
 ];
 
-export function SessionList({ items, projectChoices, sessions, favorites, excluded, manualExcluded, excludeRules, onExcludeRulesChange, activeId, filters, view, onSelect, onFilters, onToggleFavorite, onToggleExclude, loading = false, onStatus }: Props) {
+export function SessionList({ items, projectChoices, sessions, favorites, excluded, manualExcluded, excludeRules, onExcludeRulesChange, activeId, filters, view, onSelect, onFilters, onToggleFavorite, onToggleExclude, loading = false, inventoryReady = false, onStatus }: Props) {
+  // Terminals live outside React (lib/terminals owns them so they survive
+  // session switches), so the list has to be told when one starts or stops.
+  // The signature, not a counter — a counter re-rendered this at the rate the
+  // CLI animates its terminal title. See terminalsSignature.
+  const [, setTerminalSig] = useState(terminalsSignature);
+  useEffect(() => subscribeTerminals(() => setTerminalSig(terminalsSignature())), []);
   const { t } = useTranslation();
   const [currentSource] = useCurrentSource();
   // Signature of everything that changes the list's length/contents/order.
@@ -195,6 +203,7 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
         view={view}
         query={filters.query}
         loading={loading}
+        inventoryReady={inventoryReady}
         sessions={sessions}
         activeId={activeId}
         favorites={favorites}
@@ -246,14 +255,15 @@ type Row =
 
 function VirtualList({
   groups, items, view, query, activeId, favorites, excluded, manualExcluded,
-  loading, sessions,
+  loading, inventoryReady, sessions,
   onSelect, onToggleFavorite, onToggleExclude, onStatus, onPickSuggestion,
 }: {
   groups: Array<{ key: GroupKey | null; items: SessionMeta[] }>;
   items: SessionMeta[];
-  view: 'sessions' | 'favorites' | 'excluded';
+  view: 'sessions' | 'favorites' | 'terminals' | 'excluded';
   query: string;
   loading: boolean;
+  inventoryReady: boolean;
   sessions: SessionMeta[];
   activeId: string | null;
   favorites: Set<string>;
@@ -314,9 +324,27 @@ function VirtualList({
 
   if (items.length === 0) {
     // Still scanning ~/.claude/projects/ — show pulse skeletons so the pane
-    // doesn't read as "no sessions". Falls through to the real EmptyState
-    // once loading completes and there really are zero items.
-    if (loading && sessions.length === 0) {
+    // doesn't read as "no sessions". Falls through to the real EmptyState only
+    // once the scan has reported, at which point zero really means zero.
+    //
+    // Keyed on the scan, not on `loading`: listSessions answers from cache the
+    // moment it is called, so `loading` clears while the walk that produces
+    // the rows is still running. Gating on it showed an empty state for the
+    // second or two before the first push — the exact wait this covers.
+    //
+    // Except in the terminals view, where emptiness has nothing to do with the
+    // scan: whether anything is running is known here and now. With no
+    // terminals there is nothing the scan could add, and waiting for it left a
+    // skeleton pulsing over a view whose answer was already "none".
+    // ...and only while nothing has loaded at all. An empty *filtered* result
+    // is an answer the scan cannot change: with 500 sessions in hand and no
+    // favorites, Favorites means "none", not "still looking". Gating on the
+    // scan alone pulsed skeletons over it — and over an empty Filters view, and
+    // over a query with no matches — for as long as the walk took.
+    const waitingOnScan = view === 'terminals'
+      ? terminalCount() > 0 && !inventoryReady
+      : !inventoryReady && sessions.length === 0;
+    if (waitingOnScan) {
       return (
         <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 px-3 pt-2 pb-2 animate-fade-in">
           <div className="flex flex-col gap-2">
@@ -425,6 +453,7 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
   const msgs = visibleMessageCount(s);
   const projName = projectShortName(s.projectCwd || s.decodedCwd);
   const branch = meaningfulBranch(s.gitBranch);
+  const term = hasLiveTerminal(s);
 
   const handleCopy = async () => {
     const cmd = await window.api.copyResumeCommand(s.id, s.filePath, s.source);
@@ -477,6 +506,31 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
             <h3 className={cn('text-[14px] font-semibold truncate leading-snug flex-1 min-w-0', active ? 'text-accent' : 'text-text')}>
               {highlight(title.primary, query)}
             </h3>
+            {/* A terminal keeps running when you navigate away, so without a
+                marker here the only way back to it is memory.
+
+                The prompt glyph rather than a boxed badge: every other mark in
+                this row is a bare icon, and anything with a border read as a
+                foreign object dropped into the list. Motion carries the busy
+                state. */}
+            {term.live && (
+              <span
+                title={term.busy ? t('list.terminalWorking') : t('list.terminalRunning')}
+                aria-label={term.busy ? t('list.terminalWorking') : t('list.terminalRunning')}
+                className="flex items-center gap-[2px] flex-shrink-0 mr-1.5"
+              >
+                <Terminal className={cn('w-4 h-4', term.busy ? 'text-accent' : 'text-accent/70')} />
+                {/* Always blinking: a still mark reads as decoration, and the
+                    point of this one is that something is alive over there.
+                    Busy vs idle is carried by colour weight instead. */}
+                <span
+                  className={cn(
+                    'w-[4px] h-[11px] rounded-[1px] term-cursor',
+                    term.busy ? 'bg-accent' : 'bg-accent/50',
+                  )}
+                />
+              </span>
+            )}
             <div className="flex flex-col items-end flex-shrink-0 leading-none gap-0.5">
               <span className={cn('text-[11px] tabular-nums', active ? 'text-accent/70' : 'text-text-muted')}>
                 {fmtTime(s.lastTs || (s.mtime ? new Date(s.mtime).toISOString() : null))}
@@ -614,12 +668,13 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
 
 const SUGGESTIONS = ['OpenIddict', 'authentication', 'deployment', 'support question', 'GitHub review', 'rate limit', 'migration', 'docker'];
 
-function EmptyState({ view, query, onPickSuggestion }: { view: 'sessions' | 'favorites' | 'excluded'; query: string; onPickSuggestion: (q: string) => void }) {
+function EmptyState({ view, query, onPickSuggestion }: { view: 'sessions' | 'favorites' | 'terminals' | 'excluded'; query: string; onPickSuggestion: (q: string) => void }) {
   const { t } = useTranslation();
   const copy = (() => {
     if (query) return { title: t('empty.search.title'), sub: t('empty.search.sub') };
     if (view === 'favorites') return { title: t('empty.favorites.title'), sub: t('empty.favorites.sub') };
     if (view === 'excluded') return { title: t('empty.excluded.title'), sub: t('empty.excluded.sub') };
+    if (view === 'terminals') return { title: t('empty.terminals.title'), sub: t('empty.terminals.sub') };
     return { title: t('empty.history.title'), sub: t('empty.history.sub') };
   })();
   const showSuggestions = !query && view === 'sessions';

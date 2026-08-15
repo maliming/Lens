@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Play, Copy, FolderOpen, Star, GitBranch, FileText, SlidersHorizontal, Check, Code2, Search, X, Info, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
+import { Play, Copy, FolderOpen, Star, GitBranch, FileText, SlidersHorizontal, Check, Code2, Search, X, Info, RefreshCw, ChevronUp, ChevronDown, TerminalSquare } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { cleanDisplayText, fmtBytes, fmtTime, fmtDate, fmtTokens, shortCwd, visibleMessageCount } from '../lib/format';
 import { meaningfulBranch, resolveSessionTitle } from '../lib/sessionTitle';
@@ -8,6 +8,14 @@ import { useTranslation } from '../lib/I18nProvider';
 import type { MessageItem, SessionMeta, SessionSubagents } from '../types';
 import { Message } from './Message';
 import { UnlinkedSubagents } from './SubagentTranscript';
+import { TerminalPanel } from './TerminalPanel';
+import {
+  closeTerminals, getTerminal, isTerminalMaximized, openTerminal, refreshOrphans,
+  sessionKeyOf, setTerminalMaximized, shouldWarnBeforeOpening, subscribeTerminals,
+  terminalsSignature,
+} from '../lib/terminals';
+import { TerminalLimitModal } from './TerminalLimitModal';
+import { getSource } from '../lib/sources';
 import { linkSubagents, linkedFor, messageHasLinkedSubagent, linkedMatchesQuery, taskAgentMatches, workflowRunMatches } from '../lib/subagents';
 import { useDisplayPrefs, type DisplayPrefs } from '../lib/displayPrefs';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
@@ -57,6 +65,19 @@ type Props = {
   onStatus: (m: string) => void;
   onOpenInfo: () => void;
   onRefreshMessages?: () => void;
+  // Refetch without animating the toolbar's Refresh indicator. Used for
+  // terminal-driven syncs, which the user did not ask for and should not be
+  // told about with a spinner.
+  onSyncMessages?: () => void;
+  // Switch the detail pane to another session. Used by the terminal chooser:
+  // with several agents running, "take me to that one" is the thing you
+  // actually want, and closing is the secondary action.
+  onOpenSession?: (session: SessionMeta) => void;
+  // Demo sessions point at paths that do not exist, so the terminal plays a
+  // canned script instead of spawning anything. Passed down rather than read
+  // from demoMode.ts here: that module owns the gating rules (dev-only unless
+  // DEMO_BUILD), and a second reader would drift from them.
+  demoMode?: boolean;
   // When the active session's JSONL is large enough to warrant an opt-in,
   // the parent pauses auto-load and passes this. Rendering it surfaces the
   // confirm overlay; `onConfirm()` re-fires the parent's fetch effect.
@@ -69,7 +90,7 @@ type Props = {
   subagents?: SessionSubagents | null;
 };
 
-export function SessionDetail({ session, messages, loading, refreshing, favorites, query, onToggleFavorite, onStatus, onOpenInfo, onRefreshMessages, pendingLargeLoad, subagents }: Props) {
+export function SessionDetail({ session, messages, loading, refreshing, favorites, query, onToggleFavorite, onStatus, onOpenInfo, onRefreshMessages, onSyncMessages, onOpenSession, demoMode, pendingLargeLoad, subagents }: Props) {
   const { t } = useTranslation();
   const [globalMode, setGlobalMode] = useState<'markdown' | 'raw'>('markdown');
   const [visibleCount, setVisibleCount] = useState<number>(INITIAL_VISIBLE);
@@ -105,6 +126,41 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
   // briefly after the fetch returns — otherwise instant refreshes look
   // identical to no-ops and the user can't tell anything happened.
   const [refreshState, setRefreshState] = useState<'idle' | 'busy' | 'done'>('idle');
+  // Terminals live outside React (see lib/terminals) so they survive session
+  // switches; subscribe just to keep the toolbar button's state honest.
+  // The signature, not a counter — a counter re-rendered this at the rate the
+  // CLI animates its terminal title. See terminalsSignature.
+  const [, setTerminalSig] = useState(terminalsSignature);
+  useEffect(() => subscribeTerminals(() => setTerminalSig(terminalsSignature())), []);
+  // A renderer reload leaves main holding processes this renderer knows nothing
+  // about. Ask on mount so they are counted and closeable rather than invisible.
+  useEffect(() => { void refreshOrphans(); }, []);
+  // Set when the terminal reports activity: the next transcript update is one
+  // the user just caused, so follow it to the bottom instead of leaving them
+  // staring at where the conversation used to end.
+  const followAfterRefreshRef = useRef(false);
+  // Hide the transcript and give the pane to the terminal. Persisted because
+  // it reflects how the user is working right now — reading history or driving
+  // an agent — and that rarely changes between one session and the next.
+  // Lives with the other terminal preferences (see lib/terminals) rather than
+  // in a key of its own: it is the same kind of setting, remembered the same
+  // way, and one validated record beats four loose keys.
+  const terminalMaximized = isTerminalMaximized();
+  const [terminalLimitOpen, setTerminalLimitOpen] = useState(false);
+
+  // Opening is gated on the user's own threshold, not on a hard limit: the
+  // ceiling in main is only a runaway backstop.
+  function requestTerminal() {
+    if (!session) return;
+    // Re-opening a session that already has one just re-attaches, so the
+    // count warning would be about something that is not about to happen.
+    if (shouldWarnBeforeOpening(session)) { setTerminalLimitOpen(true); return; }
+    void openTerminal(session, { demo: demoMode });
+  }
+  const terminalOpen = !!(session && getTerminal(sessionKeyOf(session)));
+  // Maximizing only means anything while a terminal exists; without one the
+  // pane would be empty.
+  const hideTranscript = terminalOpen && terminalMaximized;
   const prevRefreshingRef = useRef(false);
   useEffect(() => {
     if (refreshing && !prevRefreshingRef.current) {
@@ -197,9 +253,15 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     if (sessionKey !== prevSessionKey) return;
     if (rawLen <= prevRawLen) return;
     const root = scrollRef.current;
-    const wasAtBottom = root
+    // Normally we only follow when the reader was already at the bottom —
+    // yanking someone away from what they were reading is worse than a stale
+    // viewport. A turn the user just typed into the terminal is the exception:
+    // they are watching the conversation happen and expect to see it.
+    const cameFromTerminal = followAfterRefreshRef.current;
+    followAfterRefreshRef.current = false;
+    const wasAtBottom = cameFromTerminal || (root
       ? (root.scrollHeight - root.scrollTop - root.clientHeight) < 80
-      : false;
+      : false);
     setVisibleCount(c => c + (rawLen - prevRawLen));
     if (wasAtBottom && root) {
       requestAnimationFrame(() => {
@@ -468,7 +530,14 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
           delta in the useLayoutEffect above); with native anchoring left on,
           the browser ALSO shifts scrollTop by the same delta, so the two
           stack and the view jumps back down toward the latest turn. */}
-      <main data-pane="detail" ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden [overflow-anchor:none]">
+      <main
+        data-pane="detail"
+        ref={scrollRef}
+        onScroll={onScroll}
+        className={`flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden [overflow-anchor:none] ${
+          hideTranscript ? 'hidden' : ''
+        }`}
+      >
       {/* Compact Header (~140px) */}
       <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur border-b border-border-soft px-6 py-3 min-w-0">
         <div className="flex items-center gap-2 mb-1.5 min-w-0">
@@ -526,6 +595,25 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
           <button onClick={handleTerminal} title={effectivePreferred === 'iterm' ? t('detail.tip.openInIterm') : t('detail.tip.openInTerminal')} className="h-10 px-4 bg-accent text-white rounded-lg text-[13.5px] font-semibold hover:opacity-90 flex items-center gap-1.5 shadow-soft whitespace-nowrap flex-shrink-0">
             <Play className="w-4 h-4" />{t('detail.btn.resume')}
           </button>
+          {/* Peer of Resume, not a toolbar icon: continuing the work inside
+              Lens is the same order of action as continuing it outside. Same
+              height and weight; outlined rather than filled so two solid accent
+              buttons don't fight for the eye, and filled once a terminal is
+              actually live so the running state is unmissable. */}
+          {session && getSource(session.source).terminal.supported && (
+            <button
+              onClick={requestTerminal}
+              title={t('term.open')}
+              className={cn(
+                'h-10 px-4 rounded-lg text-[13.5px] font-semibold flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 transition',
+                getTerminal(sessionKeyOf(session))
+                  ? 'bg-accent text-white hover:opacity-90 shadow-soft'
+                  : 'border border-accent/50 text-accent hover:bg-accent-soft',
+              )}
+            >
+              <TerminalSquare className="w-4 h-4" />{t('term.label')}
+            </button>
+          )}
           <ToolbarBtn
             onClick={handleCopy}
             icon={justCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
@@ -709,6 +797,29 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
         )}
       </div>
       </main>
+      {/* Continuation surface. Deliberately a sibling of <main> rather than
+          content inside it: the terminal stays pinned while the transcript
+          scrolls above it, and its height is the user's to set. */}
+      <TerminalLimitModal
+        open={terminalLimitOpen}
+        onCancel={() => setTerminalLimitOpen(false)}
+        onGoToSession={(s) => { setTerminalLimitOpen(false); onOpenSession?.(s); }}
+        onConfirm={async (keys) => {
+          setTerminalLimitOpen(false);
+          await closeTerminals(keys);
+          if (session) void openTerminal(session, { demo: demoMode });
+        }}
+      />
+      <TerminalPanel
+        session={session}
+        demoMode={demoMode}
+        maximized={terminalMaximized}
+        onToggleMaximize={() => setTerminalMaximized(!terminalMaximized)}
+        onActivity={() => {
+          followAfterRefreshRef.current = true;
+          onSyncMessages?.();
+        }}
+      />
     </div>
   );
 }

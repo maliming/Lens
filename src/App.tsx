@@ -14,12 +14,14 @@ import { useSourceAuth, deriveName } from './lib/sourceAuth';
 import { useExcludeRules, computeEffectiveExcluded } from './lib/excludeRules';
 import { useCurrentSource, srcKey, type SessionSource } from './lib/sources';
 import { sessionTimestamp } from './lib/format';
+import { dismissBootShell } from './lib/bootShell';
 import { useDemoMode } from './lib/demoMode';
-import { DEMO_SESSIONS, DEMO_USAGE, DEMO_PROFILE, DEMO_RATE_LIMITS } from './lib/demoData';
+import { DEMO_SESSIONS, DEMO_USAGE, DEMO_PROFILE, DEMO_RATE_LIMITS_BY_SOURCE } from './lib/demoData';
 import { useRateLimitsConsent, useRateLimits, type RateLimitsState } from './lib/rateLimits';
 import { RateLimitsConsentModal } from './components/RateLimitsConsentModal';
 import { useTranslation } from './lib/I18nProvider';
 import type { SessionMeta, SessionsUpdate, View, UsageSummary } from './types';
+import { hasLiveTerminal, subscribeTerminals, terminalCount } from './lib/terminals';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -84,12 +86,24 @@ function mergeUnseenSourceRows(previous: SessionMeta[], incoming: SessionMeta[],
 
 export default function App() {
   const { t } = useTranslation();
+  // Terminals live outside React (lib/terminals owns them so they survive
+  // session switches), so the sidebar count has to be told when one starts,
+  // stops, or is recovered after a reload.
+  //
+  // The count itself is the state, not a counter. Bumping a counter on every
+  // notify re-rendered App — and with it every view held mounted behind
+  // ViewSlot — at the rate the CLI animates its title, about fifteen times a
+  // second. Storing the number React compares against means a title change
+  // resolves to the same value and nothing re-renders.
+  const [, setTerminalCount] = useState(terminalCount);
+  useEffect(() => subscribeTerminals(() => setTerminalCount(terminalCount())), []);
   const [view, setView] = useState<View>(() => {
     // Whitelist the persisted view — a corrupt/poisoned localStorage write
     // would otherwise leave the main pane unmatched and render a blank app.
     const saved = localStorage.getItem('view');
-    return saved === 'sessions' || saved === 'favorites' || saved === 'excluded'
-      || saved === 'usage' || saved === 'config' || saved === 'settings' || saved === 'search'
+    return saved === 'sessions' || saved === 'favorites' || saved === 'terminals'
+      || saved === 'excluded' || saved === 'usage' || saved === 'config'
+      || saved === 'settings' || saved === 'search'
       ? saved : 'sessions';
   });
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -135,7 +149,7 @@ export default function App() {
   const rlEnabled = !demoMode && (currentSource === 'codex' || rlConsent === 'granted');
   const { state: realRateLimits, refresh: refreshRateLimits } = useRateLimits(rlEnabled, currentSource);
   const rateLimitsState: RateLimitsState = demoMode
-    ? { limits: DEMO_RATE_LIMITS, limitsSource: currentSource, fetchedAt: Date.now(), loading: false, error: null, debug: null }
+    ? { limits: DEMO_RATE_LIMITS_BY_SOURCE[currentSource], limitsSource: currentSource, fetchedAt: Date.now(), loading: false, error: null, debug: null }
     : realRateLimits;
   // In demo mode, layer user-set aliases on top of the static DEMO_SESSIONS so
   // Rename works in demo for screenshots without touching the real aliases.json.
@@ -186,7 +200,29 @@ export default function App() {
   const currentUsage = usageBySource[currentSource] || null;
   const usage = demoMode ? DEMO_USAGE : currentUsage;
   const [loading, setLoading] = useState(true);
+  // Sources whose first background scan has reported in.
+  //
+  // Distinct from `loading`, which only means "the IPC call came back".
+  // listSessions returns whatever is cached the moment it is asked — an empty
+  // array on a first run — so `loading` goes false while the scan that will
+  // actually produce the rows is still walking the disk. Treating that as
+  // "loaded" is what put an empty-state in front of people for the second or
+  // two before the first push arrived.
+  const [scannedSources, setScannedSources] = useState<Set<string>>(() => new Set());
+  // Nothing may wait on a signal forever. If main never reports a finished scan
+  // — it crashed, the IPC bridge is missing — the list has to be allowed to
+  // say what it actually knows rather than pulse indefinitely.
+  useEffect(() => {
+    const t = setTimeout(() => setScannedSources(new Set(['claude', 'codex'])), 15000);
+    return () => clearTimeout(t);
+  }, []);
   const [statusMsg, setStatusMsg] = useState('');
+
+  // Hand over from the pre-React startup skeleton (see lib/bootShell) as soon
+  // as React has committed. It only ever had to cover the bundle load; the
+  // list's own skeleton covers the scan, which is a different and longer wait
+  // and not something an overlay should be sitting on top of the app for.
+  useEffect(() => { dismissBootShell(); }, []);
   useEffect(() => {
     if (previousSourceRef.current === currentSource) return;
     previousSourceRef.current = currentSource;
@@ -278,11 +314,15 @@ export default function App() {
   useEffect(() => {
     if (!activeId) return;
     if (!activeId.startsWith(`${currentSource}:`)) return;
-    if (view !== 'sessions' && view !== 'favorites' && view !== 'excluded') return;
+    if (view !== 'sessions' && view !== 'favorites' && view !== 'terminals' && view !== 'excluded') return;
     let inView = false;
     if (view === 'sessions') inView = !effectiveExcluded.has(activeId);
     else if (view === 'favorites') inView = favorites.has(activeId);
     else if (view === 'excluded') inView = effectiveExcluded.has(activeId);
+    // Terminals view: membership is "has a process running", which changes on
+    // its own. Dropping the selection when a terminal exits would yank the
+    // user out of the session they were reading, so leave it be.
+    else if (view === 'terminals') inView = true;
     // Also confirm the session is still in the current source's set; a source
     // flip can leave activeId pointing at a row that's no longer reachable.
     if (inView && !sessions.some(s => srcKey(s) === activeId)) inView = false;
@@ -405,6 +445,16 @@ export default function App() {
         const message = t('status.error', { error: update.error });
         setStatusMsg(message);
         setTimeout(() => setStatusMsg(current => current === message ? '' : current), 4000);
+      }
+      // Before the revision check, and only on the push main marks as the last
+      // one: a push whose revision matches what the renderer already has still
+      // means the source has been scanned, and that is the fact the list needs
+      // to stop showing a skeleton. An intermediate push means rows are still
+      // arriving, so an empty list at that point is not yet an answer — a cold
+      // scan whose first batch is filtered away entirely by isEmptySession
+      // would otherwise flash the real empty state.
+      if (update.final) {
+        setScannedSources(prev => prev.has(update.source) ? prev : new Set(prev).add(update.source));
       }
       if (sessionRevisionsRef.current.get(update.source) === update.revision) return;
       sessionRevisionsRef.current.set(update.source, update.revision);
@@ -651,6 +701,7 @@ export default function App() {
             sessions: sessions.filter(s => !effectiveExcluded.has(srcKey(s))).length,
             favorites: sessions.filter(s => favorites.has(srcKey(s))).length,
             excluded: sessions.filter(s => effectiveExcluded.has(srcKey(s))).length,
+            terminals: sessions.filter(s => hasLiveTerminal(s).live).length,
           }}
           totalTokens={usage ? usage.buckets.total.input + usage.buckets.total.output + usage.buckets.total.cacheRead + usage.buckets.total.cacheCreate : 0}
           onReload={reload}
@@ -668,14 +719,14 @@ export default function App() {
           input state intact. The previous conditional render unmounted the
           whole subtree, forcing a fresh IPC fetch on re-entry.
         */}
-        <ViewSlot active={view === 'sessions' || view === 'favorites' || view === 'excluded'}>
+        <ViewSlot active={view === 'sessions' || view === 'favorites' || view === 'terminals' || view === 'excluded'}>
           <SessionsView
             // While inactive, freeze the `view` prop on the last active
             // sessions/favorites/excluded variant so SessionsView doesn't
             // try to reconcile against a value it doesn't understand
             // (e.g. 'search'). The component is hidden so the user can't see
             // the freeze; on next entry the live view value flows through.
-            view={(view === 'sessions' || view === 'favorites' || view === 'excluded') ? view : 'sessions'}
+            view={(view === 'sessions' || view === 'favorites' || view === 'terminals' || view === 'excluded') ? view : 'sessions'}
             sessions={sessions}
             favorites={favorites}
             excluded={effectiveExcluded}
@@ -685,12 +736,14 @@ export default function App() {
             demoMode={demoMode}
             usage={usage}
             loading={loading}
+            inventoryReady={demoMode || scannedSources.has(currentSource)}
             activeId={activeId}
             onActiveIdChange={setActiveId}
             onToggleFavorite={toggleFav}
             onToggleExclude={toggleExc}
             onStatus={setStatusMsg}
             onOpenInfo={() => setInfoOpen(true)}
+            onViewChange={setView}
           />
         </ViewSlot>
         <ViewSlot active={view === 'search'}>

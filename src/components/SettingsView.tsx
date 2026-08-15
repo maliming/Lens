@@ -1,15 +1,20 @@
+import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Sun, Moon, Monitor, Settings as Gear, Check, FolderOpen, FlaskConical, Activity, Terminal as TerminalIcon, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useDisplayPrefs } from '../lib/displayPrefs';
 import type { ThemeMode } from '../App';
 import { useTranslation } from '../lib/I18nProvider';
+import {
+  MAX_WARN_THRESHOLD, MIN_WARN_THRESHOLD, getTerminalPrefs, setTerminalWarn,
+  getTerminalStartMode, setTerminalStartMode,
+} from '../lib/terminals';
 import { LOCALES, type Locale } from '../lib/i18n';
 import { US, CN, TR, JP, KR, DE, FR, ES, BR, RU } from 'country-flag-icons/react/3x2';
 import { IS_DEMO_BUILD, DEMO_AVAILABLE } from '../lib/demoMode';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
 import { useAppPrefs } from '../lib/appPrefs';
-import { useCurrentSource, getSource } from '../lib/sources';
+import { useCurrentSource, getSource, SOURCE_ORDER } from '../lib/sources';
 
 type Props = {
   themeMode: ThemeMode;
@@ -22,6 +27,10 @@ type Props = {
 };
 
 export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode, onDemoModeChange, rlConsent, onRlConsentChange }: Props) {
+  // Terminal prefs live outside React (lib/terminals owns them so non-component
+  // code can read them); this tick just re-renders the rows after a change.
+  const [, setTermTick] = useState<number>(0);
+  const termPrefs = getTerminalPrefs();
   const [prefs, setPrefs] = useDisplayPrefs();
   const { t, locale, setLocale } = useTranslation();
   const [source] = useCurrentSource();
@@ -116,6 +125,58 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
           <Row label={t('settings.toolbarLabels')} hint={t('settings.toolbarLabels.hint')}>
             <Switch checked={prefs.toolbarLabels} onChange={v => setPrefs({ toolbarLabels: v })} />
           </Row>
+        </Section>
+
+        {/* Terminal — the embedded PTY. Its own section because the cost model
+            is unlike anything else in Settings: every terminal is a whole CLI
+            process, so this is really a memory control. */}
+        <Section title={t('settings.section.terminal')}>
+          <Row label={t('settings.termWarn')} hint={t('settings.termWarn.hint')}>
+            <Switch
+              checked={termPrefs.warnEnabled}
+              onChange={v => { setTerminalWarn({ enabled: v }); setTermTick((n: number) => n + 1); }}
+            />
+          </Row>
+          {/* One row per CLI. Both are shown regardless of which source is
+              selected in the sidebar: this is a preference about how terminals
+              start, not about what the user is currently browsing, and finding
+              it only after switching provider would be worse than a second
+              row. The CLI's own value is kept next to the plain-language label
+              so `--permission-mode auto` is recognisable to anyone who set it
+              on the command line. */}
+          {SOURCE_ORDER.map(id => {
+            const src = getSource(id);
+            if (!src.terminal.supported) return null;
+            return (
+              <Row key={id} label={t(src.terminal.modeLabelKey)} hint={t(src.terminal.modeHintKey)}>
+                <select
+                  value={getTerminalStartMode(id)}
+                  onChange={e => { setTerminalStartMode(id, e.target.value); setTermTick((n: number) => n + 1); }}
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-text text-[13px] outline-none focus:border-accent max-w-[15rem]"
+                >
+                  <option value="">{t('termMode.default')}</option>
+                  {src.terminal.modes.map(m => (
+                    <option key={m.value} value={m.value}>{t(m.labelKey)} — {m.value}</option>
+                  ))}
+                </select>
+              </Row>
+            );
+          })}
+          {termPrefs.warnEnabled && (
+            <Row label={t('settings.termWarnAt')} hint={t('settings.termWarnAt.hint')}>
+              <input
+                type="number"
+                min={MIN_WARN_THRESHOLD}
+                max={MAX_WARN_THRESHOLD}
+                value={termPrefs.warnThreshold}
+                onChange={e => {
+                  const n = parseInt(e.target.value, 10);
+                  if (!Number.isNaN(n)) { setTerminalWarn({ threshold: n }); setTermTick((x: number) => x + 1); }
+                }}
+                className="w-16 px-2 py-1 rounded-lg border border-border bg-surface text-text text-[13px] text-center tabular-nums outline-none focus:border-accent"
+              />
+            </Row>
+          )}
         </Section>
 
         {/* App behavior — tray + close + autostart. Standard packaged-app prefs. */}

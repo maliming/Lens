@@ -5,6 +5,7 @@ import { Resizer } from './Resizer';
 import { sessionTimestamp, visibleMessageCount } from '../lib/format';
 import { DEMO_MESSAGES, DEMO_SUBAGENTS } from '../lib/demoData';
 import { useCurrentSource, srcKey } from '../lib/sources';
+import { hasLiveTerminal, newestLiveTerminal, subscribeTerminals, terminalsSignature } from '../lib/terminals';
 import { useTranslation } from '../lib/I18nProvider';
 import type { MessageItem, SessionMeta, SessionSubagents, UsageSummary, View } from '../types';
 
@@ -30,12 +31,19 @@ type Props = {
   demoMode: boolean;
   usage: UsageSummary | null;
   loading: boolean;
+  // The current source's first background scan has reported in. Distinct from
+  // `loading` — see App, where it is derived — and the only honest basis for
+  // showing an empty state rather than a skeleton.
+  inventoryReady: boolean;
   activeId: string | null;
   onActiveIdChange: (id: string | null) => void;
   onToggleFavorite: (id: string) => void;
   onToggleExclude: (id: string) => void;
   onStatus: (msg: string) => void;
   onOpenInfo: () => void;
+  // Closing a terminal can strand the user in the terminals view — see the
+  // effect that hands them back to History.
+  onViewChange: (v: View) => void;
 };
 
 export type Filters = {
@@ -49,17 +57,18 @@ export type Filters = {
 // the user jumps Search → History (App dispatches `history:relaxFilters` to
 // make the chosen row visible, but that should only affect History's filter,
 // not Favorites' or Excluded's).
-type ViewKey = 'sessions' | 'favorites' | 'excluded';
+type ViewKey = 'sessions' | 'favorites' | 'terminals' | 'excluded';
 type FiltersByView = Record<ViewKey, Filters>;
 
 const FILTERS_STORAGE = 'session-filters';
 const DEFAULT_FILTERS: Filters = { query: '', project: '', time: '7', sort: 'recent' };
-const VIEW_KEYS: ViewKey[] = ['sessions', 'favorites', 'excluded'];
+const VIEW_KEYS: ViewKey[] = ['sessions', 'favorites', 'terminals', 'excluded'];
 
 function loadFiltersByView(): FiltersByView {
   const blank: FiltersByView = {
     sessions: { ...DEFAULT_FILTERS },
     favorites: { ...DEFAULT_FILTERS },
+    terminals: { ...DEFAULT_FILTERS },
     excluded: { ...DEFAULT_FILTERS },
   };
   try {
@@ -79,10 +88,10 @@ function loadFiltersByView(): FiltersByView {
 }
 
 function asViewKey(v: string): ViewKey {
-  return v === 'favorites' || v === 'excluded' ? v : 'sessions';
+  return v === 'favorites' || v === 'excluded' || v === 'terminals' ? v : 'sessions';
 }
 
-export function SessionsView({ view, sessions, favorites, excluded, manualExcluded, excludeRules, onExcludeRulesChange, demoMode, loading, activeId, onActiveIdChange, onToggleFavorite, onToggleExclude, onStatus, onOpenInfo }: Props) {
+export function SessionsView({ view, sessions, favorites, excluded, manualExcluded, excludeRules, onExcludeRulesChange, demoMode, loading, inventoryReady, activeId, onActiveIdChange, onToggleFavorite, onToggleExclude, onStatus, onOpenInfo, onViewChange }: Props) {
   const { t } = useTranslation();
   const [messages, setMessages] = useState<MessageItem[] | null>(null);
   const [subagents, setSubagents] = useState<SessionSubagents | null>(null);
@@ -105,6 +114,20 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
   // Bumped by SessionDetail's refresh button so the message-loading effect
   // re-runs (active session id hasn't changed → we need an explicit signal).
   const [messageRefreshTick, setMessageRefreshTick] = useState(0);
+  // Same refetch, no spinner. The embedded terminal writes to the session file
+  // constantly — drafts, mode records, queue bookkeeping — so syncing on every
+  // change is correct but must not animate the toolbar's Refresh button. That
+  // indicator answers "did my click do something", and a background sync
+  // pulsing it makes the app look like it is doing something behind your back.
+  const [messageSyncTick, setMessageSyncTick] = useState(0);
+  // The terminals view's membership changes when a process starts or stops,
+  // which happens outside React. The counter is read by the memos below, not
+  // just used to force a render: a re-render alone leaves `useMemo` returning
+  // its cached array, so a closed terminal's session stayed in the list.
+  const [terminalTick, setTerminalTick] = useState(terminalsSignature);
+  // The signature, not a counter: see terminalsSignature. A counter here
+  // re-ran the whole session filter every time the CLI animated its title.
+  useEffect(() => subscribeTerminals(() => setTerminalTick(terminalsSignature())), []);
   const [filtersByView, setFiltersByView] = useState<FiltersByView>(loadFiltersByView);
   const viewKey = asViewKey(view);
   const filters = filtersByView[viewKey];
@@ -129,6 +152,8 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
   // reqKey` and silently flips the toolbar into the spinning "refreshing"
   // state for no real refresh.
   const lastRefreshTickRef = useRef<number>(0);
+  // Same idea for the silent sync channel.
+  const lastSyncTickRef = useRef<number>(0);
   const [currentSource] = useCurrentSource();
 
   // Source-scoped state: when the user flips Claude ↔ Codex the per-source
@@ -210,9 +235,16 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
     const k = (s: SessionMeta) => `${s.source}:${s.id}`;
     if (view === 'favorites') arr = arr.filter(s => favorites.has(k(s)));
     else if (view === 'excluded') arr = arr.filter(s => excluded.has(k(s)));
+    // Sessions with a process running right now. Excluded ones are kept out
+    // for the same reason they are everywhere else, but a running terminal is
+    // worth surfacing regardless of how old the session is — so this view
+    // ignores the time filter that the others apply below.
+    else if (view === 'terminals') {
+      arr = arr.filter(s => !excluded.has(k(s)) && hasLiveTerminal(s).live);
+    }
     else arr = arr.filter(s => !excluded.has(k(s)));
 
-    if (filters.time !== 'all') {
+    if (filters.time !== 'all' && view !== 'terminals') {
       const days = parseInt(filters.time, 10);
       const cutoff = Date.now() - days * 86400000;
       arr = arr.filter(s => sessionTimestamp(s) >= cutoff);
@@ -226,7 +258,8 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
       });
     }
     return arr;
-  }, [sessions, view, favorites, excluded, filters.time, filters.query]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, view, favorites, excluded, filters.time, filters.query, terminalTick]);
 
   const filtered = useMemo(() => {
     let arr = filters.project
@@ -244,7 +277,51 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
     return arr;
   }, [preProjectFiltered, filters.project, filters.sort]);
 
-  const activeSession = useMemo(() => sessions.find(s => srcKey(s) === activeId) || null, [sessions, activeId]);
+  const activeSession = useMemo(() => {
+    const found = sessions.find(s => srcKey(s) === activeId) || null;
+    // The terminals view lists what is running right now. A session carried in
+    // from another view has nothing to do with that, and showing its transcript
+    // beside an empty list reads as "this is the terminal you're looking at"
+    // when it is not.
+    if (found && view === 'terminals' && !hasLiveTerminal(found).live) return null;
+    return found;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, activeId, view, terminalTick]);
+
+  // The terminals view lists only what is running, so the moment a terminal
+  // ends its session drops out of the list and the pane beside it goes blank.
+  //
+  // Where to send the user depends on what is left. With other terminals still
+  // going, staying here and showing the most recently opened one is what they
+  // asked for — closing one of several is a "next" gesture, not an exit. With
+  // nothing left there is no view to stay in, so they go back to History with
+  // the same session selected, which is where the conversation they were just
+  // working in still is.
+  //
+  // Only when the session that ended is the one on screen: closing some other
+  // terminal from the list should not move the user anywhere. And only on the
+  // live → not-live transition, so arriving here with a session carried in from
+  // another view still shows nothing, which is what the empty pane is for.
+  const wasLiveRef = useRef(false);
+  useEffect(() => {
+    const current = activeId ? sessions.find(s => srcKey(s) === activeId) : null;
+    const live = !!current && hasLiveTerminal(current).live;
+    if (view === 'terminals' && wasLiveRef.current && !live) {
+      const newest = newestLiveTerminal();
+      // Orphans have no opening order, so if that is all that remains, fall
+      // back to the same order the list itself is in.
+      const fallback = newest
+        ? null
+        : sessions.filter(s => hasLiveTerminal(s).live)
+            .sort((a, b) => sessionTimestamp(b) - sessionTimestamp(a))[0];
+      const next = newest ? newest.session : fallback;
+      if (next) onActiveIdChange(srcKey(next));
+      else onViewChange('sessions');
+    }
+    wasLiveRef.current = view === 'terminals' && live;
+    // terminalTick is the signal here; the rest are read, not watched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, activeId, terminalTick]);
 
   useEffect(() => {
     if (!activeSession) {
@@ -274,16 +351,23 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
     // double-mount and any other re-fire that re-runs the effect for the
     // same session without the user pressing Refresh.
     const tickChanged = lastRefreshTickRef.current !== messageRefreshTick;
-    const isRefresh = lastReqKeyRef.current === reqKey && tickChanged;
+    const syncChanged = lastSyncTickRef.current !== messageSyncTick;
+    const isRefresh = lastReqKeyRef.current === reqKey && (tickChanged || syncChanged);
+    // A sync the user didn't ask for: refetch, but leave the indicator alone.
+    const isSilent = isRefresh && syncChanged && !tickChanged;
     lastReqKeyRef.current = reqKey;
     lastRefreshTickRef.current = messageRefreshTick;
+    lastSyncTickRef.current = messageSyncTick;
     activeReqRef.current = reqKey;
     // Big-session gate: when the JSONL is over the threshold and the user
     // hasn't already confirmed for this session, surface the confirm
     // overlay in SessionDetail and bail before the IPC slurps the file.
     // Refresh skips the gate — if the user already loaded once and is
-    // hitting refresh, they've already accepted the cost.
-    const tooBig = !isRefresh
+    // hitting refresh, they've already accepted the cost. A silent sync is
+    // not that: it comes from terminal activity, not from the user, and
+    // `lastReqKeyRef` is set even on the early return below, so every settle
+    // tick counted as a refresh and read the file the gate exists to defer.
+    const tooBig = (!isRefresh || isSilent)
       && !demoMode
       && (activeSession.fileSize || 0) > LARGE_SESSION_THRESHOLD
       && largeConfirmedKey !== reqKey;
@@ -300,7 +384,7 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
       setMessages(null);
       setSubagents(null);
       setLoadingMessages(true);
-    } else {
+    } else if (!isSilent) {
       setRefreshingMessages(true);
     }
     if (demoMode) {
@@ -350,7 +434,7 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
     // messageRefreshTick is in deps so the explicit Refresh button in
     // SessionDetail re-runs this effect without touching the session id.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSession?.id, activeSession?.filePath, demoMode, onStatus, messageRefreshTick, largeConfirmedKey, LARGE_SESSION_THRESHOLD]);
+  }, [activeSession?.id, activeSession?.filePath, demoMode, onStatus, messageRefreshTick, messageSyncTick, largeConfirmedKey, LARGE_SESSION_THRESHOLD]);
 
   return (
     <>
@@ -370,8 +454,9 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
         onToggleFavorite={onToggleFavorite}
         onToggleExclude={onToggleExclude}
         loading={loading}
+        inventoryReady={inventoryReady}
         onStatus={onStatus}
-        view={view as 'sessions' | 'favorites' | 'excluded'}
+        view={view as 'sessions' | 'favorites' | 'terminals' | 'excluded'}
       />
       <Resizer cssVar="--list-width" storageKey="list-width" min={320} max={450} side="left" />
       <SessionDetail
@@ -388,6 +473,9 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
         onStatus={onStatus}
         onOpenInfo={onOpenInfo}
         onRefreshMessages={() => setMessageRefreshTick(t => t + 1)}
+        onOpenSession={(s) => onActiveIdChange(srcKey(s))}
+        demoMode={demoMode}
+        onSyncMessages={() => setMessageSyncTick(t => t + 1)}
         // Big-session opt-in: when the active session is over
         // LARGE_SESSION_THRESHOLD and not yet confirmed for this session,
         // SessionDetail renders a confirm overlay instead of auto-loading.

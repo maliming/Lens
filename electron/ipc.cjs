@@ -53,6 +53,7 @@ const RATE_LIMITS_TTL = 5 * 60 * 1000;
 
 function registerIpc(deps) {
   const {
+    pty,
     listSessions,
     markSessionsDelivered,
     refreshSessionsInBackground,
@@ -72,6 +73,13 @@ function registerIpc(deps) {
   const aliasMap    = userData.aliasesMap;
   const favoritesPath = userData.favoritesPath;
   const excludesPath  = userData.excludesPath;
+
+  // Embedded-terminal handlers. They are built in pty.cjs (spawn, containment,
+  // process lifecycle) but registered here so this file stays the single place
+  // the renderer-reachable IPC surface can be audited.
+  for (const [channel, handler] of Object.entries(pty.handlers)) {
+    ipcMain.handle(channel, handler);
+  }
 
   ipcMain.handle('sessions:list', async (_e, opts) => {
     const source = opts?.source === 'claude' || opts?.source === 'codex' ? opts.source : null;
@@ -119,6 +127,21 @@ function registerIpc(deps) {
   // the agent transcript files it points at all live under PROJECTS_DIR, so the
   // renderer loads each one back through sessions:get. Codex has no subagent
   // tree, so it returns empty.
+  // Cheap change check. The embedded terminal drives transcript reloads, but a
+  // TUI redraws continuously even when idle — using "the terminal produced
+  // output" as the trigger meant re-reading the whole JSONL every few seconds
+  // forever. A stat costs microseconds and answers the only question that
+  // matters: did the file actually grow?
+  ipcMain.handle('sessions:stat', async (_e, filePath) => {
+    try {
+      const real = await ensureInsideAny([PROJECTS_DIR, CODEX_SESSIONS_DIR], filePath);
+      const st = await fsp.stat(real);
+      return { ok: true, mtime: st.mtimeMs, size: st.size };
+    } catch {
+      return { ok: false };
+    }
+  });
+
   ipcMain.handle('sessions:subagents', async (_e, filePath) => {
     const empty = { taskAgents: [], workflowRuns: [] };
     if (typeof filePath !== 'string') return empty;

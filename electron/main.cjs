@@ -23,6 +23,12 @@ fixPath();
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
+// Whether this process has already put a window on screen. Drives the one-shot
+// startup skeleton — see createWindow.
+let hasLoadedAWindow = false;
+// Embedded-terminal IPC handle. Owns PTY children, so it joins the same quit
+// and renderer-loss cleanup as chat.
+let ptyIpc = null;
 
 // Phase 4 modules. Userdata + prefs + sessions cache get one instance each
 // (created lazily — userDataDir isn't valid until `app.whenReady`). main
@@ -53,6 +59,7 @@ const { usageSummary } = createUsage({
 
 // Phase 7b: all IPC handlers live in ipc.cjs as `registerIpc({ deps })`.
 const { registerIpc } = require('./ipc.cjs');
+const { createPtyManager } = require('./pty.cjs');
 
 let userData = null;       // createUserData(...)
 let prefsStore = null;     // createAppPrefs(...)
@@ -105,6 +112,9 @@ async function loadPersistedSets() {
 // payload on the request path.
 const SESSION_SOURCES = ['claude', 'codex'];
 const backgroundScans = new Map();
+// Sources whose refresh was requested while a scan was already running. Drained
+// in refreshSourceInBackground's finally so the late write still lands.
+const dirtySources = new Set();
 
 // Two-phase scan:
 //   1. Cheap pass — readdir + stat every .jsonl. ~50ms for 600+ files.
@@ -131,14 +141,30 @@ const _pendingPushPayloads = new Map();
 const _lastPushAt = new Map();
 const _lastPushedRevision = new Map();
 const PUSH_THROTTLE_MS = 220;
-function pushSessions(source, sessions, { force = false, error = null } = {}) {
+// `final` says this is the last push of a scan, so the list can trust that an
+// empty result really is empty. The renderer used to infer that from `loading`,
+// which only ever meant "the IPC call returned" — it answers from cache
+// immediately, so the inference fired while the scan was still walking the
+// disk and put an empty state on screen for a second or two. main knows the
+// actual moment; there is no reason to guess at it.
+function pushSessions(source, sessions, { force = false, error = null, final = false } = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const projected = toRendererSessionsWithRevision(sessions, source);
-  if (!force && _lastPushedRevision.get(source) === projected.revision) return;
+  // A final push always goes out, even when nothing changed: the renderer is
+  // waiting on it to know the scan finished, and suppressing it as a duplicate
+  // revision is what would leave a source loading forever.
+  if (!force && !final && _lastPushedRevision.get(source) === projected.revision) return;
+  const queued = _pendingPushPayloads.get(source);
   _pendingPushPayloads.set(source, {
     source,
     revision: projected.revision,
     sessions: projected.sessions,
+    // Never lose a final that is still waiting out the throttle. The trailing
+    // dirtySources scan starts in the same `finally` as the final push, so its
+    // first TOP_BATCH lands inside the window and used to overwrite the payload
+    // wholesale — the renderer then waited on a signal that had already been
+    // dropped and kept its skeletons until the next scan finished.
+    final: final || !!queued?.final,
     ...(error ? { error } : {}),
   });
   const sinceLast = Date.now() - (_lastPushAt.get(source) || 0);
@@ -157,8 +183,10 @@ function flushPushSessionsNow(source) {
       source,
       revision: payload.revision,
       sessions: payload.sessions,
+      final: !!payload.final,
       ...(payload.error ? { error: payload.error } : {}),
     });
+    console.log(`[sessions] push ${source} n=${payload.sessions.length}${payload.final ? ' final' : ''}${payload.error ? ' error' : ''}`);
     _lastPushedRevision.set(source, payload.revision);
   } catch {}
   _lastPushAt.set(source, Date.now());
@@ -215,7 +243,16 @@ function replaceSourceSessions(source, sessions) {
 
 function refreshSourceInBackground(source) {
   const existing = backgroundScans.get(source);
-  if (existing) return existing;
+  if (existing) {
+    // Single-flight alone drops work: a write landing after this scan took its
+    // stat snapshot, but before it finishes, is absorbed with no follow-up —
+    // the fresh row never appears until an unrelated focus/poll refresh. Chat
+    // appends to sessions while Lens is watching them, so mark the source dirty
+    // and let the finally block run exactly one more pass. Bounded because the
+    // flag is cleared before the trailing scan starts.
+    dirtySources.add(source);
+    return existing;
+  }
 
   let resolveFirstBatch;
   const state = {
@@ -279,16 +316,17 @@ function refreshSourceInBackground(source) {
       const all = source === 'codex' ? dedupeCodexForks([...top, ...collected]) : [...top, ...collected];
       all.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
       const merged = replaceSourceSessions(source, all);
-      pushSessions(source, all);
+      pushSessions(source, all, { final: true });
       saveSessionsCache(merged, source).catch(() => {});
       return all;
     } catch (error) {
       const message = String(error?.message || error).slice(0, 2000);
-      pushSessions(source, sourceSessions(source), { force: true, error: message });
+      pushSessions(source, sourceSessions(source), { force: true, error: message, final: true });
       throw error;
     } finally {
       if (resolveFirstBatch) resolveFirstBatch();
       if (backgroundScans.get(source) === state) backgroundScans.delete(source);
+      if (dirtySources.delete(source)) refreshSourceInBackground(source);
     }
   })();
   backgroundScans.set(source, state);
@@ -375,6 +413,7 @@ function makeTrayIcon() {
 
 function showOrCreateWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
+    console.log(`[window] recreating (existing=${!!mainWindow}, destroyed=${mainWindow ? mainWindow.isDestroyed() : 'n/a'})`);
     if (process.platform === 'darwin' && app.dock) { try { app.dock.show(); } catch {} }
     createWindow();
     return;
@@ -402,7 +441,10 @@ function createTray() {
   if (tray) return;
   if (!appPrefs.showTrayIcon) return;
   tray = new Tray(makeTrayIcon());
-  tray.setToolTip('Lens — Search, resume, and understand your AI coding sessions');
+  // app.getName() rather than a literal: with a dev run and a release running
+  // side by side there are two identical tray icons, and the tooltip is the
+  // only thing telling them apart.
+  tray.setToolTip(`${app.getName()} — Search, resume, and understand your AI coding sessions`);
   const menu = buildTrayMenu();
   if (process.platform === 'darwin') {
     // macOS: left click opens the window; right click pops the menu. Using
@@ -438,10 +480,16 @@ const TITLEBAR_COLORS = {
 function createWindow({ startHidden = false } = {}) {
   const isMac = process.platform === 'darwin';
   const isWin = process.platform === 'win32';
-  // Detect initial theme from the renderer's persisted choice if we can read it;
-  // otherwise default to light. The renderer also calls `win:setTitleBarTheme`
-  // on mount so any mismatch corrects within a few ms.
-  const initialTitleBar = TITLEBAR_COLORS.light;
+  // What to paint before the renderer exists. The window frame and its
+  // background go up before any HTML does, so getting this wrong is a flash of
+  // the opposite theme on every launch — which is what a hardcoded light value
+  // did here. main cannot read the renderer's stored choice (it lives in
+  // localStorage), so the OS setting stands in: right for anyone on the
+  // "system" mode, and right for most explicit choices too. The renderer calls
+  // `win:setTitleBarTheme` on mount, so a mismatch lasts a few milliseconds.
+  const { nativeTheme } = require('electron');
+  const bootDark = nativeTheme.shouldUseDarkColors;
+  const initialTitleBar = bootDark ? TITLEBAR_COLORS.dark : TITLEBAR_COLORS.light;
   // Restore last window geometry across launches. screen.getPrimaryDisplay
   // gives us workArea so we can fall back when the persisted bounds reference
   // a monitor that's no longer attached. Dev mode (Vite) intentionally skips
@@ -462,7 +510,7 @@ function createWindow({ startHidden = false } = {}) {
     ? { x: saved.x, y: saved.y, width: saved.width, height: saved.height }
     : { width: 1400, height: 900 };
   mainWindow = new BrowserWindow({
-    title: 'Lens',
+    title: app.getName(),
     ...initialBounds,
     // 1380 covers sidebar (default 220) + list (default ~360) + detail-min
     // (~640) + chrome gaps + breathing room. The constructor floor needs to
@@ -478,7 +526,9 @@ function createWindow({ startHidden = false } = {}) {
       symbolColor: initialTitleBar.symbolColor,
       height: 36,
     } : undefined,
-    backgroundColor: '#f1f1f4',
+    // Matches --bg in styles.css for each theme, so the window frame and the
+    // page are the same colour at the seam.
+    backgroundColor: bootDark ? '#131316' : '#f1f1f4',
     // Show window unless this is a launch-at-login boot — then the tray
     // is the only visible affordance until the user clicks it.
     show: !startHidden,
@@ -541,12 +591,62 @@ function createWindow({ startHidden = false } = {}) {
     return { action: 'deny' };
   });
 
+  // A dead renderer can no longer answer a permission prompt, and its chats
+  // have no surface left. Settle them rather than leaving `claude` waiting on
+  // an approval nobody can give.
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    const senderId = mainWindow?.webContents?.id;
+    console.error(`[pty] renderer gone (${details?.reason}); stopping its terminals`);
+    if (senderId != null) ptyIpc?.dropSender(senderId);
+  });
+
+  // Renderer lifecycle, at info level and one line per event.
+  //
+  // Everything the renderer does — parsing sessions, holding terminals, the
+  // whole UI — dies and restarts when its page reloads, and until this was
+  // logged there was no way to tell from the outside whether that had happened.
+  // The volume is negligible: a healthy run produces exactly one load.
+  let loadCount = 0;
+  mainWindow.webContents.on('did-finish-load', () => {
+    loadCount += 1;
+    console.log(`[renderer] loaded (#${loadCount})`);
+  });
+  mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
+    console.error(`[renderer] load failed ${code} ${desc} ${String(url).slice(0, 200)}`);
+  });
+  mainWindow.webContents.on('unresponsive', () => console.error('[renderer] unresponsive'));
+  mainWindow.webContents.on('responsive', () => console.log('[renderer] responsive again'));
+  // A destroyed window takes its renderer with it — every terminal this
+  // renderer owned becomes a process main is holding with nobody attached, and
+  // the next window starts from nothing. Worth knowing about, and worth knowing
+  // which branch of the close handler got there.
+  mainWindow.on('closed', () => console.log('[window] destroyed'));
+  mainWindow.on('minimize', () => console.log('[window] minimize'));
+  mainWindow.on('restore', () => console.log('[window] restore'));
+  mainWindow.on('hide', () => console.log('[window] hide'));
+  mainWindow.on('show', () => console.log('[window] show'));
+
+  // The startup skeleton in index.html is there to cover the one wait that is
+  // actually long: a cold process loading and parsing the renderer bundle for
+  // the first time. Every later load in the same process — a window recreated
+  // after being closed, a dev-server reconnect reloading the page — already has
+  // that bundle warm, so a skeleton there is an animation in front of nothing,
+  // and reads as the app restarting itself.
+  //
+  // main is the only side that can tell those apart: the renderer cannot,
+  // because a recreated window is a brand new one with no memory of the last.
+  // So the answer is carried in the URL, and index.html removes the skeleton
+  // when it sees it.
+  const warm = hasLoadedAWindow ? '?warm=1' : '';
+  hasLoadedAWindow = true;
+
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
-    mainWindow.loadURL(devUrl);
+    mainWindow.loadURL(devUrl + warm);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'),
+      warm ? { query: { warm: '1' } } : undefined);
   }
 
   // Killing the menu strips the default F12 / Ctrl+Shift+I accelerators, so
@@ -591,6 +691,7 @@ function createWindow({ startHidden = false } = {}) {
         }
       } catch {}
     }
+    console.log(`[window] close (isQuitting=${isQuitting}, closeBehavior=${appPrefs.closeBehavior}, tray=${appPrefs.showTrayIcon})`);
     if (isQuitting) return;
     // Hide-on-close requires a way for the user to bring the window back.
     // If they have BOTH closeBehavior='hide' AND showTrayIcon=false, the
@@ -633,20 +734,50 @@ function createWindow({ startHidden = false } = {}) {
 }
 
 
-app.on('before-quit', () => { isQuitting = true; });
+// Terminals own real CLI processes and the processes those spawned. Signalling
+// them is not the same as them being gone: node-pty's kill() only sends SIGHUP
+// and returns immediately, so quitting here without waiting left agents and
+// their children running after the app disappeared.
+//
+// The first before-quit is intercepted, cleanup is escalated and awaited under
+// a bound, then the quit proceeds. The bound matters as much as the wait — a
+// process that refuses to die must not make Lens unquittable.
+let ptyShutdown = null;
+app.on('before-quit', (e) => {
+  isQuitting = true;
+  if (!ptyIpc || ptyShutdown) return;
+  e.preventDefault();
+  ptyShutdown = Promise.resolve(ptyIpc.stopAll(4000))
+    .catch(() => {})
+    .then(() => { app.quit(); });
+});
 
 // File watcher on ~/.claude/projects was disabled — recursive fs.watch on macOS
 // blows up under heavy session-write traffic and can OOM the main process.
 // Manual ⌘R rescan is the supported pattern; revisit with chokidar + per-project debounce later.
 
-// Override the productName in dev too, otherwise macOS Dock / Cmd-Tab / Activity
-// Monitor / Windows taskbar all show "Electron" instead of "Lens". Packaged
-// builds get this from package.json.build.productName; dev needs this override.
-app.setName('Lens');
+// A dev run and an installed release are two different apps, deliberately.
+//
+// The single-instance lock below is keyed on the userData directory (Electron
+// keeps a `SingletonLock` there), so sharing one directory would mean launching
+// `npm run dev` while the installed Lens is running just focuses the installed
+// window and quits the dev process — you could never debug against a running
+// release. Naming the dev app differently gives it its own userData directory,
+// hence its own lock, its own favorites/aliases/prefs and its own session
+// cache. Session history itself is unaffected: that lives in ~/.claude and
+// ~/.codex and both builds read the same files.
+//
+// Dock / Cmd-Tab / taskbar also need this: without an explicit name they show
+// "Electron" in dev. Packaged builds take productName from
+// package.json.build.productName, so only dev needs the override — but setting
+// both here keeps the two paths visible side by side.
+const IS_DEV = !app.isPackaged || !!process.env.VITE_DEV_SERVER_URL;
+app.setName(IS_DEV ? 'Lens Dev' : 'Lens');
 if (process.platform === 'win32') {
   // Without this, Windows groups our taskbar entry under "Electron" instead of
-  // creating a discrete "Lens" entry with its own icon and pinned-state.
-  app.setAppUserModelId('io.maliming.lens');
+  // creating a discrete entry with its own icon and pinned-state. Distinct ids
+  // so a pinned release and a dev run don't collapse into one taskbar button.
+  app.setAppUserModelId(IS_DEV ? 'io.maliming.lens.dev' : 'io.maliming.lens');
 }
 // Surface the tagline in the system "About Lens" dialog (macOS Lens menu →
 // About; Linux/Windows variant if invoked). The Dock itself only shows the
@@ -654,7 +785,7 @@ if (process.platform === 'win32') {
 const TAGLINE = 'Search, resume, and understand your AI coding sessions';
 if (app.setAboutPanelOptions) {
   app.setAboutPanelOptions({
-    applicationName: 'Lens',
+    applicationName: app.getName(),
     applicationVersion: app.getVersion(),
     version: '',
     copyright: 'Copyright © 2026 maliming',
@@ -667,6 +798,10 @@ if (app.setAboutPanelOptions) {
 // + manual launch, etc.) would race on favorites/aliases/sessions-cache
 // writes and could lose updates. Lock the userData dir to one process;
 // new launches focus the existing window instead of starting a fresh one.
+//
+// The lock lives in the userData directory, and dev runs under a different app
+// name (see IS_DEV above) — so "one instance" means one dev AND one release,
+// each guarding its own data, not one Lens process on the machine.
 //
 // All startup wiring (whenReady, window-all-closed, activate) goes inside the
 // `else` branch — a second instance must NOT register them; otherwise the
@@ -681,7 +816,7 @@ if (!_gotLock) {
   });
 
   app.whenReady().then(async () => {
-    console.log(`[startup] Lens ${app.getVersion()} on ${process.platform} (${process.arch}); electron ${process.versions.electron}, node ${process.versions.node}`);
+    console.log(`[startup] ${app.getName()} ${app.getVersion()} (${IS_DEV ? 'dev' : 'release'}) on ${process.platform} (${process.arch}); electron ${process.versions.electron}, node ${process.versions.node}`);
     console.log(`[startup] userData = ${app.getPath('userData')}`);
     // Windows/Linux ship a default File/Edit/View/Window/Help menu bar that adds
     // nothing for this app — strip it. On macOS the menu bar is a system-level
@@ -692,6 +827,9 @@ if (!_gotLock) {
     await loadPersistedSets();
     const cs = getCachedSessions();
     console.log(`[startup] persisted sets loaded. favorites=${userData.favoritesSet.size}, excludes=${userData.excludesSet.size}, aliases=${Object.keys(userData.aliasesMap).length}, cachedSessions=${cs ? cs.length : 0}`);
+    // The terminal manager owns PTY processes; ipc.cjs registers its handlers
+    // so every ipcMain.handle stays in one auditable place.
+    ptyIpc = createPtyManager({ getMainWindow: () => mainWindow, claude, codex });
     // Register IPC handlers now that userdata + parser instances exist.
     // mainWindow / tray are wired via getter callbacks so handlers always see
     // the live values (the window can be recreated after a hide-close).
@@ -705,6 +843,7 @@ if (!_gotLock) {
       titleBarColors: TITLEBAR_COLORS,
       getMainWindow: () => mainWindow,
       createTray, destroyTray,
+      pty: ptyIpc,
     });
     // Detect launch-at-login: when macOS / Windows auto-starts Lens at
     // user login, `getLoginItemSettings()` reports `wasOpenedAtLogin`

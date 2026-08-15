@@ -72,24 +72,78 @@ function detectTerminals() {
   return t;
 }
 
+// `which` / `where.exe` print the resolved path on stdout — the old boolean
+// probe threw it away. The chat engine needs the real path to hand the Agent
+// SDK as `pathToClaudeCodeExecutable`, so resolve it once and keep it.
+//
+// The name is validated before it reaches execFileSync: only a plain command
+// name is ever legitimate here, and refusing anything else keeps a future
+// caller from turning this into an argument-injection surface.
+// The first candidate whose extension Windows will execute directly, in the
+// order PATHEXT lists them — .exe ahead of .cmd ahead of .bat, whatever the
+// machine says. .ps1 is not in a default PATHEXT and is skipped for that
+// reason: CreateProcess cannot run it either.
+function pickExecutable(lines) {
+  const exts = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+    .split(';')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+  for (const ext of exts) {
+    const hit = lines.find(l => l.toLowerCase().endsWith(ext));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function resolveExecutablePath(exe) {
+  if (typeof exe !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(exe)) return null;
+  try {
+    const cmd = process.platform === 'win32' ? 'where.exe' : 'which';
+    const out = execFileSync(cmd, [exe], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 1500,
+    });
+    const lines = String(out).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    // `where.exe` can list several matches, and the first is not the one to
+    // take. For an npm-installed CLI it lists the extension-less shell shim
+    // ahead of `claude.cmd` — measured on Windows 11, that order exactly. The
+    // terminal hands this path to node-pty, which goes to CreateProcess: the
+    // shim is not a valid image, so it "starts" and exits 193 straight away,
+    // leaving `hasBinary` true and every terminal dying on open. The .cmd runs
+    // fine there (node's own spawn refuses it, ConPTY does not), so pick by
+    // PATHEXT — .exe ahead of .cmd, in whatever order the machine lists.
+    const first = process.platform === 'win32'
+      ? (pickExecutable(lines) || lines[0])
+      : lines[0];
+    if (!first || !path.isAbsolute(first)) return null;
+    return first;
+  } catch {
+    return null;
+  }
+}
+
 let cachedAiTools = null;
 function detectAiTools() {
   if (cachedAiTools) return cachedAiTools;
   const home = os.homedir();
-  const which = (exe) => {
-    try {
-      const cmd = process.platform === 'win32' ? 'where.exe' : 'which';
-      execFileSync(cmd, [exe], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 1500 });
-      return true;
-    } catch { return false; }
-  };
   const claudeDir = fs.existsSync(path.join(home, '.claude'));
-  const claudeBin = which('claude');
+  const claudePath = resolveExecutablePath('claude');
   const codexDir = fs.existsSync(path.join(home, '.codex'));
-  const codexBin = which('codex');
+  const codexPath = resolveExecutablePath('codex');
   cachedAiTools = {
-    claude: { installed: claudeDir || claudeBin, hasHistory: claudeDir, hasBinary: claudeBin },
-    codex:  { installed: codexDir || codexBin,   hasHistory: codexDir,   hasBinary: codexBin  },
+    claude: {
+      installed: claudeDir || !!claudePath,
+      hasHistory: claudeDir,
+      hasBinary: !!claudePath,
+      binaryPath: claudePath,
+    },
+    codex: {
+      installed: codexDir || !!codexPath,
+      hasHistory: codexDir,
+      hasBinary: !!codexPath,
+      binaryPath: codexPath,
+    },
   };
   return cachedAiTools;
 }
@@ -98,4 +152,5 @@ module.exports = {
   fixPath,
   detectTerminals,
   detectAiTools,
+  resolveExecutablePath,
 };

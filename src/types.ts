@@ -46,6 +46,10 @@ export type SessionsUpdate = {
   source: SessionMeta['source'];
   revision: string;
   sessions: SessionMeta[];
+  // Last push of a scan. Until it arrives an empty list means "still looking",
+  // not "nothing here" — which is the difference between a skeleton and an
+  // empty state. Errors count as final: the scan is over either way.
+  final?: boolean;
   error?: string;
 };
 
@@ -139,7 +143,7 @@ export type SessionSubagents = {
   workflowRuns: WorkflowRunRef[];
 };
 
-export type View = 'sessions' | 'favorites' | 'excluded' | 'usage' | 'config' | 'settings' | 'search';
+export type View = 'sessions' | 'favorites' | 'terminals' | 'excluded' | 'usage' | 'config' | 'settings' | 'search';
 
 export type WindowBucket = {
   input: number; output: number; cacheRead: number; cacheCreate: number;
@@ -264,6 +268,7 @@ declare global {
       onSessionsUpdated: (cb: (update: SessionsUpdate) => void) => () => void;
       getSession: (filePath: string) => Promise<MessageItem[]>;
       getSubagents: (filePath: string) => Promise<SessionSubagents>;
+      statSession: (filePath: string) => Promise<{ ok: boolean; mtime?: number; size?: number }>;
       deepSearch: (query: string, source?: 'claude' | 'codex') => Promise<Array<{
         id: string;
         source: 'claude' | 'codex';
@@ -301,6 +306,15 @@ declare global {
       getAppPrefs: () => Promise<AppPrefs>;
       setAppPrefs: (patch: Partial<Omit<AppPrefs, 'rateLimitsConsent'>>) => Promise<AppPrefs>;
       setRateLimitsConsent: (v: 'pending' | 'granted' | 'denied') => Promise<'pending' | 'granted' | 'denied'>;
+      // Embedded terminal — a real PTY running the user's own CLI.
+      ptyStart: (source: SessionMeta['source'], filePath: string, cols: number, rows: number, theme: 'dark' | 'light', mode: string | null) =>
+        Promise<{ ok: boolean; termId?: string; cwd?: string; replay?: string; replaySeq?: number; reattached?: boolean; spawnTheme?: 'dark' | 'light'; error?: string; message?: string }>;
+      ptyList: () => Promise<{ ok: boolean; max?: number; terminals?: Array<{ termId: string; source: SessionMeta['source']; filePath: string; requestedPath?: string; cwd: string }>; error?: string }>;
+      ptyWrite: (termId: string, data: string) => Promise<{ ok: boolean; error?: string }>;
+      ptyResize: (termId: string, cols: number, rows: number) => Promise<{ ok: boolean; error?: string }>;
+      ptyStop: (termId: string) => Promise<{ ok: boolean; error?: string }>;
+      onPtyData: (cb: (u: { termId: string; data: string; seq?: number }) => void) => () => void;
+      onPtyExit: (cb: (u: { termId: string; exitCode: number; signal: number | null }) => void) => () => void;
       openLogsFolder: () => Promise<string>;
       openUserDataFolder: () => Promise<string>;
       setTitleBarTheme: (theme: 'light' | 'dark') => Promise<void>;
@@ -320,8 +334,11 @@ export type SystemCapabilities = {
   platform: 'darwin' | 'win32' | 'linux' | string;
   terminals: TerminalAvailability;
   aiTools?: {
-    claude: { installed: boolean; hasHistory: boolean; hasBinary: boolean };
-    codex:  { installed: boolean; hasHistory: boolean; hasBinary: boolean };
+    // `binaryPath` is the resolved absolute path to the CLI, or null when it
+    // isn't on PATH. Chat needs it to point the Agent SDK at the user's own
+    // install rather than a bundled copy.
+    claude: { installed: boolean; hasHistory: boolean; hasBinary: boolean; binaryPath: string | null };
+    codex:  { installed: boolean; hasHistory: boolean; hasBinary: boolean; binaryPath: string | null };
   };
 };
 
