@@ -83,6 +83,11 @@ export const DEMO_RATE_LIMITS: RateLimits = {
   weekly:    { utilization: null, status: null, reset: null },
   overage:   { utilization: null, status: null, reset: null },
 };
+export const DEMO_RATE_LIMITS_CODEX: RateLimits = DEMO_RATE_LIMITS;
+export const DEMO_RATE_LIMITS_BY_SOURCE: Record<'claude' | 'codex', RateLimits> = {
+  claude: DEMO_RATE_LIMITS,
+  codex: DEMO_RATE_LIMITS_CODEX,
+};
 
 const emptyConfig = {
   paths: { home: '', claudeDir: '' },
@@ -100,3 +105,6 @@ export const DEMO_CONFIGS = {
   claude: emptyConfig,
   codex: emptyConfig,
 };
+
+export type DemoTerminalChunk = { delay: number; data: string | ((cols: number) => string) };
+export const DEMO_TERMINAL_SCRIPT: DemoTerminalChunk[] = [];

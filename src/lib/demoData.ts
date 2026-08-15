@@ -41,45 +41,45 @@ type Seed = {
 };
 
 const SEEDS: Seed[] = [
-  { hAgo: 0.4, proj: 0, summary: 'Why does the refresh token endpoint return 401 on retry?', firstUser: 'Why does my refresh token endpoint return 401 on retry?', userMsgs: 22, asstMsgs: 24, tokensIn: 18_400, tokensOut: 9_120, tokensCacheRead: 2_840_000, tokensCacheCreate: 480_000, model: 'claude-opus-4-7', fav: true },
+  { hAgo: 0.4, proj: 0, summary: 'Why does the refresh token endpoint return 401 on retry?', firstUser: 'Why does my refresh token endpoint return 401 on retry?', userMsgs: 22, asstMsgs: 24, tokensIn: 18_400, tokensOut: 9_120, tokensCacheRead: 2_840_000, tokensCacheCreate: 480_000, model: 'claude-opus-5', fav: true },
   { hAgo: 1.2, proj: 1, summary: 'Add skeleton loader to the dashboard cards', firstUser: 'Can you add a skeleton loader to the dashboard cards while data is fetching?', userMsgs: 14, asstMsgs: 16, tokensIn: 9_120, tokensOut: 4_700, tokensCacheRead: 1_180_000, tokensCacheCreate: 260_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 3.0, proj: 0, summary: 'Migrate users table to UUID primary keys', firstUser: 'I want to migrate the users table from auto-increment to UUID primary keys.', userMsgs: 31, asstMsgs: 33, tokensIn: 28_200, tokensOut: 14_300, tokensCacheRead: 4_100_000, tokensCacheCreate: 720_000, model: 'claude-opus-4-7' },
+  { hAgo: 3.0, proj: 0, summary: 'Migrate users table to UUID primary keys', firstUser: 'I want to migrate the users table from auto-increment to UUID primary keys.', userMsgs: 31, asstMsgs: 33, tokensIn: 28_200, tokensOut: 14_300, tokensCacheRead: 4_100_000, tokensCacheCreate: 720_000, model: 'claude-opus-5' },
   { hAgo: 5.5, proj: 4, summary: 'Terraform module for the new staging cluster', firstUser: 'Write a terraform module for the new staging cluster — Postgres + Redis + 2 worker pools.', userMsgs: 18, asstMsgs: 21, tokensIn: 15_900, tokensOut: 7_400, tokensCacheRead: 2_010_000, tokensCacheCreate: 410_000, model: 'claude-sonnet-4-6', fav: true },
   { hAgo: 9, proj: 2, summary: 'EXIF orientation flips images sideways on iOS upload', firstUser: 'Photos uploaded from iOS appear sideways. EXIF orientation handling broken?', userMsgs: 9, asstMsgs: 10, tokensIn: 6_400, tokensOut: 3_120, tokensCacheRead: 820_000, tokensCacheCreate: 160_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 14, proj: 3, summary: 'Add command palette with ⌘K — Radix Dialog + cmdk', firstUser: 'I want a ⌘K command palette like Linear. Use Radix Dialog + cmdk?', userMsgs: 11, asstMsgs: 12, tokensIn: 7_800, tokensOut: 3_900, tokensCacheRead: 990_000, tokensCacheCreate: 210_000, model: 'claude-opus-4-7' },
+  { hAgo: 14, proj: 3, summary: 'Add command palette with ⌘K — Radix Dialog + cmdk', firstUser: 'I want a ⌘K command palette like Linear. Use Radix Dialog + cmdk?', userMsgs: 11, asstMsgs: 12, tokensIn: 7_800, tokensOut: 3_900, tokensCacheRead: 990_000, tokensCacheCreate: 210_000, model: 'claude-opus-5' },
   { hAgo: 22, proj: 0, summary: 'Email confirmation flow rewrite for SES', firstUser: 'Rewrite the email confirmation flow on top of SES instead of Mailgun.', userMsgs: 19, asstMsgs: 21, tokensIn: 12_400, tokensOut: 6_100, tokensCacheRead: 1_660_000, tokensCacheCreate: 320_000, model: 'claude-sonnet-4-6' },
   { hAgo: 28, proj: 1, summary: 'Dark mode bug — chart colors invert wrong way', firstUser: 'Chart axis colors look bad in dark mode — they invert when they should not.', userMsgs: 7, asstMsgs: 8, tokensIn: 4_900, tokensOut: 2_500, tokensCacheRead: 540_000, tokensCacheCreate: 110_000, model: 'claude-haiku-4-5-20251001' },
-  { hAgo: 36, proj: 4, summary: 'Rotate IAM keys without downtime on the worker fleet', firstUser: 'How do I rotate IAM keys for the worker fleet without taking the queue down?', userMsgs: 13, asstMsgs: 14, tokensIn: 8_700, tokensOut: 4_200, tokensCacheRead: 1_120_000, tokensCacheCreate: 240_000, model: 'claude-opus-4-7' },
+  { hAgo: 36, proj: 4, summary: 'Rotate IAM keys without downtime on the worker fleet', firstUser: 'How do I rotate IAM keys for the worker fleet without taking the queue down?', userMsgs: 13, asstMsgs: 14, tokensIn: 8_700, tokensOut: 4_200, tokensCacheRead: 1_120_000, tokensCacheCreate: 240_000, model: 'claude-opus-5' },
   { hAgo: 48, proj: 2, summary: 'Add WebP encoder option to the export pipeline', firstUser: 'Add a WebP encoder option to the export pipeline with quality slider.', userMsgs: 8, asstMsgs: 9, tokensIn: 5_400, tokensOut: 2_800, tokensCacheRead: 690_000, tokensCacheCreate: 140_000, model: 'claude-sonnet-4-6' },
   { hAgo: 56, proj: 0, summary: 'Convert dashboard queries from SUM(CASE WHEN) to FILTER', firstUser: 'Rewrite our dashboard aggregates from SUM(CASE WHEN ... THEN 1 END) to FILTER syntax.', userMsgs: 6, asstMsgs: 7, tokensIn: 3_900, tokensOut: 2_100, tokensCacheRead: 510_000, tokensCacheCreate: 95_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 70, proj: 3, summary: 'Replace context-drilling with zustand for the editor state', firstUser: 'Drill prop hell is killing the editor. Time to introduce zustand for editor state?', userMsgs: 16, asstMsgs: 18, tokensIn: 10_800, tokensOut: 5_400, tokensCacheRead: 1_390_000, tokensCacheCreate: 290_000, model: 'claude-opus-4-7' },
+  { hAgo: 70, proj: 3, summary: 'Replace context-drilling with zustand for the editor state', firstUser: 'Drill prop hell is killing the editor. Time to introduce zustand for editor state?', userMsgs: 16, asstMsgs: 18, tokensIn: 10_800, tokensOut: 5_400, tokensCacheRead: 1_390_000, tokensCacheCreate: 290_000, model: 'claude-opus-5' },
   { hAgo: 84, proj: 1, summary: 'Onboarding flow A/B test plumbing', firstUser: 'Plumb the new 3-step onboarding through GrowthBook with a 50/50 split.', userMsgs: 12, asstMsgs: 13, tokensIn: 8_100, tokensOut: 4_000, tokensCacheRead: 1_020_000, tokensCacheCreate: 230_000, model: 'claude-sonnet-4-6' },
   { hAgo: 96, proj: 4, summary: 'CloudFront cache invalidation on deploy is too slow', firstUser: 'Our deploys wait 6+ minutes for CloudFront invalidations. Can we batch / parallelize?', userMsgs: 10, asstMsgs: 11, tokensIn: 6_700, tokensOut: 3_300, tokensCacheRead: 870_000, tokensCacheCreate: 180_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 110, proj: 2, summary: 'Bulk-edit photo metadata via CSV import', firstUser: 'Need a bulk-edit flow — upload CSV with photo_id, caption, tags — preview diff before commit.', userMsgs: 21, asstMsgs: 23, tokensIn: 14_800, tokensOut: 7_500, tokensCacheRead: 1_910_000, tokensCacheCreate: 390_000, model: 'claude-opus-4-7', fav: true },
-  { hAgo: 130, proj: 0, summary: 'Permission system — role inheritance and overrides', firstUser: 'Design a permission system that supports role inheritance plus per-resource overrides.', userMsgs: 24, asstMsgs: 26, tokensIn: 19_200, tokensOut: 9_900, tokensCacheRead: 2_540_000, tokensCacheCreate: 510_000, model: 'claude-opus-4-7' },
+  { hAgo: 110, proj: 2, summary: 'Bulk-edit photo metadata via CSV import', firstUser: 'Need a bulk-edit flow — upload CSV with photo_id, caption, tags — preview diff before commit.', userMsgs: 21, asstMsgs: 23, tokensIn: 14_800, tokensOut: 7_500, tokensCacheRead: 1_910_000, tokensCacheCreate: 390_000, model: 'claude-opus-5', fav: true },
+  { hAgo: 130, proj: 0, summary: 'Permission system — role inheritance and overrides', firstUser: 'Design a permission system that supports role inheritance plus per-resource overrides.', userMsgs: 24, asstMsgs: 26, tokensIn: 19_200, tokensOut: 9_900, tokensCacheRead: 2_540_000, tokensCacheCreate: 510_000, model: 'claude-opus-5' },
   { hAgo: 155, proj: 3, summary: 'Resizable panes with persisted widths', firstUser: 'Make the 3-pane layout resizable, persist widths to localStorage.', userMsgs: 9, asstMsgs: 10, tokensIn: 6_100, tokensOut: 3_100, tokensCacheRead: 790_000, tokensCacheCreate: 160_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 180, proj: 1, summary: 'Move from REST to tRPC for the internal API', firstUser: 'Pros / cons of moving the internal API from REST to tRPC?', userMsgs: 15, asstMsgs: 17, tokensIn: 11_100, tokensOut: 5_700, tokensCacheRead: 1_440_000, tokensCacheCreate: 310_000, model: 'claude-opus-4-7' },
+  { hAgo: 180, proj: 1, summary: 'Move from REST to tRPC for the internal API', firstUser: 'Pros / cons of moving the internal API from REST to tRPC?', userMsgs: 15, asstMsgs: 17, tokensIn: 11_100, tokensOut: 5_700, tokensCacheRead: 1_440_000, tokensCacheCreate: 310_000, model: 'claude-opus-5' },
   { hAgo: 210, proj: 4, summary: 'Postgres connection pooling — pgbouncer vs RDS Proxy', firstUser: 'Pick between pgbouncer self-hosted vs RDS Proxy for our worker fleet — cost + reliability tradeoffs.', userMsgs: 11, asstMsgs: 12, tokensIn: 7_400, tokensOut: 3_700, tokensCacheRead: 950_000, tokensCacheCreate: 200_000, model: 'claude-sonnet-4-6' },
   { hAgo: 260, proj: 0, summary: 'Soft delete vs hard delete for billing records', firstUser: 'Should billing records be soft-deleted? What does our auditor expect?', userMsgs: 5, asstMsgs: 6, tokensIn: 3_100, tokensOut: 1_700, tokensCacheRead: 410_000, tokensCacheCreate: 85_000, model: 'claude-haiku-4-5-20251001' },
-  { hAgo: 2.1, proj: 5, summary: 'RN 0.74 bump breaks Hermes on Android', firstUser: 'After bumping to RN 0.74 the Android Hermes build crashes at startup. iOS is fine.', userMsgs: 20, asstMsgs: 22, tokensIn: 16_200, tokensOut: 8_400, tokensCacheRead: 2_140_000, tokensCacheCreate: 420_000, model: 'claude-opus-4-7' },
+  { hAgo: 2.1, proj: 5, summary: 'RN 0.74 bump breaks Hermes on Android', firstUser: 'After bumping to RN 0.74 the Android Hermes build crashes at startup. iOS is fine.', userMsgs: 20, asstMsgs: 22, tokensIn: 16_200, tokensOut: 8_400, tokensCacheRead: 2_140_000, tokensCacheCreate: 420_000, model: 'claude-opus-5' },
   { hAgo: 6.7, proj: 6, summary: 'Stripe webhook signature mismatch in test mode', firstUser: 'Stripe test webhooks fail signature verification — live mode works.', userMsgs: 10, asstMsgs: 11, tokensIn: 6_900, tokensOut: 3_600, tokensCacheRead: 880_000, tokensCacheCreate: 170_000, model: 'claude-sonnet-4-6' },
   { hAgo: 11, proj: 1, summary: 'Chart legend cut off on small viewport', firstUser: 'Legend on the dashboard chart gets cut off below 1024px. Make it wrap or stack.', userMsgs: 6, asstMsgs: 7, tokensIn: 4_200, tokensOut: 2_200, tokensCacheRead: 540_000, tokensCacheCreate: 110_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 18, proj: 0, summary: 'GraphQL N+1 on user.workspaces resolver', firstUser: 'Our /me query takes 1.2s — N+1 on user.workspaces. Need a DataLoader.', userMsgs: 15, asstMsgs: 17, tokensIn: 10_400, tokensOut: 5_500, tokensCacheRead: 1_360_000, tokensCacheCreate: 280_000, model: 'claude-opus-4-7', fav: true },
+  { hAgo: 18, proj: 0, summary: 'GraphQL N+1 on user.workspaces resolver', firstUser: 'Our /me query takes 1.2s — N+1 on user.workspaces. Need a DataLoader.', userMsgs: 15, asstMsgs: 17, tokensIn: 10_400, tokensOut: 5_500, tokensCacheRead: 1_360_000, tokensCacheCreate: 280_000, model: 'claude-opus-5', fav: true },
   { hAgo: 25, proj: 7, summary: 'Vault CLI: support OIDC login alongside token', firstUser: 'Add `vault-cli login --oidc` so we can stop pasting raw tokens.', userMsgs: 12, asstMsgs: 13, tokensIn: 7_800, tokensOut: 4_100, tokensCacheRead: 1_010_000, tokensCacheCreate: 220_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 40, proj: 8, summary: 'Switching embeddings from ada-002 to text-embedding-3-large', firstUser: 'Migrate the notebook embeddings from ada-002 to text-embedding-3-large. Cost vs recall?', userMsgs: 18, asstMsgs: 20, tokensIn: 13_400, tokensOut: 6_900, tokensCacheRead: 1_740_000, tokensCacheCreate: 360_000, model: 'claude-opus-4-7' },
-  { hAgo: 62, proj: 6, summary: 'Idempotency keys for the billing retry path', firstUser: 'Add idempotency keys to charge attempts so retries do not double-bill.', userMsgs: 14, asstMsgs: 15, tokensIn: 9_200, tokensOut: 4_800, tokensCacheRead: 1_190_000, tokensCacheCreate: 250_000, model: 'claude-opus-4-7' },
+  { hAgo: 40, proj: 8, summary: 'Switching embeddings from ada-002 to text-embedding-3-large', firstUser: 'Migrate the notebook embeddings from ada-002 to text-embedding-3-large. Cost vs recall?', userMsgs: 18, asstMsgs: 20, tokensIn: 13_400, tokensOut: 6_900, tokensCacheRead: 1_740_000, tokensCacheCreate: 360_000, model: 'claude-opus-5' },
+  { hAgo: 62, proj: 6, summary: 'Idempotency keys for the billing retry path', firstUser: 'Add idempotency keys to charge attempts so retries do not double-bill.', userMsgs: 14, asstMsgs: 15, tokensIn: 9_200, tokensOut: 4_800, tokensCacheRead: 1_190_000, tokensCacheCreate: 250_000, model: 'claude-opus-5' },
   { hAgo: 80, proj: 2, summary: 'Photo de-duplication via perceptual hash', firstUser: 'I want to dedupe uploads with phash so re-uploading the same photo merges.', userMsgs: 11, asstMsgs: 12, tokensIn: 6_700, tokensOut: 3_400, tokensCacheRead: 860_000, tokensCacheCreate: 180_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 105, proj: 5, summary: 'Add biometric unlock to the mobile app', firstUser: 'Add Face ID / Touch ID unlock for the mobile app. Fallback to PIN if disabled.', userMsgs: 16, asstMsgs: 18, tokensIn: 11_200, tokensOut: 5_800, tokensCacheRead: 1_450_000, tokensCacheCreate: 300_000, model: 'claude-opus-4-7' },
+  { hAgo: 105, proj: 5, summary: 'Add biometric unlock to the mobile app', firstUser: 'Add Face ID / Touch ID unlock for the mobile app. Fallback to PIN if disabled.', userMsgs: 16, asstMsgs: 18, tokensIn: 11_200, tokensOut: 5_800, tokensCacheRead: 1_450_000, tokensCacheCreate: 300_000, model: 'claude-opus-5' },
   { hAgo: 140, proj: 0, summary: 'Postgres advisory locks for the migration runner', firstUser: 'Two services run db migrations on boot — needs an advisory lock so only one wins.', userMsgs: 9, asstMsgs: 10, tokensIn: 5_900, tokensOut: 3_000, tokensCacheRead: 760_000, tokensCacheCreate: 160_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 175, proj: 1, summary: 'Migrate analytics from Segment to PostHog', firstUser: 'Cost-cutting — move analytics events from Segment to PostHog self-hosted.', userMsgs: 14, asstMsgs: 15, tokensIn: 9_600, tokensOut: 4_900, tokensCacheRead: 1_240_000, tokensCacheCreate: 260_000, model: 'claude-opus-4-7' },
+  { hAgo: 175, proj: 1, summary: 'Migrate analytics from Segment to PostHog', firstUser: 'Cost-cutting — move analytics events from Segment to PostHog self-hosted.', userMsgs: 14, asstMsgs: 15, tokensIn: 9_600, tokensOut: 4_900, tokensCacheRead: 1_240_000, tokensCacheCreate: 260_000, model: 'claude-opus-5' },
   { hAgo: 230, proj: 8, summary: 'Streaming chat response with partial JSON repair', firstUser: 'Our chat UI breaks on partial JSON streams. Need a tolerant parser.', userMsgs: 10, asstMsgs: 11, tokensIn: 6_400, tokensOut: 3_200, tokensCacheRead: 820_000, tokensCacheCreate: 170_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 280, proj: 4, summary: 'Spot instance fallback for the worker fleet', firstUser: 'Half our workers are on spot — need on-demand fallback when spot is reclaimed.', userMsgs: 13, asstMsgs: 14, tokensIn: 8_300, tokensOut: 4_300, tokensCacheRead: 1_080_000, tokensCacheCreate: 230_000, model: 'claude-opus-4-7' },
+  { hAgo: 280, proj: 4, summary: 'Spot instance fallback for the worker fleet', firstUser: 'Half our workers are on spot — need on-demand fallback when spot is reclaimed.', userMsgs: 13, asstMsgs: 14, tokensIn: 8_300, tokensOut: 4_300, tokensCacheRead: 1_080_000, tokensCacheCreate: 230_000, model: 'claude-opus-5' },
   { hAgo: 310, proj: 3, summary: 'Replace `useEffect` polling with SWR focus revalidation', firstUser: 'Our list view polls every 5s. Move to SWR with focus revalidation.', userMsgs: 7, asstMsgs: 8, tokensIn: 4_500, tokensOut: 2_400, tokensCacheRead: 590_000, tokensCacheCreate: 120_000, model: 'claude-haiku-4-5-20251001' },
-  { hAgo: 360, proj: 6, summary: 'PCI scope — separate card-data service from main API', firstUser: 'Auditor wants card data isolated. How small can the PCI-in-scope service be?', userMsgs: 22, asstMsgs: 24, tokensIn: 16_400, tokensOut: 8_200, tokensCacheRead: 2_080_000, tokensCacheCreate: 430_000, model: 'claude-opus-4-7', fav: true },
+  { hAgo: 360, proj: 6, summary: 'PCI scope — separate card-data service from main API', firstUser: 'Auditor wants card data isolated. How small can the PCI-in-scope service be?', userMsgs: 22, asstMsgs: 24, tokensIn: 16_400, tokensOut: 8_200, tokensCacheRead: 2_080_000, tokensCacheCreate: 430_000, model: 'claude-opus-5', fav: true },
   // URL-lead sessions: title resolves to the smart label, the sub-line carries the question / repo / path tail.
-  { hAgo: 0.6, proj: 3, summary: 'Review the audit-logging middleware PR', firstUser: 'https://github.com/abpframework/abp/pull/25703 can you review this PR and flag the risky changes?', userMsgs: 12, asstMsgs: 14, tokensIn: 9_400, tokensOut: 4_800, tokensCacheRead: 1_120_000, tokensCacheCreate: 240_000, model: 'claude-opus-4-7', fav: true },
+  { hAgo: 0.6, proj: 3, summary: 'Review the audit-logging middleware PR', firstUser: 'https://github.com/abpframework/abp/pull/25703 can you review this PR and flag the risky changes?', userMsgs: 12, asstMsgs: 14, tokensIn: 9_400, tokensOut: 4_800, tokensCacheRead: 1_120_000, tokensCacheCreate: 240_000, model: 'claude-opus-5', fav: true },
   { hAgo: 2.1, proj: 0, summary: 'ABP support — admin login broken after upgrade', firstUser: 'https://abp.io/support/questions/9532/cannot-login-to-admin-panel after upgrading to 9.3 — what changed?', userMsgs: 8, asstMsgs: 9, tokensIn: 5_600, tokensOut: 2_900, tokensCacheRead: 720_000, tokensCacheCreate: 150_000, model: 'claude-sonnet-4-6' },
-  { hAgo: 6.5, proj: 1, summary: 'Did this commit break tenant resolution?', firstUser: 'https://github.com/abpframework/abp/commit/a1b2c3d4e5f60718293a4b5c6d7e8f90 — bisect says this is where tenant resolution broke.', userMsgs: 10, asstMsgs: 11, tokensIn: 7_100, tokensOut: 3_600, tokensCacheRead: 910_000, tokensCacheCreate: 190_000, model: 'claude-opus-4-7' },
+  { hAgo: 6.5, proj: 1, summary: 'Did this commit break tenant resolution?', firstUser: 'https://github.com/abpframework/abp/commit/a1b2c3d4e5f60718293a4b5c6d7e8f90 — bisect says this is where tenant resolution broke.', userMsgs: 10, asstMsgs: 11, tokensIn: 7_100, tokensOut: 3_600, tokensCacheRead: 910_000, tokensCacheCreate: 190_000, model: 'claude-opus-5' },
   { hAgo: 18, proj: 8, summary: 'Is the Next.js app router production-ready?', firstUser: 'https://github.com/vercel/next.js is the app router stable enough for production now?', userMsgs: 9, asstMsgs: 10, tokensIn: 6_200, tokensOut: 3_200, tokensCacheRead: 780_000, tokensCacheCreate: 160_000, model: 'claude-sonnet-4-6' },
   { hAgo: 40, proj: 4, summary: 'Continue from a shared Claude conversation', firstUser: 'https://claude.ai/share/4f3e2d1c-9a8b-4c7d-8e6f-1a2b3c4d5e6f can you pick up where this left off?', userMsgs: 7, asstMsgs: 8, tokensIn: 4_300, tokensOut: 2_200, tokensCacheRead: 560_000, tokensCacheCreate: 120_000, model: 'claude-haiku-4-5-20251001' },
 ];
@@ -185,7 +185,7 @@ const DEMO_MSG_TEMPLATE: MessageItem[] = [
     kind: 'assistant',
     text: 'Before I answer, let me sweep the auth module for token-rotation races and weigh a couple of retry-hardening approaches in parallel.',
     timestamp: new Date(NOW - 24 * 60 * 1000 - 40 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     usage: { input_tokens: 130, output_tokens: 41, cache_read_input_tokens: 29000, cache_creation_input_tokens: 0 },
   },
   {
@@ -193,7 +193,7 @@ const DEMO_MSG_TEMPLATE: MessageItem[] = [
     isToolUse: true,
     text: '[Tool: Agent]\n{\n  "subagent_type": "Explore",\n  "description": "Audit auth module for token-rotation races"\n}',
     timestamp: new Date(NOW - 24 * 60 * 1000 - 38 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     usage: null,
     toolCalls: [{ toolName: 'Agent', toolUseId: DEMO_TASK_AGENT_TOOLUSE_ID }],
   },
@@ -202,7 +202,7 @@ const DEMO_MSG_TEMPLATE: MessageItem[] = [
     isToolUse: true,
     text: '[Tool: Workflow]\n{\n  "description": "Draft + score 2 retry-hardening approaches in parallel"\n}',
     timestamp: new Date(NOW - 24 * 60 * 1000 - 20 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     usage: null,
     toolCalls: [{ toolName: 'Workflow', toolUseId: DEMO_WORKFLOW_TOOLUSE_ID }],
   },
@@ -228,7 +228,7 @@ export function refresh(): Promise<Tokens> {
 
 Want me to look at how the interceptor is wired up?`,
     timestamp: new Date(NOW - 24 * 60 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     usage: { input_tokens: 1840, output_tokens: 412, cache_read_input_tokens: 18400, cache_creation_input_tokens: 0 },
   },
   {
@@ -242,7 +242,7 @@ Want me to look at how the interceptor is wired up?`,
     kind: 'assistant',
     text: 'Drop it in, I\'ll read it and trace the retry path.',
     timestamp: new Date(NOW - 22 * 60 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     usage: { input_tokens: 90, output_tokens: 22, cache_read_input_tokens: 19000, cache_creation_input_tokens: 0 },
   },
   {
@@ -250,7 +250,7 @@ Want me to look at how the interceptor is wired up?`,
     isToolUse: true,
     text: '[Tool: Read]\n{\n  "file_path": "/Users/jordan/work/pulse-api/src/auth/interceptor.ts"\n}',
     timestamp: new Date(NOW - 21 * 60 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     usage: null,
   },
   {
@@ -313,7 +313,7 @@ Three things this gives you:
 
 Worth adding a Vitest case that hits the endpoint twice in parallel to lock in the dedup.`,
     timestamp: new Date(NOW - 20 * 60 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     usage: { input_tokens: 2400, output_tokens: 690, cache_read_input_tokens: 28000, cache_creation_input_tokens: 1200 },
   },
   {
@@ -522,7 +522,7 @@ const TEMPLATE_IMAGES: MessageItem[] = [
     kind: 'assistant',
     text: 'Got it. The header is `position: sticky; top: 0;` but the X button sits at the same z-index. Bump the close button to `z-50` or add `pr-12` to the title row so they never overlap.\n\nWant me to push a fix?',
     timestamp: new Date(NOW - 29 * 60 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     usage: { input_tokens: 1900, output_tokens: 240, cache_read_input_tokens: 14000, cache_creation_input_tokens: 0 },
   },
   {
@@ -540,7 +540,7 @@ const TEMPLATE_IMAGES: MessageItem[] = [
     kind: 'assistant',
     text: 'Nice — the right-side one is the post-fix render. Z-index conflict is gone, padding looks right. Shipping it.',
     timestamp: new Date(NOW - 11 * 60 * 1000).toISOString(),
-    model: 'claude-opus-4-7',
+    model: 'claude-opus-5',
     usage: { input_tokens: 2100, output_tokens: 90, cache_read_input_tokens: 14200, cache_creation_input_tokens: 0 },
   },
 ];
@@ -746,13 +746,13 @@ export const DEMO_SUBAGENTS: Record<string, SessionSubagents> = {
         status: 'completed',
         durationMs: 41200,
         totalTokens: 184000,
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-5',
         startTime: NOW - 16 * 60 * 1000,
         phases: [{ title: 'Draft' }, { title: 'Judge' }],
         agents: [
-          { agentId: 'a1', label: 'draft:mutex', phaseIndex: 1, phaseTitle: 'Draft', model: 'claude-opus-4-7', state: 'done', tokens: 52000, toolCalls: 6, durationMs: 14200, promptPreview: 'Draft a mutex-style single-flight refresh guard.', resultPreview: 'Single-flight via a shared in-flight promise; N parallel 401s collapse to one refresh.', filePath: 'demo://agent/wf-draft-mutex', fileSize: 22 * 1024, mtime: NOW },
-          { agentId: 'a2', label: 'draft:queue', phaseIndex: 1, phaseTitle: 'Draft', model: 'claude-opus-4-7', state: 'done', tokens: 49000, toolCalls: 5, durationMs: 13800, promptPreview: 'Draft a request-queue approach that parks 401s.', resultPreview: 'Queue pending requests behind one refresh, then replay; more moving parts.', filePath: 'demo://agent/wf-draft-queue', fileSize: 21 * 1024, mtime: NOW },
-          { agentId: 'a3', label: 'judge', phaseIndex: 2, phaseTitle: 'Judge', model: 'claude-opus-4-7', state: 'done', tokens: 83000, toolCalls: 2, durationMs: 13200, promptPreview: 'Score both drafts on simplicity and correctness.', resultPreview: 'Mutex wins — same guarantees, fewer moving parts and no queue to drain on failure.', filePath: 'demo://agent/wf-judge', fileSize: 26 * 1024, mtime: NOW },
+          { agentId: 'a1', label: 'draft:mutex', phaseIndex: 1, phaseTitle: 'Draft', model: 'claude-opus-5', state: 'done', tokens: 52000, toolCalls: 6, durationMs: 14200, promptPreview: 'Draft a mutex-style single-flight refresh guard.', resultPreview: 'Single-flight via a shared in-flight promise; N parallel 401s collapse to one refresh.', filePath: 'demo://agent/wf-draft-mutex', fileSize: 22 * 1024, mtime: NOW },
+          { agentId: 'a2', label: 'draft:queue', phaseIndex: 1, phaseTitle: 'Draft', model: 'claude-opus-5', state: 'done', tokens: 49000, toolCalls: 5, durationMs: 13800, promptPreview: 'Draft a request-queue approach that parks 401s.', resultPreview: 'Queue pending requests behind one refresh, then replay; more moving parts.', filePath: 'demo://agent/wf-draft-queue', fileSize: 21 * 1024, mtime: NOW },
+          { agentId: 'a3', label: 'judge', phaseIndex: 2, phaseTitle: 'Judge', model: 'claude-opus-5', state: 'done', tokens: 83000, toolCalls: 2, durationMs: 13200, promptPreview: 'Score both drafts on simplicity and correctness.', resultPreview: 'Mutex wins — same guarantees, fewer moving parts and no queue to drain on failure.', filePath: 'demo://agent/wf-judge', fileSize: 26 * 1024, mtime: NOW },
         ],
       },
     ],
@@ -763,14 +763,14 @@ function demoPrompt(text: string): MessageItem {
   return { kind: 'user', text, timestamp: new Date(NOW - 16 * 60 * 1000).toISOString(), model: null, usage: null };
 }
 function demoAssistant(text: string, out = 220): MessageItem {
-  return { kind: 'assistant', text, timestamp: new Date(NOW - 15 * 60 * 1000).toISOString(), model: 'claude-opus-4-7', usage: { input_tokens: 9000, output_tokens: out, cache_read_input_tokens: 31000, cache_creation_input_tokens: 0 } };
+  return { kind: 'assistant', text, timestamp: new Date(NOW - 15 * 60 * 1000).toISOString(), model: 'claude-opus-5', usage: { input_tokens: 9000, output_tokens: out, cache_read_input_tokens: 31000, cache_creation_input_tokens: 0 } };
 }
 
 export const DEMO_SUBAGENT_TRANSCRIPTS: Record<string, MessageItem[]> = {
   'demo://agent/explore-auth': [
     demoPrompt('Audit the auth module for other places that read-then-rotate a refresh token without dedup. Report file:line for each.'),
     demoAssistant('I\'ll grep for refresh-token reads and rotation calls, then cross-reference the ones that aren\'t single-flighted.'),
-    { kind: 'assistant', isToolUse: true, text: '[Tool: Grep]\n{\n  "pattern": "getRefresh|storeRefresh",\n  "glob": "src/auth/**"\n}', timestamp: new Date(NOW - 15 * 60 * 1000 + 3000).toISOString(), model: 'claude-opus-4-7', usage: null },
+    { kind: 'assistant', isToolUse: true, text: '[Tool: Grep]\n{\n  "pattern": "getRefresh|storeRefresh",\n  "glob": "src/auth/**"\n}', timestamp: new Date(NOW - 15 * 60 * 1000 + 3000).toISOString(), model: 'claude-opus-5', usage: null },
     { kind: 'user', isToolResult: true, text: 'src/auth/interceptor.ts:10  const old = getRefresh();\nsrc/auth/session.ts:44  const t = getRefresh();\nsrc/auth/storage.ts:8  export function storeRefresh(...)', timestamp: new Date(NOW - 15 * 60 * 1000 + 4000).toISOString(), model: null, usage: null },
     demoAssistant('Two call sites read the refresh token outside the new single-flight guard:\n\n- **`session.ts:44`** — the silent-renew timer reads `getRefresh()` directly; if it fires while an interceptor refresh is in flight it hits the same race.\n- `interceptor.ts:10` is the one you just fixed.\n\nRecommend routing both through the shared `refresh()` promise.', 260),
   ],
@@ -920,7 +920,7 @@ export const DEMO_USAGE: UsageSummary = {
       currentStreak: 0,
       mostActiveDay: new Date(NOW - 2 * 86400000).toISOString().slice(0, 10),
       longestSessionMs: 4 * 3600 * 1000 + 22 * 60 * 1000,
-      favoriteModel: 'claude-opus-4-7',
+      favoriteModel: 'claude-opus-5',
       firstDay: new Date(NOW - 364 * 86400000).toISOString().slice(0, 10),
       lastDay: new Date(NOW).toISOString().slice(0, 10),
     };
@@ -1247,7 +1247,7 @@ const DEMO_PLUGINS = [
 
 const DEMO_SETTINGS_JSON = JSON.stringify({
   $schema: 'https://schemas.anthropic.com/claude-code/settings.schema.json',
-  defaultModel: 'claude-opus-4-7',
+  defaultModel: 'claude-opus-5',
   permissions: {
     allowedTools: ['Read', 'Edit', 'Write', 'Bash', 'Grep'],
     denyDestructive: true,
@@ -1493,3 +1493,184 @@ export const DEMO_RATE_LIMITS: RateLimits = {
     },
   ],
 };
+
+// Codex reports its windows through the local `codex app-server` probe, which
+// has no notion of a model-scoped weekly window — `modelWindows` is Claude's
+// `/api/oauth/usage` shape alone. Sharing one object across both sources put a
+// "Fable" row in Codex's quota card, which no real Codex probe can produce.
+export const DEMO_RATE_LIMITS_CODEX: RateLimits = {
+  status: 'allowed',
+  representativeClaim: 'five_hour',
+  fiveHour: {
+    utilization: 0.31,
+    status: 'allowed',
+    reset: Math.floor((NOW + 42 * 60_000) / 1000),
+  },
+  weekly: {
+    utilization: 0.44,
+    status: 'allowed',
+    reset: Math.floor((NOW + 31 * 3600_000) / 1000),
+  },
+  overage: {
+    utilization: 0,
+    status: 'allowed',
+    reset: Math.floor((NOW + 5 * 3600_000) / 1000),
+  },
+};
+
+export const DEMO_RATE_LIMITS_BY_SOURCE: Record<'claude' | 'codex', RateLimits> = {
+  claude: DEMO_RATE_LIMITS,
+  codex: DEMO_RATE_LIMITS_CODEX,
+};
+
+// ---------------------------------------------------------------------------
+//  Demo terminal
+//
+//  Demo mode fakes sessions, usage and workspace content so screenshots can be
+//  taken without touching anyone's real history. The embedded terminal has to
+//  play along: a demo session's `filePath` points at a directory that does not
+//  exist, so spawning a real CLI against it fails at the containment check —
+//  clicking Terminal in demo mode produced an empty, failed panel.
+//
+//  This is a scripted playback. The xterm instance is real, so theme, font,
+//  zoom, resize and close behave exactly as with a live process; only the bytes
+//  are canned.
+//
+//  Everything here was read off real CLI output rather than guessed — the
+//  banner block, the full-width bar behind what you typed, `●` for each of
+//  Claude's turns with its continuation lines indented two, the `⎿` elbow
+//  hanging directly off a tool call with no blank between them, the dim
+//  "Worked for Ns" line with a right-aligned token count, and the input box
+//  framed by rules with the mode footer beneath. The blank lines matter as much
+//  as the glyphs: an earlier pass had the right symbols in the wrong rhythm and
+//  still read as an imitation.
+//
+//  A chunk's `data` may be a function of the terminal width, which is what lets
+//  rules, bars, tables and right-aligned counts fit any pane. Fixed widths are
+//  wrong everywhere except where they were authored.
+//
+//  The conversation continues the newest demo session (pulse-api,
+//  feat/auth-refactor, the refresh-token 401) so the terminal and the
+//  transcript above it tell one story.
+// ---------------------------------------------------------------------------
+
+export type DemoTerminalChunk = { delay: number; data: string | ((cols: number) => string) };
+
+const R = '\x1b[0m';
+const DIM = '\x1b[2m';
+const B = '\x1b[1m';
+const ORANGE = '\x1b[38;2;217;119;87m';
+const GREEN = '\x1b[38;2;74;222;128m';
+const GREY = '\x1b[38;2;136;136;140m';
+const BAR_BG = '\x1b[48;2;38;38;42m';
+const EOL = '\x1b[K';
+
+const width = (cols: number) => Math.max(24, cols);
+
+// Claude's turn marker. Continuation lines sit under the text, indented two.
+const dot = (s: string) => `${GREY}●${R} ${s}\r\n`;
+const cont = (s: string) => `  ${s}\r\n`;
+// A tool result hangs directly off its call — no blank line between them.
+const elbow = (s: string) => `  ${GREY}⎿  ${s}${R}\r\n`;
+// Your own turn is a filled bar across the pane, not just highlighted text.
+const you = (s: string) => `${BAR_BG}${GREY}❯${R}${BAR_BG} ${s}${EOL}${R}\r\n\r\n`;
+const rule = (cols: number) => `${DIM}${'─'.repeat(width(cols))}${R}\r\n`;
+
+const worked = (secs: number, tokens: string) => (cols: number) => {
+  const label = `${tokens} tokens`;
+  const pad = Math.max(1, width(cols) - label.length);
+  return `${GREY}✳${R} ${DIM}Worked for ${secs}s${R}\r\n`
+    + `${' '.repeat(pad)}${DIM}${label}${R}\r\n\r\n`;
+};
+
+// Box-drawing table, indented two like every other block of Claude's output and
+// sized to the pane. Columns take what their content needs; if that overflows
+// the last one gives up the difference rather than letting the box wrap.
+const table = (rows: string[][]) => (cols: number) => {
+  const avail = width(cols) - 2;
+  const natural = rows[0].map((_, c) => Math.max(...rows.map(r => r[c].length)) + 2);
+  const w = [...natural];
+  let total = w.reduce((a, b) => a + b, 0) + w.length + 1;
+  if (total > avail) w[w.length - 1] = Math.max(6, w[w.length - 1] - (total - avail));
+  const line = (l: string, m: string, r: string) =>
+    `  ${DIM}${l}${w.map(n => '─'.repeat(n)).join(m)}${r}${R}\r\n`;
+  const row = (cells: string[]) =>
+    `  ${DIM}│${R}` + cells.map((c, i) =>
+      ` ${c.slice(0, w[i] - 2).padEnd(w[i] - 2)} ${DIM}│${R}`).join('') + '\r\n';
+  return line('┌', '┬', '┐')
+    + row(rows[0])
+    + line('├', '┼', '┤')
+    + rows.slice(1).map(row).join('')
+    + line('└', '┴', '┘');
+};
+
+export const DEMO_TERMINAL_SCRIPT: DemoTerminalChunk[] = [
+  { delay: 100, data: `${ORANGE} ▐▛███▜▌${R}   ${B}Claude Code${R} ${DIM}v2.1.227${R}\r\n` },
+  { delay: 40, data: `${ORANGE}▝▜█████▛▘${R}  ${DIM}Opus 5 with high effort · Claude Max${R}\r\n` },
+  { delay: 40, data: `${ORANGE}  ▘▘ ▝▝  ${R}  ${DIM}/Users/jordan/work/pulse-api${R}\r\n\r\n` },
+  // The real CLI announces itself through the OSC title sequence, and the panel
+  // header shows that rather than the command it was launched with. Without one
+  // the demo fell back to `claude --resume`, which no live session ever shows.
+  { delay: 20, data: `\x1b]0;✳ Claude Code\x07` },
+
+  { delay: 700, data: you('so the retry only fails when two tabs refresh at once?') },
+  { delay: 600, data: `${GREY}✳${R} ${DIM}Deliberating… (1s)${R}\r\n` },
+  { delay: 900, data: `\x1b[1A\x1b[2K` },
+
+  { delay: 150, data: dot('That is the shape of it. Both tabs send the same refresh token, the') },
+  { delay: 45, data: cont('first rotates it, and the second arrives holding one that no longer') },
+  { delay: 45, data: cont('exists — so the 401 is correct; it is the client that is wrong.') },
+  { delay: 200, data: `\r\n` },
+
+  { delay: 450, data: dot(`${B}Read${R}${DIM}(src/auth/refresh.ts)${R}`) },
+  { delay: 350, data: elbow('Read 212 lines') },
+  { delay: 250, data: `\r\n` },
+  { delay: 450, data: dot(`${B}Grep${R}${DIM}(rotateRefreshToken)${R}`) },
+  { delay: 300, data: elbow('Found 3 matches in 2 files') },
+  { delay: 250, data: `\r\n` },
+
+  { delay: 450, data: dot('Rotation invalidates the old token before the new one is committed:') },
+  { delay: 200, data: `\r\n` },
+  { delay: 250, data: table([
+    ['step', 'tab A', 'tab B'],
+    ['sends refresh', 'token#1', 'token#1'],
+    ['server rotates', 'issues #2', 'sees #1 gone'],
+    ['result', '200', '401'],
+  ]) },
+  { delay: 250, data: `\r\n` },
+  { delay: 400, data: worked(9, '18412') },
+
+  { delay: 1100, data: you('give the old token a short grace period then') },
+  { delay: 600, data: `${GREY}✳${R} ${DIM}Photosynthesizing… (2s · thinking with high effort)${R}\r\n` },
+  { delay: 900, data: `\x1b[1A\x1b[2K` },
+  { delay: 150, data: dot(`${B}Edit${R}${DIM}(src/auth/refresh.ts)${R}`) },
+  { delay: 400, data: elbow('Updated 2 hunks') },
+  { delay: 250, data: `\r\n` },
+  { delay: 450, data: dot(`${B}Bash${R}${DIM}(npm test -- auth/refresh)${R}`) },
+  { delay: 1200, data: elbow(`${GREEN}✓${R}${GREY} 28 passing ${DIM}(1.4s)${R}`) },
+  { delay: 250, data: `\r\n` },
+  { delay: 450, data: dot('Done. A rotated-out token stays accepted for 10 seconds, which covers') },
+  { delay: 45, data: cont('the concurrent-tab case without widening the window enough to matter') },
+  { delay: 45, data: cont('if one ever leaks.') },
+  { delay: 200, data: `\r\n` },
+  { delay: 400, data: worked(14, '24803') },
+
+  { delay: 1100, data: you('ship it') },
+  { delay: 600, data: dot(`${B}Bash${R}${DIM}(git commit -am "Grace period for rotated refresh tokens")${R}`) },
+  { delay: 900, data: elbow('[feat/auth-refactor 4f2a1c9] 2 files changed, 31 insertions(+)') },
+  { delay: 250, data: `\r\n` },
+  { delay: 400, data: dot('Committed.') },
+  { delay: 200, data: `\r\n` },
+  { delay: 300, data: worked(4, '25109') },
+
+  { delay: 250, data: rule },
+  { delay: 40, data: `${GREY}❯${R} \x1b[7m \x1b[27m\r\n` },
+  { delay: 40, data: rule },
+  { delay: 40, data: (cols: number) => {
+    const left = '  Opus 5 ~ ctx 41%';
+    const right = '/rc';
+    const pad = Math.max(1, width(cols) - left.length - right.length);
+    return `${DIM}${left}${' '.repeat(pad)}${right}${R}\r\n`;
+  } },
+  { delay: 40, data: `${ORANGE}  ⏵⏵${R} ${DIM}auto mode on (shift+tab to cycle) · ← for agents${R}\r\n` },
+];
