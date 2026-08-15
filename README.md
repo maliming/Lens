@@ -63,7 +63,18 @@ No remembering UUIDs. No `cd`-ing into the right repo first. Click → continue.
 <td width="55%"><img src="docs/screenshots/resume.png" alt="Resume action" /></td>
 </tr>
 <tr>
-<td width="55%"><img src="docs/screenshots/usage.png" alt="Usage dashboard" /></td>
+<td width="55%"><img src="docs/screenshots/terminal.png" alt="Embedded terminal" /></td>
+<td width="45%" valign="middle">
+
+### ⌨️ Or never leave the app
+
+An embedded terminal runs the real CLI in the session's own `cwd` — slash commands, plan mode and the agent's own progress UI all work, because it is a real PTY and not a re-implementation.
+
+It keeps running while you browse other sessions, and the transcript above refreshes as the agent writes to the JSONL.
+
+</td>
+</tr>
+<tr>
 <td width="45%" valign="middle">
 
 ### 📊 Understand your token spend
@@ -73,8 +84,10 @@ Per-tool dashboards — rolling **5h / 24h / 7d / 30d** buckets, broken down by 
 Live subscription quota optional: probe Anthropic with your Claude Code OAuth token to see real 5-hour and weekly remaining; Codex pulls limits from a local `codex app-server` JSON-RPC probe.
 
 </td>
+<td width="55%"><img src="docs/screenshots/usage.png" alt="Usage dashboard" /></td>
 </tr>
 <tr>
+<td width="55%"><img src="docs/screenshots/workspace.png" alt="Workspace browser" /></td>
 <td width="45%" valign="middle">
 
 ### 🗂️ Map your workspace
@@ -84,10 +97,8 @@ Browse `CLAUDE.md` / `AGENTS.md`, **Skills**, **Commands**, **Hooks** / Rules, *
 Click any item to read the rendered Markdown or the raw config; jump to the file in Finder with one click.
 
 </td>
-<td width="55%"><img src="docs/screenshots/workspace.png" alt="Workspace browser" /></td>
 </tr>
 <tr>
-<td width="55%" align="center"><img src="docs/screenshots/multi-source.png" alt="AI source switcher" width="320" /></td>
 <td width="45%" valign="middle">
 
 ### 🔁 Multi-tool, one app
@@ -97,8 +108,10 @@ Flip between **Claude Code** and **Codex** from the sidebar. Sessions, usage cha
 Adding a future AI source is one row in the provider registry — no branching everywhere else.
 
 </td>
+<td width="55%" align="center"><img src="docs/screenshots/multi-source.png" alt="AI source switcher" width="320" /></td>
 </tr>
 <tr>
+<td width="55%"><img src="docs/screenshots/dark.png" alt="Dark mode" /></td>
 <td width="45%" valign="middle">
 
 ### 🌗 Light, dark, ten languages
@@ -106,7 +119,6 @@ Adding a future AI source is one row in the provider registry — no branching e
 System / Light / Dark themes. UI localized into **English, 简体中文, Türkçe, 日本語, 한국어, Deutsch, Français, Español, Português (BR), Русский** — auto-detected from the system on first launch.
 
 </td>
-<td width="55%"><img src="docs/screenshots/dark.png" alt="Dark mode" /></td>
 </tr>
 </table>
 

@@ -960,8 +960,18 @@
     .final-cta { padding: 56px 18px; }
     .lang-strip { padding: 28px 18px; }
 
-    /* Frames + visuals shouldn't get a horizontal scrollbar */
-    .frame { border-radius: 12px; }
+    /* Screenshots carry their own macOS window corners, and the window's close
+       / minimise / zoom buttons sit about 15px into a 1600px-wide asset. Once
+       that asset is scaled down to phone width, a 14–18px corner arc cuts
+       straight through them. Listing every container by its full selector
+       matters: a bare `.frame` here loses on specificity to
+       `.hero-shot .frame` and `.feature-row .visual .frame`, which is why the
+       radius stayed at its desktop value on phones and clipped the buttons. */
+    .hero-shot .frame,
+    .feature-row .visual .frame,
+    .multi .visual.multi-shot .frame,
+    .frame,
+    .theme-card { border-radius: 8px; }
     .feature-row .visual .frame.tight { max-width: 100%; }
 
     /* Lightbox close button breathing room when address bar takes the top */
@@ -997,7 +1007,10 @@
     <span class="dot"></span>
     Claude Code · OpenAI Codex · 100% local · No telemetry
   </div>
-  <h1>Every <span class="gradient">Claude Code &amp; Codex</span><br/>session in one place.</h1>
+  <!-- The space before the break is load-bearing: phones hide this <br> so the
+       headline can wrap on its own, and without it the two words run together
+       as "Codexsession". Desktop collapses the space at the line break. -->
+  <h1>Every <span class="gradient">Claude Code &amp; Codex</span> <br/>session in one place.</h1>
   <p class="lead">Lens is a cross-platform desktop browser for the two AI coding tools you actually use. Search, resume, and understand every conversation Claude Code and OpenAI Codex write to disk — without ever leaving your machine.</p>
   <div class="cta-row" id="download">
     <a class="btn btn-primary" href="https://github.com/maliming/Lens/releases/latest" target="_blank" rel="noopener">
@@ -1063,7 +1076,7 @@
 <section class="feature-section" id="features">
   <div class="section-head">
     <h2>What you can do</h2>
-    <p>Six things you'll use every day — without ever opening a terminal to grep your JSONL files.</p>
+    <p>Seven things you'll use every day — without ever grepping a JSONL file by hand.</p>
   </div>
 
   <!-- Search -->
@@ -1100,8 +1113,25 @@
     </div>
   </div>
 
-  <!-- Usage -->
+  <!-- Terminal -->
   <div class="feature-row reveal">
+    <div class="copy">
+      <span class="eyebrow">Terminal</span>
+      <h3>Or stay put and keep working</h3>
+      <p>An embedded terminal runs the real CLI in the session's own <code>cwd</code> — slash commands, plan mode and the agent's own progress UI, all intact.</p>
+      <ul class="bullets">
+        <li>Keeps running while you browse other sessions</li>
+        <li>The transcript above refreshes as the agent writes</li>
+        <li>Theme, font and pane height follow your settings</li>
+      </ul>
+    </div>
+    <div class="visual">
+      <div class="frame"><img src="./assets/terminal.png" alt="Embedded terminal running Claude Code beside the session list" loading="lazy" /></div>
+    </div>
+  </div>
+
+  <!-- Usage -->
+  <div class="feature-row reverse reveal">
     <div class="copy">
       <span class="eyebrow">Usage</span>
       <h3>See where your tokens went</h3>
@@ -1118,7 +1148,7 @@
   </div>
 
   <!-- Workspace -->
-  <div class="feature-row reverse reveal">
+  <div class="feature-row reveal">
     <div class="copy">
       <span class="eyebrow">Workspace</span>
       <h3>Map your agent's environment</h3>
