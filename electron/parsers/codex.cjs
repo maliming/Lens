@@ -30,6 +30,7 @@ const {
   capText,
   compactTokenUsage,
 } = require('../lib/session-data.cjs');
+const { cacheEntryFresh } = require('../lib/file-meta-cache.cjs');
 
 // ===========================================================================
 // Leaf helpers
@@ -68,7 +69,7 @@ function createParser({ fileMetaCache, userdata }) {
   async function readCodexSessionMetadata(filePath) {
     const stat = await fsp.stat(filePath);
     const cached = fileMetaCache.get(filePath);
-    if (cached && cached.mtime === stat.mtimeMs) {
+    if (cacheEntryFresh(cached, stat)) {
       // Re-parse on the "file shrunk back under cap" transition the same
       // way the Claude parser does — a previously-tooLarge meta becomes
       // stale once the file is parseable again.
@@ -220,7 +221,7 @@ function createParser({ fileMetaCache, userdata }) {
       planType: lastPlanType,
       reasoningEffort,
     };
-    fileMetaCache.set(filePath, { mtime: stat.mtimeMs, meta });
+    fileMetaCache.set(filePath, { mtime: stat.mtimeMs, size: stat.size, meta });
     return meta;
   }
 

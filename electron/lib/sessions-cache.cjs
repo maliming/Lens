@@ -351,7 +351,15 @@ function createSessionsCache({ userDataDir }) {
     // rescan re-drops it from cache instead of re-reading the file.
     for (const session of loadedRows) {
       if (session.filePath && typeof session.mtime === 'number') {
-        fileMetaCache.set(session.filePath, { mtime: session.mtime, meta: extractMetaFromSession(session) });
+        // `size` is part of the freshness key (see lib/file-meta-cache.cjs).
+        // Seeding without it makes every restored row look stale, so the first
+        // scan after every launch re-reads the entire corpus instead of
+        // skipping unchanged files — the exact work this cache exists to avoid.
+        fileMetaCache.set(session.filePath, {
+          mtime: session.mtime,
+          size: session.fileSize,
+          meta: extractMetaFromSession(session),
+        });
       }
     }
 

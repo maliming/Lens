@@ -18,6 +18,7 @@ const { isInsideBase } = require('../lib/fs-safety.cjs');
 const { forEachJsonlLine, MAX_SESSION_FILE_SIZE } = require('../lib/jsonl.cjs');
 const { mapPool } = require('../lib/concurrency.cjs');
 const { readJsonFileSafe } = require('../lib/json-io.cjs');
+const { cacheEntryFresh } = require('../lib/file-meta-cache.cjs');
 const { listClaudeSubagentTranscriptFilesWithStatus } = require('../lib/claude-subagents.cjs');
 const {
   MAX_INLINE_IMAGE_B64,
@@ -461,13 +462,13 @@ function createParser({ fileMetaCache, userdata }) {
   async function readSessionMetadata(filePath) {
     const stat = await fsp.stat(filePath);
     const cached = fileMetaCache.get(filePath);
-    if (cached && cached.mtime === stat.mtimeMs) {
+    if (cacheEntryFresh(cached, stat)) {
       if (!(cached.meta?.tooLarge && stat.size <= MAX_SESSION_FILE_SIZE)) {
         return cached.meta;
       }
     }
     const meta = await readSessionMetadataFromDisk(filePath, stat);
-    fileMetaCache.set(filePath, { mtime: stat.mtimeMs, meta });
+    fileMetaCache.set(filePath, { mtime: stat.mtimeMs, size: stat.size, meta });
     return meta;
   }
 
@@ -705,7 +706,7 @@ function createParser({ fileMetaCache, userdata }) {
   async function readSubagentMetadata(filePath) {
     const stat = await fsp.stat(filePath);
     const cached = fileMetaCache.get(filePath);
-    if (cached && cached.mtime === stat.mtimeMs && cached.meta?.__subagent) {
+    if (cacheEntryFresh(cached, stat) && cached.meta?.__subagent) {
       return cached.meta;
     }
     // No size cap on subagent metadata either, same rationale as
@@ -745,7 +746,7 @@ function createParser({ fileMetaCache, userdata }) {
       tokenDays: usage.tokenDays,
       usageRevision: usage.usageRevision,
     };
-    fileMetaCache.set(filePath, { mtime: stat.mtimeMs, meta });
+    fileMetaCache.set(filePath, { mtime: stat.mtimeMs, size: stat.size, meta });
     return meta;
   }
 
@@ -785,7 +786,12 @@ function createParser({ fileMetaCache, userdata }) {
       // pre-read reuse decision describes the old parent while `meta` contains
       // the new base-only totals. Re-check the actual mtime read with `meta`
       // before deciding whether the cached folded totals are still reusable.
+      // Size as well as mtime, matching the freshness rule the metadata cache
+      // itself now uses. Comparing only mtime let a same-mtime, different-size
+      // file re-read the parent (dropping the subagent fold) and then re-mark
+      // the parent-only totals as folded — silently losing subagent tokens.
       if (canReuseFolded && cached.mtime !== meta.mtime) canReuseFolded = false;
+      if (canReuseFolded && cached.size !== meta.fileSize) canReuseFolded = false;
       // Prefer the real launch cwd recorded in the JSONL over decoding the
       // project-folder name. The folder encoding replaces every `/` with `-`,
       // so a literal hyphen in a path segment (e.g. `taskever-desktop`) is
@@ -879,7 +885,14 @@ function createParser({ fileMetaCache, userdata }) {
         merged.subagentsFolded = true;
         merged.subagentSignature = signature;
       }
-      fileMetaCache.set(filePath, { mtime: merged.mtime || mtime || 0, meta: merged });
+      // `fileSize` rides along from the stat that produced this meta, so the
+      // entry stays comparable by {mtime, size} on the next scan. Without it
+      // every folded row would look legacy and be re-read once per launch.
+      fileMetaCache.set(filePath, {
+        mtime: merged.mtime || mtime || 0,
+        size: merged.fileSize,
+        meta: merged,
+      });
       return {
         source: 'claude',
         id: sessionId, projectDir,
