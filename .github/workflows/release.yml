@@ -19,13 +19,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # node-pty ships one prebuilt binary per platform+arch and npm installs
+        # only the one matching the build machine, so each arch must be built on
+        # a runner of that arch. macos-latest is Apple silicon; macos-13 is the
+        # Intel runner. Building both mac arches in one job produced an x64
+        # artifact with no native module in it.
         include:
           - os: macos-latest
-            target: mac
+            target: mac:arm64
+            artifact: mac-arm64
+          # Intel macOS. `macos-13` was retired; the current Intel labels are
+          # `macos-15-intel` / `macos-26-intel` (and the `-large` variants).
+          # Pinned to a version rather than `macos-latest-large`, which moves.
+          - os: macos-15-intel
+            target: mac:x64
+            artifact: mac-x64
           - os: windows-latest
             target: win
+            artifact: win
           - os: ubuntu-latest
             target: linux
+            artifact: linux
 
     runs-on: ${{ matrix.os }}
 
@@ -55,7 +69,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lens-${{ matrix.target }}
+          name: lens-${{ matrix.artifact }}
           path: |
             release/*.zip
             release/*.AppImage
