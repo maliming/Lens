@@ -28,7 +28,6 @@ const { resolveSessionCwd } = require('./lib/session-cwd.cjs');
 const { ensureInside } = require('./lib/fs-safety.cjs');
 const { isValidSessionId } = require('./lib/shell.cjs');
 const { detectAiTools } = require('./lib/system-caps.cjs');
-const { agentEnv } = require('./lib/agent-env.cjs');
 
 // Backstop, not policy. Each terminal is a whole CLI process, and the process
 // is the dominant cost by a wide margin — a 2026-08-11 measurement put it in
@@ -93,6 +92,15 @@ const SOURCE_ADAPTERS = {
     // The renderer's menu is the same list; this one is the check that matters,
     // since these values are spliced into argv.
     modes: ['acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk', 'plan'],
+    // Claude Code marks its own children with CLAUDE_CODE_CHILD_SESSION so a
+    // nested `claude` does not write the same JSONL twice, and a child that
+    // sees it writes no transcript at all. A Lens launched from Finder never
+    // carries that marker, but one started from an agent's own terminal does,
+    // and passes it straight down here. This is the CLI's supported way to say
+    // "this is a top-level session" — its own warning text names the variable —
+    // and being one positive assertion it keeps working as the vendor adds
+    // markers, which a list of names to delete would not.
+    env: { CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' },
     argv: (id, opts) => [
       '--resume', id,
       '--settings', JSON.stringify({ theme: opts.theme === 'light' ? 'light' : 'dark' }),
@@ -310,16 +318,14 @@ function createPtyManager({ getMainWindow, claude, codex }) {
         cols,
         rows,
         cwd,
-        // agentEnv strips the *session* markers Lens may have inherited. With
-        // CLAUDE_CODE_CHILD_SESSION present the CLI turns transcript saving
-        // off entirely — the JSONL never grows and the transcript above looks
-        // frozen no matter how often it is reloaded.
-        env: agentEnv(process.env, {
+        env: {
+          ...process.env,
           // These CLIs render differently when they think they are inside an
           // editor's task runner; tell them plainly this is a real terminal.
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',
-        }),
+          ...(adapter.env || {}),
+        },
       });
     } catch (err) {
       return { ok: false, error: 'spawn-failed', message: String(err?.message || err) };
