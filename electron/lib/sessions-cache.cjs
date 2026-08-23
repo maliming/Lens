@@ -122,7 +122,15 @@ function createSessionsCache({ userDataDir }) {
       };
     }
     if (obj?.version !== SESSIONS_CACHE_VERSION) {
-      return { status: 'incompatible', generation: null };
+      // Write-blocking exists so an older app cannot flatten a cache written by
+      // a newer one — the newer schema is the one that would lose data. An
+      // older unknown version is the opposite case: nothing on disk is worth
+      // protecting, and refusing to write it leaves the source cold-scanning on
+      // every launch with no way back, because the file that caused the block
+      // is also the file we now refuse to replace. Only a version above ours
+      // earns the block; anything else is simply unusable and gets rewritten.
+      const newerThanUs = typeof obj?.version === 'number' && obj.version > SESSIONS_CACHE_VERSION;
+      return { status: newerThanUs ? 'incompatible' : 'failed', generation: null };
     }
     if (obj.source !== source) {
       return { status: 'failed', generation: null };
