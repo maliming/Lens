@@ -11,8 +11,10 @@
 //                                 to $HOME when unusable.
 //   runOsascript(script)        — fire-and-resolve wrapper around `osascript -e`.
 //   resumeCommandFor(payload)   — pick claude/codex CLI for a session and
-//                                 build both the bash command and the argv
-//                                 form the IPC's spawn paths need.
+//                                 build the command line each launch path
+//                                 needs (bash / cmd / PowerShell) plus the
+//                                 argv form, each carrying the session env
+//                                 the CLI has to be told about explicitly.
 //   payloadKey(payload)         — composite-key validator + builder for
 //                                 favorites/excludes/aliases payloads.
 //
@@ -70,6 +72,27 @@ function runOsascript(script) {
   });
 }
 
+// Environment a launched CLI needs, declared in the command text rather than
+// inherited. Claude Code marks its own children with CLAUDE_CODE_CHILD_SESSION
+// so a nested `claude` does not write the same JSONL twice, and a child that
+// sees it writes no transcript at all. A Lens started from an agent's own
+// terminal carries that marker and hands it to every terminal it opens.
+// `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE` is the CLI's supported way to say
+// "this is a top-level session" — the same assertion pty.cjs makes for the
+// embedded terminal, and the one its own warning text names.
+//
+// It has to travel *in the command* here rather than in the environment of the
+// process we spawn: the macOS path goes through osascript, and the session
+// Terminal / iTerm opens inherits *that app's* environment, not Lens's.
+// gnome-terminal's client/server split loses it the same way on Linux.
+const RESUME_ENV = { CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' };
+
+// PowerShell single-quoted strings escape an embedded quote by doubling it —
+// not the POSIX `'\''` dance shellQuote does.
+function psQuote(s) {
+  return "'" + String(s).replace(/'/g, "''") + "'";
+}
+
 // Returns the right resume command for a given session. Caller MUST resolve
 // `source` to 'claude' or 'codex' before invoking — historically this helper
 // fell back to sniffing `filePath` against CODEX_DIR, but that gave a
@@ -84,15 +107,28 @@ function resumeCommandFor(payload) {
   const isCodex = source === 'codex';
   // codex CLI resumes via `codex resume <session-id>`. cwd matters less for
   // codex because the session's own metadata records cwd; we still cd to it.
+  const cli = isCodex ? 'codex' : 'claude';
+  const args = isCodex ? ['resume', id] : ['--resume', id];
+  const env = isCodex ? {} : { ...RESUME_ENV };
+  const entries = Object.entries(env);
+  // One prefix per shell dialect the launch paths hand a command line to.
+  const bashEnv = entries.map(([k, v]) => `${k}=${shellQuote(v)} `).join('');
+  const cmdEnv = entries.map(([k, v]) => `set "${k}=${v}" && `).join('');
+  const psEnv = entries.map(([k, v]) => `$env:${k}=${psQuote(v)}; `).join('');
   return {
     dir,
-    cli: isCodex ? 'codex' : 'claude',
+    cli,
+    args,
+    env,
     // id passes isValidSessionId so the alphabet is safe — but quote it anyway
     // for defense-in-depth, in case the allowed alphabet ever widens.
     bashCmd: isCodex
-      ? `cd ${shellQuote(dir)} && codex resume ${shellQuote(id)}`
-      : `cd ${shellQuote(dir)} && claude --resume ${shellQuote(id)}`,
-    args: isCodex ? ['resume', id] : ['--resume', id],
+      ? `cd ${shellQuote(dir)} && ${bashEnv}codex resume ${shellQuote(id)}`
+      : `cd ${shellQuote(dir)} && ${bashEnv}claude --resume ${shellQuote(id)}`,
+    // The Windows launchers take their cwd through execFile's `cwd:` option, so
+    // these carry only the env declaration and the invocation.
+    cmdCmd: `${cmdEnv}${cli} ${args.join(' ')}`,
+    psCmd: `${psEnv}${cli} ${args.join(' ')}`,
   };
 }
 

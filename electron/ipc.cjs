@@ -436,7 +436,7 @@ function registerIpc(deps) {
     // `payload.cwd` is intentionally ignored — passing it through `cwd`
     // here means resumeCommandFor never sees an attacker-controlled path.
     const { source, cwd } = await resolveSessionWithCwd(payload);
-    const { dir, bashCmd, cli, args } = resumeCommandFor({ ...payload, source, cwd });
+    const { dir, bashCmd, cmdCmd, psCmd } = resumeCommandFor({ ...payload, source, cwd });
 
     if (process.platform === 'darwin') {
       const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(bashCmd)}\nend tell`;
@@ -454,7 +454,6 @@ function registerIpc(deps) {
       const dirLooksLikeFlag = safeDir.startsWith('-') || safeDir.startsWith('/');
       const terms = detectTerminals();
       const opts = { windowsHide: false, cwd: safeDir };
-      const innerCmd = `${cli} ${args.join(' ')}`;
       // Resolve known Windows system programs to absolute paths so a writable
       // directory earlier in PATH can't shadow them with a malicious binary.
       // wt.exe lives in WindowsApps (Microsoft Store), so we keep PATH lookup
@@ -466,8 +465,8 @@ function registerIpc(deps) {
         // wt.exe -d sets the *initial directory of the new tab*; skip it when the
         // path could be confused with a flag and rely on the inherited cwd instead.
         const wtArgs = dirLooksLikeFlag
-          ? [absCmd, '/K', innerCmd]
-          : ['-d', safeDir, absCmd, '/K', innerCmd];
+          ? [absCmd, '/K', cmdCmd]
+          : ['-d', safeDir, absCmd, '/K', cmdCmd];
         return new Promise((resolve, reject) => {
           execFile('wt.exe', wtArgs, opts, (err) => { if (err) reject(err); else resolve(true); });
         });
@@ -479,11 +478,11 @@ function registerIpc(deps) {
         const pwshAbs = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe';
         const ps = fs.existsSync(pwshAbs) ? pwshAbs : absPwsh;
         return new Promise((resolve, reject) => {
-          execFile(ps, ['-NoExit', '-Command', innerCmd], opts, (err) => { if (err) reject(err); else resolve(true); });
+          execFile(ps, ['-NoExit', '-Command', psCmd], opts, (err) => { if (err) reject(err); else resolve(true); });
         });
       }
       return new Promise((resolve, reject) => {
-        execFile(absCmd, ['/K', innerCmd], opts, (err) => { if (err) reject(err); else resolve(true); });
+        execFile(absCmd, ['/K', cmdCmd], opts, (err) => { if (err) reject(err); else resolve(true); });
       });
     }
     // Linux: try the cross-DE `xdg-terminal-exec` (Debian 12+, common DE wrapper),
