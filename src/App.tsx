@@ -209,6 +209,14 @@ export default function App() {
   // "loaded" is what put an empty-state in front of people for the second or
   // two before the first push arrived.
   const [scannedSources, setScannedSources] = useState<Set<string>>(() => new Set());
+  // Sources whose scan has actually delivered its final rows.
+  //
+  // Deliberately NOT `scannedSources`: that one also flips on the 15s backstop
+  // below so the list can stop pulsing at a scan that may never report. A
+  // skeleton outstaying its welcome is a cosmetic call; dropping the user's
+  // restored selection on the same guess is not, because the drop is written
+  // straight back to localStorage and the selection is gone for good.
+  const [settledSources, setSettledSources] = useState<Set<string>>(() => new Set());
   // Nothing may wait on a signal forever. If main never reports a finished scan
   // — it crashed, the IPC bridge is missing — the list has to be allowed to
   // say what it actually knows rather than pulse indefinitely.
@@ -314,6 +322,13 @@ export default function App() {
   useEffect(() => {
     if (!activeId) return;
     if (!activeId.startsWith(`${currentSource}:`)) return;
+    // "Not in the list" only means something once the list is the whole list.
+    // A fresh mount starts with no rows at all, and a cold scan pushes the
+    // newest batch first — in both cases a selection restored from a previous
+    // launch is missing for a reason that has nothing to do with the session.
+    // Clearing on that reads as the app forgetting where the user was every
+    // time it starts, and the write below makes the forgetting permanent.
+    if (!settledSources.has(currentSource)) return;
     if (view !== 'sessions' && view !== 'favorites' && view !== 'terminals' && view !== 'excluded') return;
     let inView = false;
     if (view === 'sessions') inView = !effectiveExcluded.has(activeId);
@@ -327,7 +342,7 @@ export default function App() {
     // flip can leave activeId pointing at a row that's no longer reachable.
     if (inView && !sessions.some(s => srcKey(s) === activeId)) inView = false;
     if (!inView) setActiveId(null);
-  }, [view, activeId, favorites, effectiveExcluded, sessions, currentSource]);
+  }, [view, activeId, favorites, effectiveExcluded, sessions, currentSource, settledSources]);
 
   const reload = useCallback(async () => {
     // Stale guard: capture source + a monotonic request id at call time. If
@@ -455,6 +470,7 @@ export default function App() {
       // would otherwise flash the real empty state.
       if (update.final) {
         setScannedSources(prev => prev.has(update.source) ? prev : new Set(prev).add(update.source));
+        setSettledSources(prev => prev.has(update.source) ? prev : new Set(prev).add(update.source));
       }
       if (sessionRevisionsRef.current.get(update.source) === update.revision) return;
       sessionRevisionsRef.current.set(update.source, update.revision);
