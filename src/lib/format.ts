@@ -124,7 +124,7 @@ export function humanizePlanType(s: string): string {
 // Platform-aware "modifier + key" label for kbd hints. macOS users expect ⌘K;
 // Windows/Linux expect Ctrl K. Renderer has no Node access so we sniff the UA
 // at runtime (covers Win/Mac/Linux; falls through to Ctrl for anything else).
-const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
+export const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
 export function kbdShortcut(key: string): string {
   return IS_MAC ? `⌘${key}` : `Ctrl ${key}`;
 }

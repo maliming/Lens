@@ -3,7 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
-import { cleanDisplayText } from './format';
+import { IS_MAC, cleanDisplayText } from './format';
 import { DEMO_TERMINAL_SCRIPT } from './demoData';
 import { SOURCES } from './sources';
 import type { SessionMeta } from '../types';
@@ -749,6 +749,12 @@ const WRITE_CHUNK = 16 * 1024;
 // produce while a single start lands.
 const MAX_PENDING_INPUT = 64 * 1024;
 
+// ⌘C on macOS; Ctrl+Shift+C elsewhere, where Ctrl+C belongs to the process.
+function isCopyCombo(ev: KeyboardEvent): boolean {
+  if (IS_MAC) return ev.metaKey && !ev.ctrlKey && !ev.altKey && !ev.shiftKey && (ev.key === 'c' || ev.key === 'C');
+  return ev.ctrlKey && ev.shiftKey && !ev.altKey && !ev.metaKey && (ev.key === 'C' || ev.key === 'c');
+}
+
 function writeToPty(termId: string, data: string) {
   for (let i = 0; i < data.length;) {
     let end = Math.min(i + WRITE_CHUNK, data.length);
@@ -920,16 +926,48 @@ async function startTerminal(
     if (titleChanged || !wasBusy) notify();
   });
 
-  // Shift+Enter must insert a newline, not submit.
-  //
-  // xterm.js sends a bare CR for both Enter and Shift+Enter, so the CLI cannot
-  // tell them apart and treats the second as "send". iTerm2 avoids this by
-  // speaking a keyboard protocol that reports the modifier — xterm.js does not
-  // implement one. Measured against the real CLI: ESC+CR inserts a newline,
-  // CSI 13;2u also works, and a bare LF submits. ESC+CR is what Claude Code's
-  // own `/terminal-setup` installs for iTerm2, so it is the sequence to send.
+  // Two keys xterm's own handling gets wrong for this app: copy, which never
+  // reaches the clipboard at all, and Shift+Enter, which submits.
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== 'keydown') return true;
+
+    // Copy has to be implemented here, because nothing else will do it.
+    //
+    // xterm draws its own selection; the focused element is its hidden helper
+    // textarea, which never holds one. Chromium validates the Copy command
+    // against that element, so the command is refused before the `copy` event
+    // fires — and that event is what xterm's own handler uses to put the right
+    // text on the clipboard. `body { user-select: none }` (styles.css) leaves
+    // no native selection to fall back on either, so nothing is copied at all
+    // and the clipboard keeps whatever was on it before; the next paste
+    // produces unrelated text rather than the selection. Measured on macOS
+    // with Electron's default Edit menu in place: a real ⌘C over a selection
+    // left the clipboard untouched. Paste is unaffected — it has no equivalent
+    // validation — which is why only this direction needs handling.
+    //
+    // Windows/Linux strip the menu entirely (main.cjs), so there is no copy
+    // accelerator there at all. Ctrl+Shift+C is the terminal convention, and
+    // keeps Ctrl+C as SIGINT.
+    if (isCopyCombo(ev)) {
+      // Nothing selected: let the key through rather than swallowing it.
+      if (!term.hasSelection()) return true;
+      ev.preventDefault();
+      ev.stopPropagation();
+      // Fire-and-forget: a rejected clipboard write (permission revoked, no
+      // secure context) must not throw inside xterm's key handling.
+      void navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+      return false;
+    }
+
+    // Shift+Enter must insert a newline, not submit.
+    //
+    // xterm.js sends a bare CR for both Enter and Shift+Enter, so the CLI
+    // cannot tell them apart and treats the second as "send". iTerm2 avoids
+    // this by speaking a keyboard protocol that reports the modifier —
+    // xterm.js does not implement one. Measured against the real CLI: ESC+CR
+    // inserts a newline, CSI 13;2u also works, and a bare LF submits. ESC+CR
+    // is what Claude Code's own `/terminal-setup` installs for iTerm2, so it
+    // is the sequence to send.
     if (ev.key !== 'Enter' || !ev.shiftKey || ev.altKey || ev.ctrlKey || ev.metaKey) return true;
     // preventDefault is the load-bearing part, not the return value. xterm's
     // _keyDown does `if (handler(e) === false) return false;` and returns
