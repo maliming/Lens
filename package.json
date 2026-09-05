@@ -1,6 +1,6 @@
 {
   "name": "lens",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "Search, resume, and understand your AI coding sessions",
   "main": "electron/main.cjs",
   "desktopName": "io.maliming.lens.desktop",
