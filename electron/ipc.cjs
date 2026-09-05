@@ -31,7 +31,7 @@ const { isInsideBase, ensureInsideAny } = require('./lib/fs-safety.cjs');
 const { compositeKey } = require('./parsers/shared.cjs');
 const { detectTerminals, detectAiTools } = require('./lib/system-caps.cjs');
 const {
-  shellQuote, isValidSessionId, runOsascript,
+  isValidSessionId, runOsascript,
   resumeCommandFor, payloadKey,
 } = require('./lib/shell.cjs');
 const { deepSearch } = require('./search.cjs');
@@ -268,13 +268,14 @@ function registerIpc(deps) {
   }
 
   ipcMain.handle('sessions:copyResumeCommand', async (_e, payload) => {
-    const { id } = payload || {};
     const { source, cwd } = await resolveSessionWithCwd(payload);
-    const cmd = source === 'codex'
-      ? `cd ${shellQuote(cwd)} && codex resume ${shellQuote(id)}`
-      : `cd ${shellQuote(cwd)} && claude --resume ${shellQuote(id)}`;
-    clipboard.writeText(cmd);
-    return cmd;
+    // Same builder the launchers use. A pasted command runs in a shell Lens
+    // never spawned — the "externally launched terminal" case RESUME_ENV is
+    // there for — so a hand-rolled string here would silently drop that
+    // declaration and copy would resume differently from the buttons.
+    const { bashCmd } = resumeCommandFor({ ...payload, source, cwd });
+    clipboard.writeText(bashCmd);
+    return bashCmd;
   });
 
   ipcMain.handle('sessions:revealInFinder', async (_e, filePath) => {
