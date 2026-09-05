@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Star, GitBranch, Play, Filter, Clock, X, ChevronDown, ArrowRightLeft } from 'lucide-react';
+import { Search, Star, GitBranch, Play, Filter, Clock, X, ChevronDown, ArrowRightLeft, Square } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { cleanDisplayText, fmtTime, fmtDate, fmtTokens, sessionTimestamp, visibleMessageCount } from '../lib/format';
 import { resolveSessionTitle, projectShortName, meaningfulBranch } from '../lib/sessionTitle';
@@ -8,6 +8,7 @@ import { useCurrentSource, srcKey, getSource, type SessionSource } from '../lib/
 import { useDisplayPrefs } from '../lib/displayPrefs';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
 import { demoDeepSearch } from '../lib/demoData';
+import { setDeepSearchInFlight } from '../lib/deepSearchState';
 import type { SessionMeta } from '../types';
 import type { TKey } from '../lib/i18n';
 
@@ -189,6 +190,32 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
   // Reset pagination whenever the result set could change.
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [query, project, timeFilter, sort, favOnly, deepHits]);
 
+  // Mirrors `deepLoading` for the paths that run outside render order (the
+  // source-switch effect, the clear buttons) so they can tell whether main
+  // is still walking the corpus without reading a stale closure.
+  const deepLoadingRef = useRef(false);
+  const beginDeep = (q: string) => {
+    deepLoadingRef.current = true;
+    setDeepLoading(true);
+    setDeepSearchInFlight(true, q);
+  };
+  const endDeep = () => {
+    deepLoadingRef.current = false;
+    setDeepLoading(false);
+    setDeepSearchInFlight(false);
+  };
+  // Drop whatever deep search is in flight: invalidate its result on this
+  // side AND tell main to stop the walk. Every path that discards the
+  // current query (Stop, Esc, clear, source switch) goes through here;
+  // bumping the seq alone used to leave main reading the whole corpus for
+  // a result nobody would look at, and the next query queued behind it.
+  const abandonDeep = () => {
+    ++deepSeqRef.current;
+    latestQueryRef.current = '';
+    if (deepLoadingRef.current && !demoMode) window.api.cancelDeepSearch().catch(() => {});
+    endDeep();
+  };
+
   // When the cross-source hint switches `currentSource`, we want to re-run
   // the SAME query against the new source instead of dropping it. A ref
   // survives the source-flip effect's state reset, so the effect can commit
@@ -202,8 +229,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
   // when a cross-source switch has queued a carry-over query — then restore
   // it and let submitDeep run synchronously against the new source.
   useEffect(() => {
-    ++deepSeqRef.current;
-    latestQueryRef.current = '';
+    abandonDeep();
     const carry = pendingCrossSourceQueryRef.current;
     pendingCrossSourceQueryRef.current = null;
     if (carry) {
@@ -214,7 +240,6 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
       setSubmitted('');
       setProject('');
       setDeepHits(new Map());
-      setDeepLoading(false);
       setVisibleCount(PAGE_SIZE);
       // submitDeepRef holds the latest closure (rebound every render — see
       // the assignment line near submitDeep). After React commits this
@@ -227,9 +252,10 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
       setSubmitted('');
       setProject('');
       setDeepHits(new Map());
-      setDeepLoading(false);
       setVisibleCount(PAGE_SIZE);
     }
+    // abandonDeep is rebuilt every render but only touches refs and setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSource]);
 
   const projectOptions = useMemo(() => {
@@ -245,11 +271,8 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
   const submitDeep = async (q: string) => {
     const trimmed = q.trim();
     if (!trimmed) {
-      // Empty submit acts as cancel: bump the seq + clear latest-query so any
-      // in-flight deep search's `.then` doesn't paint stale hits over the
-      // now-empty result list.
-      ++deepSeqRef.current;
-      latestQueryRef.current = '';
+      // Empty submit acts as cancel.
+      abandonDeep();
       setSubmitted('');
       setDeepHits(new Map());
       return;
@@ -267,7 +290,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
     // control / bidi chars would otherwise corrupt the visible chip later.
     const recentEntry = cleanDisplayText(trimmed).slice(0, 200);
     if (recentEntry) setRecent(prev => [recentEntry, ...prev.filter(x => x !== recentEntry)].slice(0, RECENT_MAX));
-    setDeepLoading(true);
+    beginDeep(trimmed);
     // Deep search reads every JSONL regardless of the active time window. If
     // the user kept the default 7-day filter, old hits would render but be
     // immediately filtered out of the list. Widen automatically so the
@@ -311,9 +334,22 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
       onStatus(t('status.searchFailed', { error: e.message }));
     } finally {
       if (reqSeq === deepSeqRef.current && reqSource === currentSourceRef.current) {
-        setDeepLoading(false);
+        endDeep();
       }
     }
+  };
+
+  // Stop button / Esc. Leaves the typed query in place and returns the list
+  // to the shallow filter, i.e. the state before Enter was pressed; the
+  // half-finished deep results are not shown because a partial walk would
+  // read as "these are all the matches".
+  const cancelDeep = () => {
+    if (!deepLoadingRef.current) return;
+    abandonDeep();
+    setSubmitted('');
+    setDeepHits(new Map());
+    setCrossSourceHits(null);
+    setShowExcludedMatches(false);
   };
 
   // Keep the ref in sync with the latest closure so the auto-submit listener
@@ -324,10 +360,9 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
   const onSubmit = (e: React.FormEvent) => { e.preventDefault(); submitDeep(query); };
 
   const clearAll = () => {
-    // Bump seq + latest query so any in-flight deep search is invalidated
-    // before we clear out hits — otherwise a slow .then could re-populate.
-    ++deepSeqRef.current;
-    latestQueryRef.current = '';
+    // Invalidate any in-flight deep search before we clear out hits —
+    // otherwise a slow .then could re-populate.
+    abandonDeep();
     setQuery(''); setSubmitted(''); setDeepHits(new Map());
     setProject(''); setTimeFilter('all'); setSort('relevance'); setFavOnly(false);
     // Both panels are query-shaped: the cross-source nudge is bound to
@@ -470,14 +505,14 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
               ref={inputRef}
               value={query}
               onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape' && deepLoading) { e.preventDefault(); cancelDeep(); } }}
               placeholder={t('search.placeholder')}
               className="w-full pl-10 pr-44 h-11 bg-surface border border-border rounded-xl text-[14px] outline-none focus:border-accent transition"
             />
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
               {query && (
                 <button type="button" onClick={() => {
-                  ++deepSeqRef.current;
-                  latestQueryRef.current = '';
+                  abandonDeep();
                   setQuery('');
                   setSubmitted('');
                   setDeepHits(new Map());
@@ -489,19 +524,34 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
-              <button
-                type="submit"
-                disabled={!query.trim() || deepLoading}
-                className={cn(
-                  'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[11.5px] font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed',
-                  query.trim() && !deepLoading ? 'bg-accent text-white hover:opacity-90' : 'bg-muted text-text-muted',
-                )}
-                title={t('search.deep.tooltip')}
-              >
-                <Search className="w-3 h-3" />
-                {deepLoading ? `${t('search.deepSearch')}…` : t('search.deepSearch')}
-                <kbd className={cn('text-[10px] px-1 py-0 rounded border font-mono', query.trim() && !deepLoading ? 'border-white/30 text-white' : 'border-border-soft text-text-muted')}>↵</kbd>
-              </button>
+              {deepLoading ? (
+                // Same slot as the submit button so the row doesn't reflow
+                // when a search starts or stops.
+                <button
+                  type="button"
+                  onClick={cancelDeep}
+                  className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[11.5px] font-semibold transition bg-muted text-text hover:bg-border"
+                  title={t('search.stop.tooltip')}
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                  {t('search.stop')}
+                  <kbd className="text-[10px] px-1 py-0 rounded border font-mono border-border-soft text-text-muted">Esc</kbd>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!query.trim()}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[11.5px] font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed',
+                    query.trim() ? 'bg-accent text-white hover:opacity-90' : 'bg-muted text-text-muted',
+                  )}
+                  title={t('search.deep.tooltip')}
+                >
+                  <Search className="w-3 h-3" />
+                  {t('search.deepSearch')}
+                  <kbd className={cn('text-[10px] px-1 py-0 rounded border font-mono', query.trim() ? 'border-white/30 text-white' : 'border-border-soft text-text-muted')}>↵</kbd>
+                </button>
+              )}
             </div>
           </div>
           <p className="text-[10.5px] text-text-muted mt-1.5">{t('search.hint')}</p>

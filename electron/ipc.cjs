@@ -157,23 +157,53 @@ function registerIpc(deps) {
     catch { return empty; }
   });
 
+  // One whole-corpus walk at a time. A new query aborts the in-flight walk
+  // instead of queueing behind it: the renderer has already dropped that
+  // result, so finishing it would be pure disk IO that delays the query the
+  // user is actually waiting for. The entry is registered synchronously so a
+  // third call arriving while the second is still waiting for the first to
+  // unwind aborts the second, not the already-aborted first.
   let _deepSearchInflight = null;
+  function startDeepSearch(query, source) {
+    const prev = _deepSearchInflight;
+    const controller = new AbortController();
+    const promise = (async () => {
+      if (prev) {
+        prev.controller.abort();
+        try { await prev.promise; } catch {}
+      }
+      return deepSearch(query, source, { signal: controller.signal });
+    })();
+    const entry = { controller, promise };
+    _deepSearchInflight = entry;
+    promise.catch(() => {}).finally(() => {
+      if (_deepSearchInflight === entry) _deepSearchInflight = null;
+    });
+    return entry;
+  }
   ipcMain.handle('sessions:deepSearch', async (_e, payload) => {
     const query = payload?.query;
     if (typeof query !== 'string') return [];
     if (query.length === 0 || query.length > DEEP_SEARCH_QUERY_MAX_LEN) return [];
     if ((query.match(/\S+/g) || []).length > DEEP_SEARCH_QUERY_MAX_TERMS) return [];
-    // Mutual exclusion: a new search supersedes the in-flight one. We can't
-    // truly cancel mid-scan (parser is sync per file) but we can refuse to
-    // queue a fresh whole-corpus walk while one is already running — caller
-    // gets a quick empty result rather than piling on disk IO.
-    if (_deepSearchInflight) {
-      try { await _deepSearchInflight; } catch {}
+    const { controller, promise } = startDeepSearch(query, payload?.source);
+    try { return await promise; }
+    catch (e) {
+      // The renderer's stale guard discards a superseded result anyway; an
+      // empty array keeps the channel's return shape for the abort case.
+      if (controller.signal.aborted) return [];
+      throw e;
     }
-    const p = deepSearch(query, payload?.source);
-    _deepSearchInflight = p;
-    try { return await p; }
-    finally { if (_deepSearchInflight === p) _deepSearchInflight = null; }
+  });
+  // Explicit stop from the Search page (Stop button, Esc, source switch).
+  // Waits for the walk to unwind so a search issued right after starts on
+  // an idle disk. Resolves false when nothing was running.
+  ipcMain.handle('sessions:deepSearchCancel', async () => {
+    const cur = _deepSearchInflight;
+    if (!cur) return false;
+    cur.controller.abort();
+    try { await cur.promise; } catch {}
+    return true;
   });
 
   // Source resolution gate for resume/copy IPC. Combines:

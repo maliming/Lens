@@ -170,7 +170,20 @@ function extractHumanText(obj) {
   return '';
 }
 
-async function deepSearch(query, source) {
+// Thrown out of deepSearch when its AbortSignal fires. Callers key off
+// `signal.aborted` rather than this name, so the class stays private.
+function abortError() {
+  const err = new Error('deep search aborted');
+  err.name = 'AbortError';
+  return err;
+}
+
+// `signal` (AbortSignal, optional) stops the walk early: it is checked before
+// every file and on every line, and a line-level abort throws out of the
+// streaming reader so the current file's stream is destroyed instead of
+// being drained to EOF. Without it a superseded query kept reading the whole
+// corpus, and the query that replaced it had to wait behind that IO.
+async function deepSearch(query, source, { signal } = {}) {
   if (!query || query.length < 2) return [];
   // Split on whitespace → OR semantics. "jwt refresh token" matches any session
   // containing jwt, refresh, OR token; ranked by total count + keyword coverage.
@@ -186,6 +199,7 @@ async function deepSearch(query, source) {
   const rawHits = [];
 
   for (const { filePath, projectDir, parentSessionId } of targets) {
+    if (signal?.aborted) throw abortError();
     const entry = path.basename(filePath);
     // Stat first so a giant log file can't kill the main loop before we even
     // look at content. Files past the cap are skipped (not errored).
@@ -217,6 +231,7 @@ async function deepSearch(query, source) {
     let aborted = false;
     try {
       await forEachJsonlLine(filePath, (obj) => {
+        if (signal?.aborted) throw abortError();
         if (aborted) return;
         lineIdx++;
         // Codex session_meta carries the id we need; capture on the first
@@ -290,7 +305,11 @@ async function deepSearch(query, source) {
           }
         }
       });
-    } catch { continue; }
+    } catch (e) {
+      // A per-file read failure skips that file; an abort ends the walk.
+      if (signal?.aborted) throw e;
+      continue;
+    }
     if (totalCount === 0) continue;
 
     // Prefer the human-text line if we found one; the raw JSON noise line is

@@ -283,6 +283,8 @@ declare global {
         termCount?: number;
         sources?: { user: number; assistant: number; summary: number; tool: number };
       }>>;
+      // Stops the in-flight deep search; resolves true when one was running.
+      cancelDeepSearch: () => Promise<boolean>;
       copyResumeCommand: (id: string, filePath?: string, source?: 'claude' | 'codex') => Promise<string>;
       revealInFinder: (filePath: string) => Promise<void>;
       revealSourceDir: (source: 'claude' | 'codex') => Promise<void>;

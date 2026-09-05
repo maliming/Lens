@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   getSubagents: (filePath) => ipcRenderer.invoke('sessions:subagents', filePath),
   statSession: (filePath) => ipcRenderer.invoke('sessions:stat', filePath),
   deepSearch: (query, source) => ipcRenderer.invoke('sessions:deepSearch', { query, source }),
+  cancelDeepSearch: () => ipcRenderer.invoke('sessions:deepSearchCancel'),
   copyResumeCommand: (id, filePath, source) => ipcRenderer.invoke('sessions:copyResumeCommand', { id, filePath, source }),
   revealInFinder: (filePath) => ipcRenderer.invoke('sessions:revealInFinder', filePath),
   revealSourceDir: (source) => ipcRenderer.invoke('app:revealSourceDir', source),
