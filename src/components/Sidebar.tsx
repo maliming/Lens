@@ -12,7 +12,9 @@ import type { TKey } from '../lib/i18n';
 import { pct, resetInLabel, agoLabel, isWindowExpired, hasWindow, useNowTick, type RateLimitsState } from '../lib/rateLimits';
 import { DEMO_AUTH } from '../lib/demoData';
 import { AISourceSelector } from './AISourceSelector';
-import { useCurrentSource, getSource } from '../lib/sources';
+import { SourceSwitchConfirmModal } from './SourceSwitchConfirmModal';
+import { useCurrentSource, getSource, type SessionSource } from '../lib/sources';
+import { getDeepSearchState } from '../lib/deepSearchState';
 
 // Generic adapter — looks up the current source's Glyph from the registry.
 // Adding a new AI tool means adding a row in lib/sources.ts SOURCES; this
@@ -336,7 +338,28 @@ function RateBar({ label, window, windowSize, className }: { label: string; wind
 // merged profile/quota card.
 function SidebarSourceSlot({ demoMode }: { demoMode: boolean }) {
   const [source, setSource] = useCurrentSource();
-  return <AISourceSelector value={source} onChange={setSource} demoMode={demoMode} />;
+  // A flip mid deep-search wipes the Search page, so ask first. The query is
+  // captured at click time; the modal keeps showing it even if the scan
+  // finishes while the dialog is open, at which point switching is free.
+  const [pending, setPending] = useState<{ next: SessionSource; query: string } | null>(null);
+  const requestSwitch = (next: SessionSource) => {
+    if (next === source) return;
+    const deep = getDeepSearchState();
+    if (deep.inFlight) { setPending({ next, query: deep.query }); return; }
+    setSource(next);
+  };
+  return (
+    <>
+      <AISourceSelector value={source} onChange={requestSwitch} demoMode={demoMode} />
+      <SourceSwitchConfirmModal
+        open={pending != null}
+        target={pending?.next ?? null}
+        query={pending?.query ?? ''}
+        onKeep={() => setPending(null)}
+        onSwitch={() => { const next = pending?.next; setPending(null); if (next) setSource(next); }}
+      />
+    </>
+  );
 }
 
 // Profile + quota merged into one identity card (restored from the v11 design).
