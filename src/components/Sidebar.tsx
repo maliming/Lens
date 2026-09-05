@@ -9,7 +9,7 @@ import type { Profile } from '../lib/profile';
 import { useSourceAuth, planLabel, planBadgeClass } from '../lib/sourceAuth';
 import { useTranslation } from '../lib/I18nProvider';
 import type { TKey } from '../lib/i18n';
-import { pct, resetInLabel, agoLabel, isWindowExpired, useNowTick, type RateLimitsState } from '../lib/rateLimits';
+import { pct, resetInLabel, agoLabel, isWindowExpired, hasWindow, useNowTick, type RateLimitsState } from '../lib/rateLimits';
 import { DEMO_AUTH } from '../lib/demoData';
 import { AISourceSelector } from './AISourceSelector';
 import { useCurrentSource, getSource } from '../lib/sources';
@@ -375,6 +375,9 @@ function ProfileQuotaCard({
   const EMPTY_WINDOW = { utilization: null, reset: null };
   const fiveHour = rateLimits?.limits?.fiveHour ?? EMPTY_WINDOW;
   const weekly = rateLimits?.limits?.weekly ?? EMPTY_WINDOW;
+  // Before data lands both bars show the skeleton; once it has, a window the
+  // provider never reported is simply not there.
+  const showFiveHour = !hasQuota || hasWindow(fiveHour);
   const headlineReset = hasQuota
     ? (resetInLabel(rateLimits!.limits!.weekly.reset, t) ?? resetInLabel(rateLimits!.limits!.fiveHour.reset, t))
     : null;
@@ -429,8 +432,8 @@ function ProfileQuotaCard({
                 {liveLabel}
               </span>
             </div>
-            <RateBar label="5h" window={fiveHour} windowSize="5h" />
-            <RateBar label="7d" window={weekly} windowSize="7d" className="mt-2" />
+            {showFiveHour && <RateBar label="5h" window={fiveHour} windowSize="5h" />}
+            <RateBar label="7d" window={weekly} windowSize="7d" className={cn(showFiveHour && 'mt-2')} />
             {(rateLimits?.limits?.modelWindows ?? []).map(w => (
               <RateBar key={w.name} label={cleanDisplayText(w.name)} window={w} windowSize="7d" className="mt-2" />
             ))}

@@ -5,7 +5,7 @@ import { useCurrentSource, getSource } from '../lib/sources';
 import { Coins, TrendingUp, Zap, Database, Activity, Hourglass, RefreshCw, AlertCircle, Wifi, Flame, Calendar as CalendarIcon, Trophy } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/I18nProvider';
-import { pct, resetInLabel, rateStatusKind, isWindowExpired, useNowTick, type RateLimitsState } from '../lib/rateLimits';
+import { pct, resetInLabel, rateStatusKind, isWindowExpired, hasWindow, useNowTick, type RateLimitsState } from '../lib/rateLimits';
 
 type Props = {
   usage: UsageSummary | null;
@@ -807,10 +807,12 @@ function LiveQuotaHero({ rateLimits, onRefresh, demoMode }: { rateLimits: RateLi
       {/* Mirrors claude.ai's usage panel: "Current session" alone, then a
           "Weekly limits" section holding "All models" plus one row per
           model-scoped window under the API's own display name. */}
-      <div className="grid grid-cols-1 gap-4">
-        <QuotaRing label={t('usage.fiveHourWindow')} window={rateLimits.limits!.fiveHour} />
-      </div>
-      <div className="mt-5 mb-3 text-[12.5px] font-semibold text-text">{t('usage.weeklyLimits')}</div>
+      {hasWindow(rateLimits.limits!.fiveHour) && (
+        <div className="grid grid-cols-1 gap-4 mb-5">
+          <QuotaRing label={t('usage.fiveHourWindow')} window={rateLimits.limits!.fiveHour} />
+        </div>
+      )}
+      <div className="mb-3 text-[12.5px] font-semibold text-text">{t('usage.weeklyLimits')}</div>
       <div className="grid grid-cols-1 gap-4">
         <QuotaRing label={t('usage.allModels')} window={rateLimits.limits!.weekly} />
         {(rateLimits.limits!.modelWindows ?? []).map(w => (

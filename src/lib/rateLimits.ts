@@ -283,6 +283,14 @@ function hasRolledOver(state: RateLimitsState): boolean {
   return [state.limits.fiveHour, state.limits.weekly, ...(state.limits.modelWindows ?? [])].some(isWindowExpired);
 }
 
+// Whether the provider reported this window at all. Codex plans without a
+// session limit return only the weekly window; the 5h slot then stays empty
+// forever, which is a different thing from "the probe hasn't answered yet"
+// and must not render as a loading skeleton.
+export function hasWindow(w: { utilization: number | null; reset: number | null } | null | undefined): boolean {
+  return !!w && (w.utilization != null || w.reset != null);
+}
+
 // Whether a window's reset moment has already passed. Its numbers describe a
 // window that has since rolled over, so they say nothing about the live one —
 // callers drop the "limit reached" badge instead of asserting a stale verdict.
