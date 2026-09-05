@@ -91,7 +91,7 @@ type Props = {
 };
 
 export function SessionDetail({ session, messages, loading, refreshing, favorites, query, onToggleFavorite, onStatus, onOpenInfo, onRefreshMessages, onSyncMessages, onOpenSession, demoMode, pendingLargeLoad, subagents }: Props) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [globalMode, setGlobalMode] = useState<'markdown' | 'raw'>('markdown');
   const [visibleCount, setVisibleCount] = useState<number>(INITIAL_VISIBLE);
   const [prefs, setPrefs] = useDisplayPrefs();
@@ -173,11 +173,66 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     }
     prevRefreshingRef.current = refreshing ?? false;
   }, [refreshing]);
-  // Detail pane's own minWidth keeps the toolbar wide enough to fit Resume +
-  // Copy + Refresh + Finder + VS Code + Display options + MD/Raw on a single
-  // row even at the app's minimum window size, so we no longer auto-strip
-  // labels — `prefs.toolbarLabels` is the sole signal.
+  // `prefs.toolbarLabels` decides whether the icon buttons carry text. It is
+  // a preference, not a fit signal: when the row still overflows (narrow
+  // pane, wide locale), the hero buttons drop their labels instead — see
+  // toolbarCompact below.
   const showLabel = prefs.toolbarLabels;
+
+  // Resume and Terminal are the widest items on the row, so shedding their
+  // labels is what buys a second line back. Measured, not a breakpoint: the
+  // wrap point moves with the locale, the label preference, and the pane
+  // width the user drags.
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const resumeBtnRef = useRef<HTMLButtonElement>(null);
+  const terminalBtnRef = useRef<HTMLButtonElement>(null);
+  const [toolbarCompact, setToolbarCompact] = useState(false);
+  const toolbarCompactRef = useRef(false);
+  // Width the two labels add back, captured as the row collapses. A compact
+  // row measured on its own always fits, so re-expansion must be judged
+  // against the expanded width — otherwise a pane a few pixels too narrow
+  // flaps between the two layouts on every resize tick.
+  const heroExtraRef = useRef(0);
+  useLayoutEffect(() => {
+    const row = toolbarRef.current;
+    if (!row || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const el = toolbarRef.current;
+      if (!el) return;
+      const kids = Array.from(el.children) as HTMLElement[];
+      if (kids.length === 0) return;
+      const avail = el.getBoundingClientRect().width;
+      // Hidden pane (view not active) measures 0 — the observer fires again
+      // once it is shown.
+      if (avail === 0) return;
+      const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+      const need = kids.reduce((sum, k) => sum + k.getBoundingClientRect().width, 0) + gap * (kids.length - 1);
+      if (!toolbarCompactRef.current) {
+        if (need > avail) {
+          // Icon-only the buttons are square (w-10 against h-10), so their
+          // rendered height is the compact width — measured rather than
+          // hardcoded because the rem size is not 16px here.
+          heroExtraRef.current = [resumeBtnRef, terminalBtnRef].reduce((sum, r) => {
+            if (!r.current) return sum;
+            const { width, height } = r.current.getBoundingClientRect();
+            return sum + Math.max(0, width - height);
+          }, 0);
+          toolbarCompactRef.current = true;
+          setToolbarCompact(true);
+        }
+      } else if (need + heroExtraRef.current <= avail) {
+        toolbarCompactRef.current = false;
+        setToolbarCompact(false);
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(row);
+    // Children too: a label swap (Copy → Copied, Refresh → Refreshed) moves
+    // the wrap point without changing the row's own box.
+    for (const k of Array.from(row.children)) ro.observe(k);
+    return () => ro.disconnect();
+  }, [session?.source, session?.id, prefs.toolbarLabels, locale]);
 
   // Reset the in-session search when switching sessions; keep it when the
   // current session is just being refreshed (parent toggles messages=null
@@ -585,15 +640,24 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
         {/* Toolbar order: Resume → Copy → Refresh → Finder → VS Code → Display
             options → (right) MD/Raw. Single rhythm, no divider chips —
             buttons all share the same icon weight so the eye doesn't need
-            help grouping them. Wraps to a second row when the pane is too
-            narrow. */}
-        <div className="flex flex-wrap items-center gap-2 min-w-0">
+            help grouping them. Resume and Terminal go icon-only before the
+            row wraps; it still wraps if that is not enough. */}
+        <div ref={toolbarRef} className="flex flex-wrap items-center gap-2 min-w-0">
           {/* Resume is THE hero action — visually distinct from the rest by
              solid accent fill rather than a separator. Opens the user's
              preferred terminal (iTerm on macOS if available, otherwise
              system Terminal). */}
-          <button onClick={handleTerminal} title={effectivePreferred === 'iterm' ? t('detail.tip.openInIterm') : t('detail.tip.openInTerminal')} className="h-10 px-4 bg-accent text-white rounded-lg text-[13.5px] font-semibold hover:opacity-90 flex items-center gap-1.5 shadow-soft whitespace-nowrap flex-shrink-0">
-            <Play className="w-4 h-4" />{t('detail.btn.resume')}
+          <button
+            ref={resumeBtnRef}
+            onClick={handleTerminal}
+            title={effectivePreferred === 'iterm' ? t('detail.tip.openInIterm') : t('detail.tip.openInTerminal')}
+            aria-label={t('detail.btn.resume')}
+            className={cn(
+              'h-10 bg-accent text-white rounded-lg text-[13.5px] font-semibold hover:opacity-90 flex items-center justify-center gap-1.5 shadow-soft whitespace-nowrap flex-shrink-0',
+              toolbarCompact ? 'w-10' : 'px-4',
+            )}
+          >
+            <Play className="w-4 h-4" />{!toolbarCompact && t('detail.btn.resume')}
           </button>
           {/* Peer of Resume, not a toolbar icon: continuing the work inside
               Lens is the same order of action as continuing it outside. Same
@@ -602,16 +666,19 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
               actually live so the running state is unmissable. */}
           {session && getSource(session.source).terminal.supported && (
             <button
+              ref={terminalBtnRef}
               onClick={requestTerminal}
               title={t('term.open')}
+              aria-label={t('term.label')}
               className={cn(
-                'h-10 px-4 rounded-lg text-[13.5px] font-semibold flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 transition',
+                'h-10 rounded-lg text-[13.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0 transition',
+                toolbarCompact ? 'w-10' : 'px-4',
                 getTerminal(sessionKeyOf(session))
                   ? 'bg-accent text-white hover:opacity-90 shadow-soft'
                   : 'border border-accent/50 text-accent hover:bg-accent-soft',
               )}
             >
-              <TerminalSquare className="w-4 h-4" />{t('term.label')}
+              <TerminalSquare className="w-4 h-4" />{!toolbarCompact && t('term.label')}
             </button>
           )}
           <ToolbarBtn
