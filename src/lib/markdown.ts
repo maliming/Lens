@@ -114,17 +114,57 @@ function ensureSanitizerHooks() {
   });
 }
 
+// marked + highlight.js + DOMPurify over one message runs in the low
+// milliseconds, which is fine once and expensive on every render — and this is
+// called straight out of a component body, so React re-renders it for reasons
+// that have nothing to do with the text: a keystroke in the session list's
+// filter box re-renders the detail pane and re-highlights every visible turn.
+// The lazily-windowed list makes it worse, unmounting and remounting messages
+// as the reader scrolls, which throws away anything a `useMemo` had held.
+//
+// The input is a message's immutable text and the output is a pure function of
+// it (the sanitizer hooks are installed once and never vary), so the result can
+// simply be kept. Bounded on both counts, because a session's messages can be
+// megabytes and this must not become a leak that grows with reading time.
+const RENDER_CACHE_MAX_ENTRIES = 400;
+const RENDER_CACHE_MAX_CHARS = 8_000_000;
+const renderCache = new Map<string, string>();
+let renderCacheChars = 0;
+
+function cacheRender(text: string, html: string) {
+  // Never cache a single entry big enough to blow the budget on its own.
+  if (text.length + html.length > RENDER_CACHE_MAX_CHARS / 4) return;
+  renderCache.set(text, html);
+  renderCacheChars += text.length + html.length;
+  while (renderCache.size > RENDER_CACHE_MAX_ENTRIES || renderCacheChars > RENDER_CACHE_MAX_CHARS) {
+    const oldest = renderCache.keys().next();
+    if (oldest.done) break;
+    const victim = renderCache.get(oldest.value) || '';
+    renderCacheChars -= oldest.value.length + victim.length;
+    renderCache.delete(oldest.value);
+  }
+}
+
 export function renderMarkdown(text: string): string {
+  const hit = renderCache.get(text);
+  if (hit !== undefined) {
+    // Refresh recency so the turns currently on screen aren't the ones evicted.
+    renderCache.delete(text);
+    renderCache.set(text, hit);
+    return hit;
+  }
   try {
     ensureSanitizerHooks();
     const html = marked.parse(text || '', { async: false }) as string;
-    return DOMPurify.sanitize(html, {
+    const clean = DOMPurify.sanitize(html, {
       ALLOWED_TAGS: ['a','p','br','strong','em','del','code','pre','blockquote',
         'ul','ol','li','h1','h2','h3','h4','h5','h6',
         'table','thead','tbody','tr','td','th','hr','img','span'],
       ALLOWED_ATTR: ['href','title','alt','src','class'],
       ALLOW_DATA_ATTR: false,
     });
+    cacheRender(text, clean);
+    return clean;
   } catch {
     return escapeHtml(text);
   }
