@@ -129,18 +129,18 @@ const CLAUDE_KIND_META: Record<ResourceKindKey, KindMeta> = {
 
 const CODEX_KIND_META: Record<ResourceKindKey, KindMeta> = {
   'rootInstructions': {
-    short: 'Agent instructions loaded into every Codex session.',
-    hint: '~/.codex/AGENTS.md — global Codex bootstrap context.',
+    short: 'Agent instructions loaded into every OpenAI Codex session.',
+    hint: '~/.codex/AGENTS.md — global OpenAI Codex bootstrap context.',
     pluralLabel: 'AGENTS.md',
   },
   'Skill': {
-    short: 'Reusable capabilities Codex can activate when needed.',
+    short: 'Reusable capabilities OpenAI Codex can activate when needed.',
     hint: 'Defined under ~/.codex/skills/, each with its own SKILL.md.',
     pluralLabel: 'Skills',
   },
   'Command': {
-    short: 'Slash commands Codex exposes inside any session.',
-    hint: 'Codex does not surface custom slash commands yet.',
+    short: 'Slash commands OpenAI Codex exposes inside any session.',
+    hint: 'OpenAI Codex does not surface custom slash commands yet.',
     pluralLabel: 'Commands',
   },
   'Hook': {
@@ -149,12 +149,12 @@ const CODEX_KIND_META: Record<ResourceKindKey, KindMeta> = {
     pluralLabel: 'Rules',
   },
   'Plugin': {
-    short: 'External packages registered with Codex.',
+    short: 'External packages registered with OpenAI Codex.',
     hint: 'Each plugin lives under ~/.codex/plugins/.',
     pluralLabel: 'Plugins',
   },
   'Settings': {
-    short: 'Codex preferences and behavior controls.',
+    short: 'OpenAI Codex preferences and behavior controls.',
     hint: 'Stored in ~/.codex/config.toml. Read once at startup.',
     pluralLabel: 'Config',
   },
@@ -192,14 +192,14 @@ export const SOURCES: Record<SessionSource, SourceDef> = {
   },
   codex: {
     id: 'codex',
-    label: 'Codex',
+    label: 'OpenAI Codex',
     pathHint: '~/.codex/sessions/',
     versionLabelKey: 'info.row.codexVersion',
     accent: '#1f1f24',
     accentSoft: '#e8e8ec',
     Glyph: OpenAIGlyph,
     workspaceRoot: '~/.codex',
-    workspaceBlurb: 'A map of your Codex environment — instructions, capabilities, and tool-permission rules picked up by every session.',
+    workspaceBlurb: 'A map of your OpenAI Codex environment — instructions, capabilities, and tool-permission rules picked up by every session.',
     kindMeta: CODEX_KIND_META,
     // `codex resume <session-id>` — the id comes from inside the rollout file,
     // not its timestamped name. See SOURCE_ADAPTERS in electron/pty.cjs.

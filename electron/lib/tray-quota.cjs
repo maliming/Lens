@@ -20,7 +20,7 @@ const PROVIDERS = [
   // user has not opted into is not merely failing to report — it was never
   // asked, and saying N/A for it would describe a problem that doesn't exist.
   { id: 'claude', name: 'Claude Code', needsConsent: true },
-  { id: 'codex', name: 'Codex', needsConsent: false },
+  { id: 'codex', name: 'OpenAI Codex', needsConsent: false },
 ];
 
 // Stands in for a provider that exists on this machine but whose last probe
