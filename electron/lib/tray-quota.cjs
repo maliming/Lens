@@ -16,8 +16,11 @@ const POLL_INTERVAL = 5 * 60 * 1000;
 // Settings (`menuBarQuotaOrder`), because the title carries no labels and
 // position is the only thing telling the two numbers apart.
 const PROVIDERS = [
-  { id: 'claude', name: 'Claude Code' },
-  { id: 'codex', name: 'Codex' },
+  // `needsConsent` mirrors the rate-limits service's own gate. A provider the
+  // user has not opted into is not merely failing to report — it was never
+  // asked, and saying N/A for it would describe a problem that doesn't exist.
+  { id: 'claude', name: 'Claude Code', needsConsent: true },
+  { id: 'codex', name: 'Codex', needsConsent: false },
 ];
 
 // Stands in for a provider that exists on this machine but whose last probe
@@ -78,9 +81,21 @@ function createTrayQuota({ getTray, getPrefs, rateLimits }) {
   // other — and for the missing provider it never clears, because nothing on
   // this machine can ever fill it. The answer comes from the shared service so
   // the Settings rows and this title cannot disagree about who exists.
+  //
+  // Consent is filtered here rather than in the service because it is a
+  // different question: the service answers "can this host report a quota",
+  // which Settings needs whatever the consent flag currently says, while the
+  // title needs "is there a number coming". Declining the probe drops the
+  // provider from the title entirely instead of parking an N/A there forever.
+  // `sync()` runs on every consent change, so this re-evaluates immediately.
   function activeProviders() {
     const ids = rateLimits.availableSources();
-    return PROVIDERS.filter(p => ids.includes(p.id));
+    const prefs = getPrefs();
+    return PROVIDERS.filter(p => {
+      if (!ids.includes(p.id)) return false;
+      if (p.needsConsent && prefs?.rateLimitsConsent !== 'granted') return false;
+      return true;
+    });
   }
 
   // Pref order, defensively normalised: unknown ids dropped, duplicates
@@ -111,8 +126,8 @@ function createTrayQuota({ getTray, getPrefs, rateLimits }) {
   // which reads badly after the "Claude Code — " prefix the menu already
   // supplies, so map the error codes to menu-sized phrases instead.
   const REASONS = {
-    expired: 'token expired, run any `claude` command',
-    'no-token': 'not signed in',
+    expired: 'CLI unavailable, stored token expired',
+    'no-token': 'CLI unavailable and not signed in',
     unauthorized: 'token rejected, sign in again',
     'no-consent': 'usage access not granted',
     'no-data': 'no quota reported',

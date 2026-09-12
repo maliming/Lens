@@ -18,6 +18,7 @@ import { TerminalLimitModal } from './TerminalLimitModal';
 import { getSource } from '../lib/sources';
 import { linkSubagents, linkedFor, messageHasLinkedSubagent, linkedMatchesQuery, taskAgentMatches, workflowRunMatches } from '../lib/subagents';
 import { useDisplayPrefs, type DisplayPrefs } from '../lib/displayPrefs';
+import { useAppPrefs } from '../lib/appPrefs';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
 
 // Initial render is sized to comfortably fill a default-sized viewport in
@@ -126,6 +127,7 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
   const [globalMode, setGlobalMode] = useState<'markdown' | 'raw'>('markdown');
   const [visibleCount, setVisibleCount] = useState<number>(INITIAL_VISIBLE);
   const [prefs, setPrefs] = useDisplayPrefs();
+  const [appPrefs] = useAppPrefs();
   const [localSearch, setLocalSearch] = useState('');
   // Total <mark> count + 0-based index of the currently focused one. We collect
   // marks by walking scrollRef in a useLayoutEffect (every time the search
@@ -754,7 +756,7 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
               height and weight; outlined rather than filled so two solid accent
               buttons don't fight for the eye, and filled once a terminal is
               actually live so the running state is unmissable. */}
-          {session && getSource(session.source).terminal.supported && (
+          {session && appPrefs.embeddedTerminal && getSource(session.source).terminal.supported && (
             <button
               ref={terminalBtnRef}
               onClick={requestTerminal}

@@ -19,6 +19,8 @@ import { useDemoMode } from './lib/demoMode';
 import { DEMO_SESSIONS, DEMO_USAGE, DEMO_PROFILE, DEMO_RATE_LIMITS_BY_SOURCE } from './lib/demoData';
 import { useRateLimitsConsent, useRateLimits, type RateLimitsState } from './lib/rateLimits';
 import { RateLimitsConsentModal } from './components/RateLimitsConsentModal';
+import { TerminalConsentModal } from './components/TerminalConsentModal';
+import { useAppPrefs } from './lib/appPrefs';
 import { useTranslation } from './lib/I18nProvider';
 import type { SessionMeta, SessionsUpdate, View, UsageSummary } from './types';
 import { hasLiveTerminal, subscribeTerminals, terminalCount } from './lib/terminals';
@@ -146,6 +148,16 @@ export default function App() {
   const [demoAliases, setDemoAliases] = useState<Record<string, string | null>>({});
   const [rlConsent, setRlConsent] = useRateLimitsConsent();
   const [rlPromptOpen, setRlPromptOpen] = useState(false);
+  const [termPromptOpen, setTermPromptOpen] = useState(false);
+  // The embedded terminal's flag lives in main-mirrored prefs; App owns the
+  // modal, so it owns the write that the modal's accept performs.
+  const [appPrefs, setAppPrefs] = useAppPrefs();
+  // Turning the terminal off while standing in its view would leave the user on
+  // a pane whose nav entry just vanished, unable to start anything and unable
+  // to come back to it. Send them somewhere real.
+  useEffect(() => {
+    if (!appPrefs.embeddedTerminal && view === 'terminals') setView('sessions');
+  }, [appPrefs.embeddedTerminal, view]);
   // Codex's probe spawns the local `codex app-server` — no OAuth token, no
   // consent required. Claude still gates behind the user's explicit opt-in.
   const rlEnabled = !demoMode && (currentSource === 'codex' || rlConsent === 'granted');
@@ -727,6 +739,7 @@ export default function App() {
           onOpenProfile={() => setProfileOpen(true)}
           rateLimits={rateLimitsState}
           quotaEnabled={rlEnabled || demoMode}
+          terminalEnabled={appPrefs.embeddedTerminal}
           demoMode={demoMode}
         />
         <Resizer cssVar="--sidebar-width" storageKey="sidebar-width" min={180} max={280} side="left" />
@@ -831,7 +844,7 @@ export default function App() {
           <ConfigView demoMode={demoMode} onStatus={setStatusMsg} refreshTick={refreshTick} isActive={view === 'config'} />
         </ViewSlot>
         <ViewSlot active={view === 'settings'}>
-          <SettingsView themeMode={themeMode} resolvedTheme={theme} onThemeChange={setThemeMode} demoMode={demoMode} onDemoModeChange={setDemoMode} rlConsent={rlConsent} onRlConsentChange={setRlConsent} />
+          <SettingsView themeMode={themeMode} resolvedTheme={theme} onThemeChange={setThemeMode} demoMode={demoMode} onDemoModeChange={setDemoMode} rlConsent={rlConsent} onRlConsentChange={setRlConsent} onOpenRlPrompt={() => setRlPromptOpen(true)} onOpenTerminalPrompt={() => setTermPromptOpen(true)} />
         </ViewSlot>
         </div>
       </div>
@@ -841,6 +854,12 @@ export default function App() {
         onOpenChange={setProfileOpen}
         profile={profile}
         onChange={setProfile}
+      />
+
+      <TerminalConsentModal
+        open={termPromptOpen}
+        onAccept={() => { setAppPrefs({ embeddedTerminal: true }); setTermPromptOpen(false); }}
+        onDeny={() => setTermPromptOpen(false)}
       />
 
       <RateLimitsConsentModal

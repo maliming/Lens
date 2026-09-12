@@ -481,19 +481,38 @@ function LiveQuotaCard({ demoMode, rlConsent, rateLimits, onOpenRlPrompt, onRefr
   // Codex doesn't need a consent flow — its rate limits come from a local
   // subprocess (codex app-server), no OAuth token to authorise. Skip the CTA
   // card entirely for codex; only Claude probes go through the consent gate.
-  // Consent not granted yet — show a soft CTA card.
-  if (rlConsent !== 'granted' && source !== 'codex') {
+  //
+  // 'denied' keeps a way back, but a quiet one. Re-running the full pitch on
+  // every visit is nagging — they already answered. A single line with the
+  // switch is enough for someone who changes their mind, and small enough not
+  // to read as a demand.
+  if (rlConsent === 'denied' && source !== 'codex') {
+    return (
+      <div className="mb-8 rounded-xl border border-border-soft bg-surface px-4 py-3 flex items-center gap-3">
+        <Wifi className="w-4 h-4 text-accent flex-shrink-0" />
+        <span className="flex-1 min-w-0 text-[13px] font-medium text-text">{t('settings.realQuota')}</span>
+        <button
+          onClick={onOpenRlPrompt}
+          className="px-3.5 py-1.5 rounded-md bg-accent text-white text-[12.5px] font-medium hover:opacity-90 flex-shrink-0"
+        >
+          {t('common.enable')}
+        </button>
+      </div>
+    );
+  }
+  // Never asked yet — show a soft CTA card.
+  if (rlConsent === 'pending' && source !== 'codex') {
     return (
       <div className="mb-8 rounded-2xl border border-accent/30 bg-gradient-to-br from-accent-soft to-surface p-5 flex items-center gap-4">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-purple-500 flex items-center justify-center flex-shrink-0">
           <Wifi className="w-5 h-5 text-white" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-[13.5px] font-semibold text-text">Show real subscription usage</div>
-          <div className="text-[12px] text-text-muted mt-0.5">Read your Claude Code quota from Anthropic's usage endpoint to see real 5h / 7d remaining. Spends none of your quota, refreshed every 5 min.</div>
+          <div className="text-[13.5px] font-semibold text-text">{t('settings.realQuota')}</div>
+          <div className="text-[12px] text-text-muted mt-0.5">{t('settings.realQuota.hint')}</div>
         </div>
         <button onClick={onOpenRlPrompt} className="px-3.5 py-2 rounded-md bg-accent text-white text-[12.5px] font-medium hover:opacity-90 flex-shrink-0">
-          Enable
+          {t('common.enable')}
         </button>
       </div>
     );

@@ -368,6 +368,9 @@ export type AppPrefs = {
   showTrayIcon: boolean;
   closeBehavior: 'quit' | 'hide';
   launchAtLogin: boolean;
+  // Runs `claude` / `codex` as child processes of Lens, so their macOS
+  // permission prompts surface under Lens's name. Off until asked for.
+  embeddedTerminal: boolean;
   // macOS only: weekly quota remaining drawn next to the tray icon in the
   // menu bar. The Claude half additionally needs `rateLimitsConsent`.
   menuBarQuota: boolean;

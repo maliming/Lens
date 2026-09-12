@@ -1,8 +1,6 @@
-import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Activity, X } from 'lucide-react';
+import { TerminalSquare, X } from 'lucide-react';
 import { useTranslation } from '../lib/I18nProvider';
-import type { CredentialsLocation } from '../types';
 
 type Props = {
   open: boolean;
@@ -10,7 +8,7 @@ type Props = {
   onDeny: () => void;
 };
 
-// Fixed-width emoji column so the text edges align no matter how wide the
+// Fixed-width emoji column so the text edges align regardless of how wide the
 // glyph renders — emoji metrics vary a lot between platforms.
 function Bullet({ emoji, children }: { emoji: string; children: React.ReactNode }) {
   return (
@@ -21,18 +19,14 @@ function Bullet({ emoji, children }: { emoji: string; children: React.ReactNode 
   );
 }
 
-export function RateLimitsConsentModal({ open, onAccept, onDeny }: Props) {
+// Shown when the user turns the embedded terminal on, never on its own. Two
+// things are worth saying at that moment and nowhere else: this spawns a real
+// shell, and the macOS prompts that follow belong to the CLI rather than to
+// Lens. The second one matters because the prompt names Lens — without this
+// the app looks like it is asking for a user's music library.
+export function TerminalConsentModal({ open, onAccept, onDeny }: Props) {
   const { t } = useTranslation();
-  const [loc, setLoc] = useState<CredentialsLocation | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    window.api.getCredentialsLocation().then(setLoc).catch(() => setLoc({ source: 'none' }));
-  }, [open]);
-
   const isMac = navigator.platform.toLowerCase().includes('mac');
-  const willPromptKeychain = loc?.source === 'keychain';
-  const noCreds = loc?.source === 'none';
 
   return (
     <Dialog.Root open={open} onOpenChange={(v) => { if (!v) onDeny(); }}>
@@ -41,10 +35,10 @@ export function RateLimitsConsentModal({ open, onAccept, onDeny }: Props) {
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] max-w-[92vw] bg-surface border border-border rounded-2xl shadow-pop z-50 overflow-hidden animate-modal-in">
           <div className="px-5 py-4 border-b border-border-soft flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-purple-500 flex items-center justify-center">
-              <Activity className="w-4 h-4 text-white" />
+              <TerminalSquare className="w-4 h-4 text-white" />
             </div>
             <Dialog.Title className="text-[14px] font-semibold text-text flex-1">
-              {t('rlConsent.title')}
+              {t('termConsent.title')}
             </Dialog.Title>
             <button onClick={onDeny} className="p-1 rounded hover:bg-muted text-text-muted">
               <X className="w-4 h-4" />
@@ -53,32 +47,20 @@ export function RateLimitsConsentModal({ open, onAccept, onDeny }: Props) {
 
           <div className="px-5 py-4">
             <p className="text-[13px] text-text leading-relaxed">
-              {t('rlConsent.intro1')} <strong className="text-text">{t('rlConsent.introBold')}</strong> {t('rlConsent.intro2')} <code className="bg-muted px-1 rounded text-[11.5px] font-mono">{t('rlConsent.introCli')}</code> {t('rlConsent.intro3')} <code className="bg-muted px-1 rounded text-[11.5px] font-mono">{t('rlConsent.introHost')}</code> {t('rlConsent.intro4')}
+              {t('termConsent.intro')}
             </p>
-
             <ul className="mt-4 pt-4 border-t border-border-soft/60 space-y-2.5 text-[12px] text-text-dim leading-relaxed">
-              <Bullet emoji="💻">{t('rlConsent.bulletLocal')}</Bullet>
-              <Bullet emoji="🆓">{t('rlConsent.bulletCost')}</Bullet>
-              {willPromptKeychain && <Bullet emoji="🔑">{t('rlConsent.bulletKeychain')}</Bullet>}
-              {isMac && <Bullet emoji="⚠️">{t('settings.cliPrompts.note')}</Bullet>}
-              {noCreds && <Bullet emoji="🚫">{t('rlConsent.bulletNoCreds')}</Bullet>}
+              <Bullet emoji="⌨️">{t('termConsent.bulletReal')}</Bullet>
+              {isMac && <Bullet emoji="⚠️">{t('termConsent.bulletPrompts')}</Bullet>}
               <Bullet emoji="🔄">{t('rlConsent.bulletToggle')}</Bullet>
             </ul>
-
-            <p className="mt-4 pt-3 border-t border-border-soft/60 text-[11px] text-text-muted leading-relaxed">
-              {t('rlConsent.declineFootnote')}
-            </p>
           </div>
 
           <div className="px-5 py-3 border-t border-border-soft flex justify-end gap-2 bg-muted/30">
             <button onClick={onDeny} className="px-3 py-1.5 text-[12.5px] rounded-md text-text-dim hover:bg-muted">
               {t('rlConsent.notNow')}
             </button>
-            <button
-              onClick={onAccept}
-              disabled={noCreds}
-              className="px-3 py-1.5 text-[12.5px] font-medium rounded-md bg-accent text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
+            <button onClick={onAccept} className="px-3.5 py-1.5 text-[12.5px] rounded-md bg-accent text-white font-medium hover:opacity-90">
               {t('rlConsent.enable')}
             </button>
           </div>

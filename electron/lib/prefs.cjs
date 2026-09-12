@@ -17,6 +17,13 @@ const APP_PREFS_DEFAULTS = {
   // users expect close=quit. We default per platform on first launch.
   closeBehavior: process.platform === 'darwin' ? 'hide' : 'quit',
   launchAtLogin: false,
+  // The embedded terminal runs the real `claude` / `codex` binaries as child
+  // processes of Lens, which on macOS means their system permission prompts
+  // (Media Library, Documents, Downloads) appear under Lens's name — and
+  // reappear after every CLI update, since macOS keys approval to the binary
+  // path. Off by default: a feature that can make the OS interrogate the user
+  // has to be asked for, not discovered.
+  embeddedTerminal: false,
   // macOS only: draw "CC 62%  CX 41%" (weekly quota remaining) next to the
   // tray icon in the menu bar. Off by default — the menu bar is the user's
   // real estate, and the Claude half additionally needs rateLimitsConsent.
@@ -71,6 +78,7 @@ function createAppPrefs({ userDataDir }) {
       if (typeof obj.showTrayIcon === 'boolean') next.showTrayIcon = obj.showTrayIcon;
       if (obj.closeBehavior === 'hide' || obj.closeBehavior === 'quit') next.closeBehavior = obj.closeBehavior;
       if (typeof obj.launchAtLogin === 'boolean') next.launchAtLogin = obj.launchAtLogin;
+      if (typeof obj.embeddedTerminal === 'boolean') next.embeddedTerminal = obj.embeddedTerminal;
       if (typeof obj.menuBarQuota === 'boolean') next.menuBarQuota = obj.menuBarQuota;
       if (isSourceOrder(obj.menuBarQuotaOrder)) next.menuBarQuotaOrder = obj.menuBarQuotaOrder.slice();
       if (obj.rateLimitsConsent === 'pending' || obj.rateLimitsConsent === 'granted' || obj.rateLimitsConsent === 'denied') {

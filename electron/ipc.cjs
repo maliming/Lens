@@ -71,8 +71,25 @@ function registerIpc(deps) {
   // Embedded-terminal handlers. They are built in pty.cjs (spawn, containment,
   // process lifecycle) but registered here so this file stays the single place
   // the renderer-reachable IPC surface can be audited.
+  //
+  // `pty:start` is gated on the pref that turns the feature on. The renderer
+  // already hides every entry point when it is off, so this is defense in
+  // depth — spawning a real shell is the single most powerful thing this
+  // process does for the renderer, and it should not depend on the renderer
+  // having asked nicely. Only start is gated: write / resize / stop against an
+  // already-running terminal must keep working, or turning the pref off would
+  // strand a live process with no way to talk to it.
   for (const [channel, handler] of Object.entries(pty.handlers)) {
-    ipcMain.handle(channel, handler);
+    if (channel === 'pty:start') {
+      ipcMain.handle(channel, async (event, ...args) => {
+        if (!appPrefs.embeddedTerminal) {
+          return { ok: false, error: 'terminal-disabled', message: 'Embedded terminal is turned off in Settings' };
+        }
+        return handler(event, ...args);
+      });
+    } else {
+      ipcMain.handle(channel, handler);
+    }
   }
 
   ipcMain.handle('sessions:list', async (_e, opts) => {
@@ -441,6 +458,7 @@ function registerIpc(deps) {
     if (typeof patch.showTrayIcon === 'boolean') appPrefs.showTrayIcon = patch.showTrayIcon;
     if (patch.closeBehavior === 'quit' || patch.closeBehavior === 'hide') appPrefs.closeBehavior = patch.closeBehavior;
     if (typeof patch.launchAtLogin === 'boolean') appPrefs.launchAtLogin = patch.launchAtLogin;
+    if (typeof patch.embeddedTerminal === 'boolean') appPrefs.embeddedTerminal = patch.embeddedTerminal;
     if (typeof patch.menuBarQuota === 'boolean') appPrefs.menuBarQuota = patch.menuBarQuota;
     if (isSourceOrder(patch.menuBarQuotaOrder)) appPrefs.menuBarQuotaOrder = patch.menuBarQuotaOrder.slice();
     await saveAppPrefs();

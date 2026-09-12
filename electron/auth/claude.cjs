@@ -1,23 +1,40 @@
-// Claude OAuth credential read + subscription usage fetch.
+// Claude subscription usage, two ways in.
 //
-// Two surfaces:
+// The preferred one asks the CLI:
+//   - `probeClaudeUsageViaCli()` — spawns `claude -p` in stream-json mode and
+//     sends one `get_usage` control request, the same call behind the CLI's
+//     own `/usage` panel. Structurally the twin of `auth/codex.cjs`: a local
+//     subprocess speaking a line protocol, no credential handling on our side.
+//     What it buys over the direct fetch below is token renewal — the CLI
+//     refreshes an expired access token as part of serving the request, while
+//     Lens reading the stored token can only find it stale. That is the normal
+//     state of an idle machine: the token lasts eight hours and nothing but
+//     the CLI renews it, so a user who hasn't run `claude` since morning had
+//     no quota reading at all.
+//
+// The direct one is the fallback:
 //   - `readClaudeOAuthCredential()` — pulls the access token *and its expiry*
 //     from either the CLI's `~/.claude/.credentials.json` or, on macOS, the
 //     system Keychain (`security find-generic-password -s "Claude Code-credentials"`).
 //     Returns null if neither yields a usable token.
-//   - `fetchClaudeUsage(token)` — GETs `/api/oauth/usage`, the same endpoint
-//     Claude Code's own /usage panel reads. Free (no Messages call, no token
-//     spend), and unlike the old ratelimit-header probe it carries
-//     model-scoped weekly windows (Fable etc.) in a generic `limits` array
-//     whose display names come from the API — a model rename shows up here
-//     without a Lens update. Returns the envelope shape that `rateLimits:get`
-//     consumes (status + body + limits.{5h,7d,overage,modelWindows}).
+//   - `fetchClaudeUsage(token)` — GETs `/api/oauth/usage`, the endpoint the
+//     control request reaches internally. Free (no Messages call, no token
+//     spend), and it carries model-scoped weekly windows (Fable etc.) in a
+//     generic `limits` array whose display names come from the API — a model
+//     rename shows up here without a Lens update.
 //
-// Both functions are pure (no Electron app state) so the IPC layer can
+// Both paths end at `normalizeUsage`, because both carry the same body: the
+// control response's `rate_limits` is verbatim what the endpoint returns. The
+// fallback earns its keep because the control request is an experimental API
+// (the SDK spells the method `usage_EXPERIMENTAL_MAY_CHANGE_...`), so it can
+// be renamed or dropped in any CLI release — at which point Lens quietly goes
+// back to reading the token itself.
+//
+// Everything here is pure (no Electron app state) so the IPC layer can
 // require this directly without going through a factory.
 
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const { net } = require('electron');
 
 const { CLAUDE_DIR } = require('../lib/paths.cjs');
@@ -193,6 +210,122 @@ function normalizeUsage(u) {
   };
 }
 
+// Ask the CLI for the usage snapshot instead of reading the token ourselves.
+//
+// `claude -p` with stream-json on both ends speaks the control protocol the
+// Agent SDK uses. One `get_usage` request is enough; no user message is sent,
+// so no turn runs, nothing is billed, and no session file lands in
+// `~/.claude/projects` for Lens to then list back to the user.
+//
+// The flags are all load-bearing:
+//   --restricted   skips the user's hooks. Without it a SessionStart hook runs
+//                  on every poll — Lens would be firing someone's shell script
+//                  every five minutes for a number they didn't ask for. It
+//                  still reads the keychain, which `--bare` (the other
+//                  hook-skipping mode) does not: that one returns
+//                  rate_limits_available:false and is useless here.
+//   skip_behaviors the request otherwise scans every transcript touched in the
+//                  last seven days to build a "behaviors" section we ignore.
+//                  Cheap on a small history, not on a 200 MB one.
+const CLAUDE_CLI_PROBE_TIMEOUT_MS = 20000;
+const CLI_STDOUT_CAP = 4 * 1024 * 1024;
+const CLI_STDERR_CAP = 1 * 1024 * 1024;
+
+function probeClaudeUsageViaCli() {
+  return new Promise((resolveOuter, rejectOuter) => {
+    let proc;
+    const requestId = `lens-usage-${Date.now()}`;
+    try {
+      proc = spawn('claude', [
+        '-p', '--restricted',
+        '--input-format', 'stream-json',
+        '--output-format', 'stream-json',
+      ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (e) {
+      return rejectOuter(new Error('claude binary not found in PATH'));
+    }
+
+    let buffer = '';
+    let stderrTotal = 0;
+    const stderr = [];
+    let settled = false;
+    let timer = null;
+
+    // One cleanup path for success, protocol error, timeout, spawn failure and
+    // early exit — same shape as the codex prober, and for the same reason:
+    // `exit` normally fires after our own kill(), so the first settle wins and
+    // the rest are no-ops.
+    const settle = (err, result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      try { proc.stdin?.end(); } catch {}
+      try { proc.kill(); } catch {}
+      if (err) rejectOuter(err);
+      else resolveOuter(result);
+    };
+
+    timer = setTimeout(
+      () => settle(new Error(`claude usage probe timed out after ${CLAUDE_CLI_PROBE_TIMEOUT_MS}ms`)),
+      CLAUDE_CLI_PROBE_TIMEOUT_MS,
+    );
+
+    proc.stdout.on('data', (chunk) => {
+      buffer += chunk.toString('utf8');
+      // Cap between line boundaries, dropping the earliest text if a line
+      // never arrives within the budget.
+      if (buffer.length > CLI_STDOUT_CAP) {
+        buffer = buffer.slice(buffer.length - CLI_STDOUT_CAP);
+        const firstNl = buffer.indexOf('\n');
+        if (firstNl >= 0) buffer = buffer.slice(firstNl + 1);
+      }
+      let nl;
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (!line) continue;
+        let msg;
+        try { msg = JSON.parse(line); } catch { continue; }
+        // The stream also carries `system` frames (hook lifecycle, init). Only
+        // the response to our own request id ends the probe.
+        if (msg.type !== 'control_response') continue;
+        const env = msg.response || {};
+        if (env.request_id && env.request_id !== requestId) continue;
+        if (env.subtype === 'error') {
+          settle(new Error(String(env.error || 'get_usage returned an error')));
+          return;
+        }
+        settle(null, env.response || {});
+        return;
+      }
+    });
+
+    proc.stderr.on('data', (c) => {
+      if (stderrTotal >= CLI_STDERR_CAP) return;
+      const s = c.toString('utf8');
+      stderrTotal += s.length;
+      stderr.push(stderrTotal > CLI_STDERR_CAP ? s.slice(0, CLI_STDERR_CAP - (stderrTotal - s.length)) : s);
+    });
+
+    proc.on('error', (e) => settle(new Error('failed to spawn claude: ' + e.message)));
+    proc.on('exit', (code, signal) => {
+      if (settled) return;
+      const tail = stderr.join('').trim().slice(-300);
+      settle(new Error(`claude exited before answering (code=${code}, signal=${signal})${tail ? ': ' + tail : ''}`));
+    });
+
+    try {
+      proc.stdin.write(JSON.stringify({
+        type: 'control_request',
+        request_id: requestId,
+        request: { subtype: 'get_usage', skip_behaviors: true },
+      }) + '\n');
+    } catch (e) {
+      settle(new Error('failed to send get_usage: ' + e.message));
+    }
+  });
+}
+
 // Fetch the subscription usage snapshot Claude Code's /usage panel shows.
 // Plain GET — costs nothing from the user's quota.
 function fetchClaudeUsage(token) {
@@ -273,4 +406,8 @@ module.exports = {
   pickExpiresAt,
   readClaudeOAuthCredential,
   fetchClaudeUsage,
+  probeClaudeUsageViaCli,
+  // Shared by both paths: the control response's `rate_limits` and the
+  // endpoint's body are the same object.
+  normalizeUsage,
 };

@@ -40,6 +40,9 @@ type Props = {
   // Keeps the quota section mounted (with skeleton bars) during the in-flight
   // window so it doesn't blink in and out around source flips or refreshes.
   quotaEnabled?: boolean;
+  // The embedded terminal is off until asked for, and while it is off the nav
+  // entry would lead to a pane that can only refuse to start anything.
+  terminalEnabled?: boolean;
   demoMode?: boolean;
 };
 
@@ -59,7 +62,7 @@ const PRIMARY_NAV: Array<{ id: View | 'search'; labelKey: TKey; icon: any; count
   { id: 'settings', labelKey: 'nav.settings', icon: Gear, countKey: null },
 ];
 
-export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, totalTokens, onReload, profile, onOpenProfile, rateLimits, quotaEnabled = false, demoMode = false }: Props) {
+export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, totalTokens, onReload, profile, onOpenProfile, rateLimits, quotaEnabled = false, terminalEnabled = false, demoMode = false }: Props) {
   const [source] = useCurrentSource();
   const { auth: realAuth, loading: realLoading, refresh } = useSourceAuth(source);
   const { t } = useTranslation();
@@ -111,7 +114,7 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
       {/* Primary nav with labels. Search is a real view now (v11 brief);
           ⌘K still opens the palette globally for quick jumping. */}
       <nav className="px-2 flex flex-col gap-1">
-        {PRIMARY_NAV.map(item => {
+        {PRIMARY_NAV.filter(item => item.id !== 'terminals' || terminalEnabled).map(item => {
           const Icon = item.icon;
           const isSearch = item.id === 'search';
           const active = view === item.id;

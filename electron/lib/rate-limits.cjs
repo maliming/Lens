@@ -9,7 +9,9 @@
 // Provider registry rather than branches: adding a future AI tool is one
 // entry here, not new `if (source === ...)` arms in every caller.
 
-const { readClaudeOAuthCredential, fetchClaudeUsage } = require('../auth/claude.cjs');
+const {
+  readClaudeOAuthCredential, fetchClaudeUsage, probeClaudeUsageViaCli, normalizeUsage,
+} = require('../auth/claude.cjs');
 const { detectAiTools } = require('./system-caps.cjs');
 
 // 5 min TTL — short enough to feel live, long enough that 1-token probes don't
@@ -28,35 +30,82 @@ function createRateLimitsService({ probeCodexLimits, getConsent }) {
   const PROVIDERS = {
     claude: {
       needsToken: true,
-      // The probe reads the OAuth credential under ~/.claude — it never runs
-      // the CLI — so someone who signed in once still gets a number after
-      // taking `claude` off PATH. Presence of the CLI is the wrong question
-      // here; presence of a Claude Code install in any form is the right one.
+      // Either path needs a Claude Code install, but not necessarily the
+      // binary: a stored credential is enough for the direct fetch, so someone
+      // who signed in once still gets a number after taking `claude` off PATH.
       available: tools => !!tools.claude?.installed,
+
+      // Read the token and use it; spawn the CLI only when that can't work.
+      //
+      // Both routes end at the same endpoint with the same body, so the choice
+      // is purely about cost. Spawning is the expensive one, and not in CPU:
+      // on macOS the CLI raises its own system permission prompts (Media
+      // Library, Documents, Downloads), and because macOS keys those to the
+      // binary's path — which changes on every `claude` update — a user gets
+      // re-asked after each upgrade. Doing that on a five-minute poll would
+      // interrupt someone mid-task for a number they never asked to refresh.
+      //
+      // A live token avoids it entirely, and a token is live for eight hours.
+      // So the CLI runs only when the token is missing, expired, or rejected —
+      // roughly once per eight hours instead of once per poll — and what it
+      // buys there is the renewal Lens cannot perform itself.
       probe: async () => {
         const cred = await readClaudeOAuthCredential();
-        if (!cred) return { ok: false, error: 'no-token', message: 'Sign in via `claude` CLI first' };
-        // Short-circuit a request we know comes back 401: the CLI renews its
-        // access token only when it runs, so an idle machine keeps serving a
-        // dead one. Re-login is the wrong advice here — the refresh token is
-        // still good, it just needs the CLI to spend it.
-        if (cred.expired) {
-          return { ok: false, error: 'expired', message: 'Claude Code token expired — run any `claude` command to renew it (no re-login needed)' };
+
+        if (cred && !cred.expired) {
+          const result = await fetchClaudeUsage(cred.token);
+          const bodyPreview = String(result.body || '').slice(0, 4000);
+          const haveAny = result.limits != null
+            && (result.limits.fiveHour.utilization != null || result.limits.weekly.utilization != null || result.limits.modelWindows.length > 0);
+          if (haveAny) {
+            return { ok: true, limits: result.limits, debug: { via: 'token', status: result.status, body: bodyPreview } };
+          }
+          // 401/403 on a token we believed was live means the credential was
+          // revoked or rotated out from under us — the CLI holds the refresh
+          // token and may be able to trade it for a working one, so it is
+          // worth the spawn. Any other empty answer is the endpoint's, and
+          // asking again through the CLI would only spend a prompt to hear it
+          // a second time.
+          if (result.status !== 401 && result.status !== 403) {
+            return {
+              ok: false, error: 'no-data', status: result.status,
+              message: 'Usage endpoint returned no rate limit data',
+              debug: { via: 'token', status: result.status, body: bodyPreview },
+            };
+          }
         }
-        const result = await fetchClaudeUsage(cred.token);
-        const bodyPreview = String(result.body || '').slice(0, 4000);
-        if (result.status === 401 || result.status === 403) {
-          // Expiry is already ruled out above, so a rejection here means the
-          // credential itself is no longer accepted (revoked, logged out
-          // elsewhere) — that one really does need a fresh login.
-          return { ok: false, error: 'unauthorized', status: result.status, message: 'Anthropic rejected the token — re-login Claude Code', debug: { status: result.status, body: bodyPreview } };
+
+        // No usable token. Hand the question to the CLI, which renews as part
+        // of answering it.
+        try {
+          const viaCli = await probeClaudeUsageViaCli();
+          if (viaCli && viaCli.rate_limits_available && viaCli.rate_limits) {
+            return { ok: true, limits: normalizeUsage(viaCli.rate_limits), debug: { via: 'cli' } };
+          }
+          // `rate_limits_available: false` is an answer, not a failure:
+          // API-key, Bedrock and Vertex sessions have no plan windows at all.
+          if (viaCli && viaCli.rate_limits_available === false) {
+            return {
+              ok: false, error: 'no-data',
+              message: 'No subscription plan limits for this account (API key, Bedrock or Vertex)',
+              debug: { via: 'cli', subscription: viaCli.subscription_type ?? null },
+            };
+          }
+          return { ok: false, error: 'no-data', message: 'Claude Code returned no rate limit data', debug: { via: 'cli' } };
+        } catch (e) {
+          // The CLI was the last resort, so its failure is what the user sees.
+          // Which message depends on why the token could not be used: a
+          // credential that exists and was rejected is a different problem
+          // from never having signed in.
+          const why = String(e?.message || e);
+          if (!cred) {
+            return { ok: false, error: 'no-token', message: 'Not signed in — run claude to sign in', debug: { via: 'cli', cliError: why } };
+          }
+          if (cred.expired) {
+            return { ok: false, error: 'expired', message: 'Claude Code token expired and it could not be renewed — run any claude command', debug: { via: 'cli', cliError: why } };
+          }
+          return { ok: false, error: 'unauthorized', message: 'Anthropic rejected the token — sign in to Claude Code again', debug: { via: 'cli', cliError: why } };
         }
-        const haveAny = result.limits != null
-          && (result.limits.fiveHour.utilization != null || result.limits.weekly.utilization != null || result.limits.modelWindows.length > 0);
-        if (!haveAny) {
-          return { ok: false, error: 'no-data', status: result.status, message: 'Usage endpoint returned no rate limit data', debug: { status: result.status, body: bodyPreview } };
-        }
-        return { ok: true, limits: result.limits, debug: { status: result.status, body: bodyPreview } };
       },
     },
     codex: {

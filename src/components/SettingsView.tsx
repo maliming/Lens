@@ -24,9 +24,11 @@ type Props = {
   onDemoModeChange: (v: boolean) => void;
   rlConsent: 'pending' | 'granted' | 'denied';
   onRlConsentChange: (v: 'pending' | 'granted' | 'denied') => void;
+  onOpenRlPrompt: () => void;
+  onOpenTerminalPrompt: () => void;
 };
 
-export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode, onDemoModeChange, rlConsent, onRlConsentChange }: Props) {
+export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode, onDemoModeChange, rlConsent, onRlConsentChange, onOpenRlPrompt, onOpenTerminalPrompt }: Props) {
   // Terminal prefs live outside React (lib/terminals owns them so non-component
   // code can read them); this tick just re-renders the rows after a change.
   const [, setTermTick] = useState<number>(0);
@@ -135,6 +137,16 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
             is unlike anything else in Settings: every terminal is a whole CLI
             process, so this is really a memory control. */}
         <Section title={t('settings.section.terminal')}>
+          {/* Turning it on goes through the modal — it spawns a real shell and,
+              on macOS, hands the CLI's permission prompts to the user under
+              Lens's name. Turning it off needs no ceremony. */}
+          <Row label={t('settings.embeddedTerminal')} hint={t('settings.embeddedTerminal.hint')}>
+            <Switch
+              checked={appPrefs.embeddedTerminal}
+              onChange={v => { if (v) onOpenTerminalPrompt(); else setAppPrefs({ embeddedTerminal: false }); }}
+            />
+          </Row>
+          {appPrefs.embeddedTerminal && (<>
           <Row label={t('settings.termWarn')} hint={t('settings.termWarn.hint')}>
             <Switch
               checked={termPrefs.warnEnabled}
@@ -181,6 +193,7 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
               />
             </Row>
           )}
+          </>)}
         </Section>
 
         {/* App behavior — tray + close + autostart. Standard packaged-app prefs. */}
@@ -272,7 +285,10 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
           <Row label={t('settings.realQuota')} hint={t('settings.realQuota.hint')}>
             <div className="flex items-center gap-2">
               <Activity className={cn('w-3.5 h-3.5', rlConsent === 'granted' ? 'text-accent' : 'text-text-muted')} />
-              <Switch checked={rlConsent === 'granted'} onChange={v => onRlConsentChange(v ? 'granted' : 'denied')} />
+              <Switch
+                checked={rlConsent === 'granted'}
+                onChange={v => { if (v) onOpenRlPrompt(); else onRlConsentChange('denied'); }}
+              />
             </div>
           </Row>
         </Section>
