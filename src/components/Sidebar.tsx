@@ -554,19 +554,24 @@ function ProfileQuotaCard({
                 <QuotaRing key={w.name} label={cleanDisplayText(w.name)} window={w} windowSeconds={7 * 86400} sweep={sweep} />
               ))}
             </div>
-            {headline && headlineElapsed != null && (
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
-                  <div className="mt-3 h-1 rounded-full bg-border overflow-hidden cursor-default">
-                    {/* Neutral grey on purpose: this is the clock, not usage.
-                        Colouring it would put it in competition with the rings,
-                        which are the thing worth reacting to. */}
-                    <div
-                      className="h-full rounded-full bg-text-muted/50 transition-[width] duration-700 ease-out"
-                      style={{ width: `${headlineElapsed * 100}%` }}
-                    />
-                  </div>
-                </Tooltip.Trigger>
+            {/* The track is always here, even with nothing to draw in it.
+                Rendering it only when a window is known made the card lose a
+                row for the moment between switching provider and the new probe
+                answering — and the nav below moved with it. An empty track is
+                the honest picture of "we do not know yet" and costs no layout. */}
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <div className="mt-3 h-1 rounded-full bg-border overflow-hidden cursor-default">
+                  {/* Neutral grey on purpose: this is the clock, not usage.
+                      Colouring it would put it in competition with the rings,
+                      which are the thing worth reacting to. */}
+                  <div
+                    className="h-full rounded-full bg-text-muted/50 transition-[width] duration-700 ease-out"
+                    style={{ width: `${(headlineElapsed ?? 0) * 100}%` }}
+                  />
+                </div>
+              </Tooltip.Trigger>
+              {headline && headlineElapsed != null && (
                 <Tooltip.Portal>
                   <Tooltip.Content
                     side="bottom"
@@ -580,8 +585,8 @@ function ProfileQuotaCard({
                     <Tooltip.Arrow className="fill-border" />
                   </Tooltip.Content>
                 </Tooltip.Portal>
-              </Tooltip.Root>
-            )}
+              )}
+            </Tooltip.Root>
           </div>
         </>
       )}
