@@ -1,23 +1,19 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import type { UsageSummary } from '../types';
-import { fmtTokens, fmtModel, shortCwd, cleanDisplayText } from '../lib/format';
+import { fmtTokens, fmtModel, shortCwd } from '../lib/format';
 import { useCurrentSource, getSource } from '../lib/sources';
-import { Coins, TrendingUp, Zap, Database, Activity, Hourglass, RefreshCw, AlertCircle, Wifi, Flame, Calendar as CalendarIcon, Trophy } from 'lucide-react';
+import { Zap, Database, Activity, Hourglass, RefreshCw, AlertCircle, Flame, Calendar as CalendarIcon, Trophy } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/I18nProvider';
-import { pct, resetInLabel, rateStatusKind, isWindowExpired, hasWindow, useNowTick, type RateLimitsState } from '../lib/rateLimits';
+import { pct } from '../lib/rateLimits';
 import { useDisplayPrefs, type ProjectGrouping } from '../lib/displayPrefs';
 
 type Props = {
   usage: UsageSummary | null;
   error?: string | null;
   demoMode: boolean;
-  rlConsent: 'pending' | 'granted' | 'denied';
-  rateLimits: RateLimitsState;
   isActive?: boolean;
   onRetry: () => void;
-  onOpenRlPrompt: () => void;
-  onRefreshRateLimits: () => void;
 };
 
 // "Billed" tokens — input + output only, mirroring Anthropic's pricing model
@@ -36,7 +32,7 @@ function billed(x: { input: number; output: number }): number {
   return (x.input || 0) + (x.output || 0);
 }
 
-export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isActive = true, onRetry, onOpenRlPrompt, onRefreshRateLimits }: Props) {
+export function UsageView({ usage, error, demoMode, isActive = true, onRetry }: Props) {
   const { t } = useTranslation();
   const [currentSource] = useCurrentSource();
   const sourceDef = getSource(currentSource);
@@ -81,30 +77,30 @@ export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isAct
           generous enough that 1500-1800px monitors still get most of
           the available width. */}
       <div className="px-8 py-8 max-w-[2000px] mx-auto">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-1">
+        {/* Header. The glyph sits beside the whole text block rather than
+            beside the heading alone, so the subtitle lines up with the title
+            by structure — it used to be an ml-12 that had to equal the icon
+            width plus the gap, and silently went crooked if either changed. */}
+        <div className="flex items-center gap-3 mb-6">
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shadow-soft"
+            className="w-9 h-9 rounded-xl flex items-center justify-center shadow-soft flex-shrink-0"
             style={{ backgroundColor: sourceDef.accentSoft }}
           >
             <Glyph className="w-5 h-5" color={sourceDef.accent} />
           </div>
-          <h1 className="text-[22px] font-bold text-text">{sourceDef.label} Token Usage</h1>
+          <div className="min-w-0">
+            {/* The provider is already named by the glyph beside this and by
+                the switcher in the sidebar; repeating it here just made the
+                heading longer. */}
+            <h1 className="text-[22px] font-bold text-text leading-tight">{t('usage.title')}</h1>
+            <p className="text-text-muted text-[12px] mt-0.5">
+              Aggregated from local sessions in <code className="bg-muted px-1.5 rounded text-[11px] font-mono">{sourceDef.pathHint}</code> · {total.sessions} sessions
+            </p>
+          </div>
         </div>
-        <p className="text-text-muted text-[12px] ml-12 mb-6">
-          Aggregated from local sessions in <code className="bg-muted px-1.5 rounded text-[11px] font-mono">{sourceDef.pathHint}</code> · {total.sessions} sessions
-        </p>
 
         {/* Hero metrics — 3-second account snapshot per v4 brief */}
         <HeroMetrics usage={usage} />
-
-        <LiveQuotaCard
-          demoMode={demoMode}
-          rlConsent={rlConsent}
-          rateLimits={rateLimits}
-          onOpenRlPrompt={onOpenRlPrompt}
-          onRefresh={onRefreshRateLimits}
-        />
 
         {/* Insights — turn raw numbers into stories per v3 brief */}
         <InsightCards usage={usage} projectGrouping={projectGrouping} />
@@ -462,115 +458,6 @@ function GroupingToggle({ value, onChange }: { value: ProjectGrouping; onChange:
   );
 }
 
-function LiveQuotaCard({ demoMode, rlConsent, rateLimits, onOpenRlPrompt, onRefresh }: {
-  demoMode: boolean;
-  rlConsent: 'pending' | 'granted' | 'denied';
-  rateLimits: RateLimitsState;
-  onOpenRlPrompt: () => void;
-  onRefresh: () => void;
-}) {
-  const { t } = useTranslation();
-  const [source] = useCurrentSource();
-  // In demo mode the upstream wired DEMO_RATE_LIMITS into rateLimits; render the
-  // success hero directly (no CTA / loading / error paths).
-  if (demoMode && rateLimits.limits) {
-    return <LiveQuotaHero rateLimits={rateLimits} onRefresh={onRefresh} demoMode />;
-  }
-  if (demoMode) return null;
-
-  // Codex doesn't need a consent flow — its rate limits come from a local
-  // subprocess (codex app-server), no OAuth token to authorise. Skip the CTA
-  // card entirely for codex; only Claude probes go through the consent gate.
-  //
-  // 'denied' keeps a way back, but a quiet one. Re-running the full pitch on
-  // every visit is nagging — they already answered. A single line with the
-  // switch is enough for someone who changes their mind, and small enough not
-  // to read as a demand.
-  if (rlConsent === 'denied' && source !== 'codex') {
-    return (
-      <div className="mb-8 rounded-xl border border-border-soft bg-surface px-4 py-3 flex items-center gap-3">
-        <Wifi className="w-4 h-4 text-accent flex-shrink-0" />
-        <span className="flex-1 min-w-0 text-[13px] font-medium text-text">{t('settings.realQuota')}</span>
-        <button
-          onClick={onOpenRlPrompt}
-          className="px-3.5 py-1.5 rounded-md bg-accent text-white text-[12.5px] font-medium hover:opacity-90 flex-shrink-0"
-        >
-          {t('common.enable')}
-        </button>
-      </div>
-    );
-  }
-  // Never asked yet — show a soft CTA card.
-  if (rlConsent === 'pending' && source !== 'codex') {
-    return (
-      <div className="mb-8 rounded-2xl border border-accent/30 bg-gradient-to-br from-accent-soft to-surface p-5 flex items-center gap-4">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-purple-500 flex items-center justify-center flex-shrink-0">
-          <Wifi className="w-5 h-5 text-white" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-[13.5px] font-semibold text-text">{t('settings.realQuota')}</div>
-          <div className="text-[12px] text-text-muted mt-0.5">{t('settings.realQuota.hint')}</div>
-        </div>
-        <button onClick={onOpenRlPrompt} className="px-3.5 py-2 rounded-md bg-accent text-white text-[12.5px] font-medium hover:opacity-90 flex-shrink-0">
-          {t('common.enable')}
-        </button>
-      </div>
-    );
-  }
-
-  // Granted but no data yet — loading or error.
-  if (!rateLimits.limits) {
-    return (
-      <div className="mb-8 rounded-2xl border border-border-soft bg-surface p-5">
-        <div className="flex items-center gap-3">
-          {rateLimits.error ? (
-            <>
-              <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="text-[12.5px] font-medium text-text">Live quota unavailable</div>
-                <div className="text-[11.5px] text-text-muted mt-0.5">{rateLimits.error}</div>
-              </div>
-              <button onClick={onRefresh} disabled={rateLimits.loading} className="px-2.5 py-1.5 rounded-md border border-border-soft hover:bg-muted text-[11.5px] flex items-center gap-1.5 disabled:opacity-50">
-                <RefreshCw className={cn('w-3 h-3', rateLimits.loading && 'animate-spin')} />
-                Retry
-              </button>
-            </>
-          ) : (
-            <>
-              <RefreshCw className="w-4 h-4 text-text-muted animate-spin flex-shrink-0" />
-              <div className="text-[12.5px] text-text-muted">{source === 'codex' ? 'Probing codex app-server…' : 'Probing Anthropic API…'}</div>
-            </>
-          )}
-        </div>
-        {rateLimits.debug && (
-          <details className="mt-3 text-[11px] font-mono">
-            <summary className="cursor-pointer text-text-muted hover:text-text select-none">Raw API response (status {rateLimits.debug.status})</summary>
-            <div className="mt-2 space-y-2">
-              {rateLimits.debug.headers != null && (
-                <div>
-                  <div className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mb-1">Headers</div>
-                  <pre className="bg-bg border border-border-soft rounded-md p-2 overflow-x-auto text-[11px] text-text-dim">
-{JSON.stringify(rateLimits.debug.headers, null, 2)}
-                  </pre>
-                </div>
-              )}
-              <div>
-                <div className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mb-1">Body</div>
-                <pre className="bg-bg border border-border-soft rounded-md p-2 overflow-x-auto text-[11px] text-text-dim whitespace-pre-wrap">
-{rateLimits.debug.body || '(empty)'}
-                </pre>
-              </div>
-            </div>
-          </details>
-        )}
-      </div>
-    );
-  }
-
-  // Have data — render the hero.
-  return <LiveQuotaHero rateLimits={rateLimits} onRefresh={onRefresh} />;
-}
-
 // GitHub-style heatmap: 7 rows (Mon..Sun) × N weeks (last ~52 weeks). Quartile-binned color levels.
 function ActivityHeatmap({ byDay }: { byDay: UsageSummary['byDay'] }) {
   const { t } = useTranslation();
@@ -869,145 +756,6 @@ function InsightCard({ eyebrow, title, metric, sub, tint }: { eyebrow: string; t
         <div className="text-[14.5px] font-bold text-text truncate" title={title}>{title}</div>
         <div className="text-[12px] text-text mt-1 tabular-nums">{metric}</div>
         <div className="text-[10.5px] text-text-muted mt-0.5">{sub}</div>
-      </div>
-    </div>
-  );
-}
-
-function LiveQuotaHero({ rateLimits, onRefresh, demoMode }: { rateLimits: RateLimitsState; onRefresh: () => void; demoMode?: boolean }) {
-  const { t } = useTranslation();
-  // The "Updated …" line below reads the clock at render time, and a tick in
-  // the child rings does not re-render this parent — it would sit frozen.
-  useNowTick();
-  return (
-    <div className="mb-8 rounded-2xl border border-accent/20 bg-gradient-to-br from-accent-soft/50 to-surface p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-purple-500 flex items-center justify-center">
-            <Activity className="w-4 h-4 text-white" />
-          </div>
-          <div>
-            <h2 className="text-[14px] font-semibold text-text leading-tight">{t('usage.liveSubscriptionQuota')}</h2>
-            <div className="text-[10.5px] text-text-muted">
-              {demoMode
-                ? 'demo data · for screenshots only'
-                /* Without the error branch a probe that keeps failing leaves the
-                   last good numbers on screen indefinitely, dated but unqualified. */
-                : `${rateLimits.error ? `${t('usage.status.updateFailed')} · ` : ''}Updated ${rateLimits.fetchedAt ? humanAgo(Date.now() - rateLimits.fetchedAt) : '—'}`}
-            </div>
-          </div>
-        </div>
-        {!demoMode && (
-          <button onClick={onRefresh} disabled={rateLimits.loading} title="Refresh now" className="p-2 rounded-md border border-border-soft hover:bg-muted text-text-muted hover:text-text disabled:opacity-50">
-            <RefreshCw className={cn('w-3.5 h-3.5', rateLimits.loading && 'animate-spin')} />
-          </button>
-        )}
-      </div>
-
-      {/* Mirrors claude.ai's usage panel: "Current session" alone, then a
-          "Weekly limits" section holding "All models" plus one row per
-          model-scoped window under the API's own display name. */}
-      {hasWindow(rateLimits.limits!.fiveHour) && (
-        <div className="grid grid-cols-1 gap-4 mb-5">
-          <QuotaRing label={t('usage.fiveHourWindow')} window={rateLimits.limits!.fiveHour} />
-        </div>
-      )}
-      <div className="mb-3 text-[12.5px] font-semibold text-text">{t('usage.weeklyLimits')}</div>
-      <div className="grid grid-cols-1 gap-4">
-        <QuotaRing label={t('usage.allModels')} window={rateLimits.limits!.weekly} />
-        {(rateLimits.limits!.modelWindows ?? []).map(w => (
-          <QuotaRing key={w.name} label={cleanDisplayText(w.name)} window={w} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function QuotaRing({ label, window: w }: { label: string; window: { utilization: number | null; status: string | null; reset: number | null } }) {
-  const { t } = useTranslation();
-  useNowTick();
-  const p = pct(w);
-  const left = p == null ? null : Math.max(0, 100 - p);
-  // A rolled-over window keeps its old utilization until the next probe lands;
-  // suppress the verdict badge rather than assert a limit that no longer holds.
-  const expired = isWindowExpired(w);
-  const statusKind = expired ? 'ok' : rateStatusKind(w.status);
-  const resetLabel = resetInLabel(w.reset, t);
-  // Color scales with remaining headroom — same thresholds as Sidebar.RateBar
-  // so quota signaling reads identically across the app.
-  // A rolled-over window's old fill is not just stale, it is wrong: utilization
-  // restarts near zero after the reset, so a red 3%-left bar would be the
-  // opposite of the truth. Drain it to a neutral track until fresh data lands.
-  const barGradient = left == null || expired ? 'from-text-muted/30 to-text-muted/30'
-    : left <= 10 ? 'from-rose-400 to-rose-600'
-    : left <= 30 ? 'from-amber-400 to-orange-500'
-    : 'from-accent to-purple-500';
-  // The fill measures what is LEFT, so the scarcer the quota the thinner the
-  // bar: the state that most needs attention carries the least ink, and at 0%
-  // left there is nothing to colour at all. Move the signal onto the track.
-  // Threshold matches the readout's own rounding — anything that prints
-  // "0.0% left" gets the depleted hatch, so the number and the bar never
-  // disagree about whether the window is spent.
-  const depleted = left != null && !expired && left < 0.05;
-  const trackClass = left == null || expired ? 'bg-border'
-    : depleted ? 'quota-track-depleted'
-    : left <= 10 ? 'bg-rose-500/30'
-    : left <= 30 ? 'bg-amber-500/25'
-    : 'bg-border';
-  // Mirror Sidebar.RateBar's Web Animations approach so the bar in the
-  // Usage hero animates on mount and on source flip (Claude ↔ Codex)
-  // instead of snapping. Driving width via `el.animate(...)` sidesteps
-  // React 18's automatic batching, which was collapsing the
-  // "render at 0% → setState to target" pair into a single paint with
-  // nothing to interpolate.
-  // The 2% floor keeps a nearly-empty bar visible, but it must not apply once
-  // the window is spent: a sliver of fill under a LIMIT REACHED badge reads as
-  // "a little left". Depleted draws no fill at all and lets the hatch speak.
-  const targetWidth = left == null || expired || depleted ? 0 : Math.max(left, 2);
-  const barRef = useRef<HTMLDivElement | null>(null);
-  const prevWidthRef = useRef(0);
-  useEffect(() => {
-    const el = barRef.current;
-    if (!el) return;
-    const from = prevWidthRef.current;
-    prevWidthRef.current = targetWidth;
-    if (Math.abs(from - targetWidth) < 0.01) {
-      el.style.width = `${targetWidth}%`;
-      return;
-    }
-    el.style.width = `${targetWidth}%`;
-    try {
-      el.animate(
-        [{ width: `${from}%` }, { width: `${targetWidth}%` }],
-        { duration: 700, easing: 'ease-out', fill: 'forwards' },
-      );
-    } catch {}
-  }, [targetWidth]);
-
-  return (
-    <div className="bg-surface border border-border-soft rounded-xl p-4">
-      <div className="flex items-center justify-between mb-2 min-w-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted truncate">{label}</span>
-          {statusKind !== 'ok' && (
-            <span className={cn('text-[9.5px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex-shrink-0',
-              statusKind === 'warning' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
-            )}>{statusKind === 'warning' ? t('usage.status.warning') : t('usage.status.limitReached')}</span>
-          )}
-        </div>
-        <div className="text-[15px] font-bold tabular-nums text-text leading-none flex-shrink-0">
-          {left != null && !expired ? <>{left.toFixed(1)}<span className="text-[11px] font-semibold text-text-muted ml-0.5">% left</span></> : '—'}
-        </div>
-      </div>
-      <div className={cn('h-[8px] rounded-full overflow-hidden', trackClass)}>
-        <div
-          ref={barRef}
-          className={cn('h-full rounded-full bg-gradient-to-r will-change-[width]', barGradient)}
-          style={{ width: '0%' }}
-        />
-      </div>
-      <div className="text-[10.5px] text-text-muted tabular-nums mt-1.5">
-        {expired ? t('usage.status.refreshing') : left == null ? 'No data' : resetLabel ? <>resets in {resetLabel}</> : ' '}
       </div>
     </div>
   );

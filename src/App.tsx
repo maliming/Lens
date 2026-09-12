@@ -838,7 +838,7 @@ export default function App() {
           />
         </ViewSlot>
         <ViewSlot active={view === 'usage'}>
-          <UsageView usage={usage} error={usageErrorBySource[currentSource] || null} demoMode={demoMode} rlConsent={rlConsent} rateLimits={rateLimitsState} isActive={view === 'usage'} onRetry={retryUsage} onOpenRlPrompt={() => setRlPromptOpen(true)} onRefreshRateLimits={refreshRateLimits} />
+          <UsageView usage={usage} error={usageErrorBySource[currentSource] || null} demoMode={demoMode} isActive={view === 'usage'} onRetry={retryUsage} />
         </ViewSlot>
         <ViewSlot active={view === 'config'}>
           <ConfigView demoMode={demoMode} onStatus={setStatusMsg} refreshTick={refreshTick} isActive={view === 'config'} />
