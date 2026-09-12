@@ -27,6 +27,37 @@ import { useSystemCapabilities } from '../lib/systemCapabilities';
 // no perceptible auto-fill bump). 16 covers a 1044px window at typical
 // message density (~3-4 turns/screen × 4 screens of scroll buffer).
 const INITIAL_VISIBLE = 16;
+
+// Where the reader was, per session, for as long as the app is running.
+//
+// Switching sessions clears `messages` and refetches, which resets the lazy
+// window to INITIAL_VISIBLE and re-pins the viewport to the newest turn. That's
+// right the first time a session is opened and wrong every time after: someone
+// reading halfway up a long session, who clicks another session to check
+// something and comes back, lands at the bottom with the turns they were
+// reading no longer even rendered.
+//
+// Both numbers have to be remembered, not just the offset. `scrollTop` alone
+// restores nothing — the window is back to 16 turns, so the position the reader
+// left is past the end of the content.
+//
+// Module scope rather than state or storage: it must outlive the component
+// (which is why the reset happens at all) but not the process. A scroll offset
+// recorded against turn counts is meaningless once the session has grown, and
+// re-opening the app on a stale offset would be worse than starting fresh.
+const SCROLL_MEMORY_MAX = 64;
+const scrollMemory = new Map<string, { top: number; visibleCount: number }>();
+
+function rememberScroll(key: string, top: number, visibleCount: number) {
+  // Delete-then-set keeps insertion order meaningful, so the first key is
+  // genuinely the least recently touched one to evict.
+  scrollMemory.delete(key);
+  scrollMemory.set(key, { top, visibleCount });
+  if (scrollMemory.size > SCROLL_MEMORY_MAX) {
+    const oldest = scrollMemory.keys().next();
+    if (!oldest.done) scrollMemory.delete(oldest.value);
+  }
+}
 // Step used by both the auto-fill loop AND the scroll-up loader.
 const LOAD_STEP = 8;
 // Auto-fill stops once scrollHeight ≥ clientHeight × this. Slightly above 1
@@ -121,6 +152,14 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
   // scrollTop to the bottom so the user lands on the most recent turn even
   // as older ones get appended above. The first scroll event flips it off.
   const initialFillRef = useRef(true);
+  // Armed by the session-switch effect when `scrollMemory` has an entry for the
+  // session being opened. The layout effect below consumes it instead of
+  // pinning to the bottom, once the restored window has actually rendered.
+  const restoreTopRef = useRef<number | null>(null);
+  // One-shot handshake with the reset effect below: names the load the render
+  // block has already set up, so the effect stands down for that one instead of
+  // resetting on top of it.
+  const armedLoadKeyRef = useRef<string | null>(null);
   // Toolbar refresh button feedback. `refreshState` lives one tick longer
   // than the parent's `refreshing` prop so a "Refreshed" checkmark shows
   // briefly after the fetch returns — otherwise instant refreshes look
@@ -260,7 +299,27 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
   const currentLoadKey = session && messages != null ? `${session.source}:${session.id}` : null;
   if (currentLoadKey !== loadedKey) {
     setLoadedKey(currentLoadKey);
-    if (currentLoadKey != null) setVisibleCount(INITIAL_VISIBLE);
+    // Re-opening a session the reader has been in before starts at the window
+    // they had grown, so the turns they were looking at are rendered and
+    // reachable. A first visit still starts small — the clamp exists to stop
+    // the previous session's window (possibly hundreds of rows) from being
+    // applied to a fresh one.
+    //
+    // The scroll refs are armed here, during render, and not in the effect
+    // below: the layout effect that consumes `restoreTopRef` runs before paint
+    // of this very commit, while a passive effect runs after it. Arming late
+    // means the layout effect sees a null ref, falls through to the bottom pin,
+    // and never runs again — the window comes back restored and the viewport
+    // still sits at the newest turn, which is the bug with an extra step.
+    if (currentLoadKey != null) {
+      const saved = scrollMemory.get(currentLoadKey);
+      setVisibleCount(saved?.visibleCount ?? INITIAL_VISIBLE);
+      restoreTopRef.current = saved ? saved.top : null;
+      initialFillRef.current = !saved;
+      loadingMoreRef.current = false;
+      prevScrollHeightRef.current = 0;
+      armedLoadKeyRef.current = currentLoadKey;
+    }
   }
 
   // Re-initialise the lazy-load flags every time `messages` transitions
@@ -273,12 +332,20 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     const wasNull = prevMessagesNullRef.current;
     prevMessagesNullRef.current = messages == null;
     if (wasNull && messages != null) {
+      const armed = armedLoadKeyRef.current;
+      armedLoadKeyRef.current = null;
+      const key = session ? `${session.source}:${session.id}` : null;
+      // The render block already armed this exact load; resetting here would
+      // undo the restore it set up. Any other null → populated transition (a
+      // forced re-read of the session already on screen) still resets.
+      if (armed && key && armed === key) return;
       setVisibleCount(INITIAL_VISIBLE);
       loadingMoreRef.current = false;
       prevScrollHeightRef.current = 0;
+      restoreTopRef.current = null;
       initialFillRef.current = true;
     }
-  }, [messages]);
+  }, [messages, session?.id, session?.source]);
 
   // Refresh path. `messages` stays non-null and just grows in place. Extend
   // visibleCount by the raw delta so the slice(-want) still anchors to the
@@ -430,6 +497,15 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
       if (delta > 0) root.scrollTop = root.scrollTop + delta;
       prevScrollHeightRef.current = 0;
       loadingMoreRef.current = false;
+    } else if (restoreTopRef.current != null) {
+      // Third prepend mode: returning to a session. Clamped because the
+      // restored window renders at a slightly different height than it had —
+      // markdown and images don't measure identically on a second pass — and an
+      // offset past the end would silently land at the bottom, which is the
+      // exact behaviour this is here to prevent.
+      const max = Math.max(0, root.scrollHeight - root.clientHeight);
+      root.scrollTop = Math.min(restoreTopRef.current, max);
+      restoreTopRef.current = null;
     } else if (initialFillRef.current) {
       root.scrollTop = root.scrollHeight;
     }
@@ -510,6 +586,20 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     if (initialFillRef.current) {
       const distFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
       if (distFromBottom > 60) initialFillRef.current = false;
+    }
+    // Record only positions the reader actually chose.
+    //
+    // `initialFillRef` rules out the auto-fill loop's bottom pinning. The other
+    // two guards rule out the teardown: selecting a session runs two load
+    // cycles, and between them `messages` goes back to null, so the content
+    // unmounts, the browser clamps scrollTop to 0 and fires a scroll event for
+    // it. Storing that 0 overwrote the real position with the top of the
+    // document — the restore then worked perfectly and restored nothing.
+    // `messages` covers the empty phase and the overflow check covers any
+    // render too short to scroll, where scrollTop is 0 by arithmetic.
+    const scrollable = root.scrollHeight - root.clientHeight > 0;
+    if (!initialFillRef.current && session && messages && scrollable) {
+      rememberScroll(`${session.source}:${session.id}`, root.scrollTop, visibleCount);
     }
     if (loadingMoreRef.current || hiddenCount <= 0) return;
     if (root.scrollTop < SCROLL_TRIGGER_PX) {
