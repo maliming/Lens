@@ -324,7 +324,16 @@ function DailyChart({ byDay }: { byDay: UsageSummary['byDay'] }) {
             <div key={d.day} className="flex-1 group relative flex flex-col justify-end min-w-0" title={`${d.day}\n${fmtTokens(t)} tokens · ${d.sessions} sessions`}>
               <div
                 className={cn(
-                  'w-full rounded-t transition-all',
+                  // `transition-[height]`, never `transition-all`: `all`
+                  // includes `visibility`, and a visible → hidden transition
+                  // holds the element at `visible` for its whole duration
+                  // before flipping. Since the bar inherits visibility from the
+                  // ViewSlot, that left the bars painted for 150ms after the
+                  // user navigated away — the rest of the view vanished on
+                  // time and the chart ghosted behind the incoming one. The
+                  // heatmap never did this because its cells only transition
+                  // colors. Height is the only thing here worth animating.
+                  'w-full rounded-t transition-[height]',
                   isPeak ? 'bg-gradient-to-t from-pink-500 to-purple-500' : 'bg-gradient-to-t from-accent/70 to-accent/40 group-hover:from-accent group-hover:to-purple-400'
                 )}
                 style={{ height: `${h}%` }}

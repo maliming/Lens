@@ -33,36 +33,38 @@ function getSystemTheme(): 'light' | 'dark' {
 // results, and (most importantly) SessionDetail's loaded messages survive when
 // the user switches views.
 //
-// When active: `display: contents` makes the wrapper transparent to the outer
-// flex row — the view component is laid out as a direct child of the flex
-// container, just like the old conditional render.
+// Every slot is permanently `position: absolute + inset: 0` inside the
+// `.view-stack` wrapper, which is the flex child that owns the area to the
+// right of the sidebar. All five therefore sit stacked at exactly the active
+// view's geometry, and switching flips nothing but `visibility` — a property
+// that doesn't participate in layout. Slots stay laid out while hidden, which
+// SessionList needs: `@tanstack/react-virtual` puts a ResizeObserver on every
+// row, and under `display: none` each one reports height 0, so switching back
+// triggers a flood of re-measures (visible as the list height "snapping" into
+// place).
 //
-// When inactive: `position: absolute + visibility: hidden + pointer-events:
-// none` takes the wrapper out of flex flow so the active view gets the full
-// width, but the subtree still paints into a real DOM box with real
-// dimensions. That matters because SessionList's `@tanstack/react-virtual`
-// uses a ResizeObserver on every row — under `display: none` every row
-// reports height 0, and switching back triggers a flood of re-measures
-// (visible as the list height "snapping" into place). Keeping a real layout
-// while invisible avoids that re-measure entirely.
-//
-// Side note: the parent of these ViewSlots (`flex-1 flex ... relative`)
-// becomes the positioning context for the absolute wrapper, so the hidden
-// view inherits the row's full width — slightly wider than the active view
-// (it doesn't subtract the sidebar) but row height isn't width-sensitive,
-// so the cached measurements still apply when it becomes active again.
+// The stacking is what keeps a nav switch cheap. An earlier version swapped
+// the active slot to `display: contents` so the view became a direct flex
+// child, and moved the outgoing one back to absolute — which changed the
+// layout constraints of both subtrees and dirtied ~1900 layout objects (~17ms
+// on a 300-session profile, enough that the outgoing view visibly lingered for
+// a few frames). Same pixels, no relayout.
 function ViewSlot({ active, children }: { active: boolean; children: React.ReactNode }) {
-  if (active) return <div style={{ display: 'contents' }}>{children}</div>;
   return (
     <div
-      aria-hidden
+      aria-hidden={!active}
       style={{
         position: 'absolute',
         inset: 0,
         display: 'flex',
         minHeight: 0,
-        visibility: 'hidden',
-        pointerEvents: 'none',
+        // The slot is now the flex container for views that render several
+        // panes side by side (SessionsView is list + resizer + detail). Under
+        // the old `display: contents` those panes were direct children of the
+        // app row and picked up its `gap-1.5`; here the gap has to be stated.
+        gap: '0.375rem',
+        visibility: active ? 'visible' : 'hidden',
+        pointerEvents: active ? undefined : 'none',
       }}
     >
       {children}
@@ -734,7 +736,13 @@ export default function App() {
           keeps detail-pane messages, deep-search hits, scroll positions, and
           input state intact. The previous conditional render unmounted the
           whole subtree, forcing a fresh IPC fetch on re-entry.
+
+          This wrapper is the flex child that owns everything right of the
+          sidebar, and the positioning context the slots stack inside. Without
+          it they would resolve against the row itself and each hidden view
+          would be laid out a sidebar wider than the one on screen.
         */}
+        <div className="flex-1 min-w-0 flex min-h-0 relative">
         <ViewSlot active={view === 'sessions' || view === 'favorites' || view === 'terminals' || view === 'excluded'}>
           <SessionsView
             // While inactive, freeze the `view` prop on the last active
@@ -825,6 +833,7 @@ export default function App() {
         <ViewSlot active={view === 'settings'}>
           <SettingsView themeMode={themeMode} resolvedTheme={theme} onThemeChange={setThemeMode} demoMode={demoMode} onDemoModeChange={setDemoMode} rlConsent={rlConsent} onRlConsentChange={setRlConsent} />
         </ViewSlot>
+        </div>
       </div>
 
       <AccountModal
