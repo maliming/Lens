@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Sun, Moon, Monitor, Settings as Gear, Check, FolderOpen, FlaskConical, Activity, Terminal as TerminalIcon, ChevronDown } from 'lucide-react';
+import { Sun, Moon, Monitor, Settings as Gear, Check, FolderOpen, FlaskConical, Activity, Terminal as TerminalIcon, ChevronDown, SlidersHorizontal, MessageSquare, Gauge, Wrench } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useDisplayPrefs } from '../lib/displayPrefs';
 import type { ThemeMode } from '../App';
@@ -9,12 +9,24 @@ import {
   MAX_WARN_THRESHOLD, MIN_WARN_THRESHOLD, getTerminalPrefs, setTerminalWarn,
   getTerminalStartMode, setTerminalStartMode,
 } from '../lib/terminals';
-import { LOCALES, type Locale } from '../lib/i18n';
+import { LOCALES, type Locale, type TKey } from '../lib/i18n';
 import { US, CN, TR, JP, KR, DE, FR, ES, BR, RU } from 'country-flag-icons/react/3x2';
 import { IS_DEMO_BUILD, DEMO_AVAILABLE } from '../lib/demoMode';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
 import { useAppPrefs } from '../lib/appPrefs';
 import { useCurrentSource, getSource, SOURCE_ORDER } from '../lib/sources';
+
+// Icon per tab: at five tabs the labels are still readable, but a glyph is
+// what makes the strip scannable at a glance and gives the active tab a second
+// signal beyond colour.
+const SETTINGS_TABS = [
+  { id: 'general', icon: SlidersHorizontal },
+  { id: 'conversation', icon: MessageSquare },
+  { id: 'usage', icon: Gauge },
+  { id: 'terminal', icon: TerminalIcon },
+  { id: 'advanced', icon: Wrench },
+] as const;
+const TAB_STORAGE = 'settings-tab-v1';
 
 type Props = {
   themeMode: ThemeMode;
@@ -55,17 +67,46 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
   // rows can never offer to configure a number the menu bar won't draw.
   const quotaSources = SOURCE_ORDER.filter(id => caps?.quotaSources?.includes(id));
 
+  const [tab, setTab] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(TAB_STORAGE);
+      if (saved && SETTINGS_TABS.some(x => x.id === saved)) return saved;
+    } catch { /* private window, blocked storage */ }
+    return SETTINGS_TABS[0].id;
+  });
+  useEffect(() => {
+    try { localStorage.setItem(TAB_STORAGE, tab); } catch { /* not worth failing over */ }
+  }, [tab]);
+
   return (
     <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
-      <div className="max-w-4xl mx-auto px-10 py-8">
+      <div className="max-w-5xl mx-auto px-10 py-8">
         <div className="flex items-center gap-3 mb-1">
           <Gear className="w-5 h-5 text-accent" />
           <h1 className="text-[22px] font-bold text-text">{t('settings.title')}</h1>
         </div>
-        <p className="text-text-muted text-[12px] mb-8">{t('settings.subtitle')}</p>
+        <p className="text-text-muted text-[12px] mb-6">{t('settings.subtitle')}</p>
+
+        {/* Wraps rather than scrolls: six short labels, and a horizontally
+            scrolling strip hides the fact that more tabs exist. */}
+        <nav className="flex flex-wrap gap-1 mb-6 border-b border-border-soft pb-2">
+          {SETTINGS_TABS.map(({ id, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12.5px] font-medium transition whitespace-nowrap',
+                tab === id ? 'bg-accent-soft text-accent' : 'text-text-muted hover:text-text hover:bg-muted'
+              )}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {t(`settings.section.${id}` as TKey)}
+            </button>
+          ))}
+        </nav>
 
         {/* Appearance — theme + compact + language */}
-        <Section title={t('settings.section.appearance')}>
+        <Section id="general" active={tab} title={t('settings.section.appearance')}>
           <Row label={t('settings.theme')} hint={themeMode === 'system' ? t('settings.theme.followingSystem', { theme: resolvedThemeLabel }) : t('settings.theme.pick')}>
             <div className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
               <ThemeOption icon={<Sun className="w-3.5 h-3.5" />} label={t('settings.theme.light')} active={themeMode === 'light'} onClick={() => onThemeChange('light')} />
@@ -79,10 +120,13 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
           <Row label={t('settings.language.label')} hint={t('settings.language.hint')}>
             <LanguagePicker locale={locale} onChange={setLocale} />
           </Row>
+          <Row label={t('settings.toolbarLabels')} hint={t('settings.toolbarLabels.hint')}>
+            <Switch checked={prefs.toolbarLabels} onChange={v => setPrefs({ toolbarLabels: v })} />
+          </Row>
         </Section>
 
         {/* Conversation — what shows up next to / inside messages */}
-        <Section title={t('settings.section.conversation')}>
+        <Section id="conversation" active={tab} title={t('settings.section.conversation')}>
           <Row label={t('settings.showTimestamps')} hint={t('settings.showTimestamps.hint')}>
             <Switch checked={prefs.showTimestamps} onChange={v => setPrefs({ showTimestamps: v })} />
           </Row>
@@ -100,43 +144,71 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
           </Row>
         </Section>
 
-        {/* Integrations — terminal + how the open-in toolbar shows */}
-        <Section title={t('settings.section.integrations')}>
-          {showTerminalChoice && (
-            <Row label={t('settings.preferredTerminal')} hint={t('settings.preferredTerminal.hint')}>
+        {/* Usage — subscription quota probe */}
+        <Section id="usage" active={tab} title={t('settings.section.usage')}>
+          <Row label={t('settings.realQuota')} hint={t('settings.realQuota.hint')}>
+            <div className="flex items-center gap-2">
+              <Activity className={cn('w-3.5 h-3.5', rlConsent === 'granted' ? 'text-accent' : 'text-text-muted')} />
+              <Switch
+                checked={rlConsent === 'granted'}
+                onChange={v => { if (v) onOpenRlPrompt(); else onRlConsentChange('denied'); }}
+              />
+            </div>
+          </Row>
+          {/* macOS only: `tray.setTitle()` exists on no other platform. Needs a
+              tray to draw on, so it follows the same disabled treatment as the
+              close-behavior buttons above. */}
+          {isMac && quotaSources.length > 0 && (
+            <Row
+              label={t('settings.menuBarQuota')}
+              hint={appPrefs.showTrayIcon ? t('settings.menuBarQuota.hint') : t('settings.closeBehavior.disabledTip')}
+            >
+              <Switch
+                checked={appPrefs.menuBarQuota && appPrefs.showTrayIcon}
+                disabled={!appPrefs.showTrayIcon}
+                onChange={v => setAppPrefs({ menuBarQuota: v })}
+              />
+            </Row>
+          )}
+          {/* The title is two bare percentages, so position is the only thing
+              identifying them — this row is what makes that readable. Only
+              shown while the title is on AND there are actually two numbers to
+              tell apart: with one provider the title is a single unambiguous
+              percentage and an order to pick would be meaningless. Driven by
+              the provider list rather than a hardcoded one, so a new provider
+              needs no edit here; picking one moves it to the front and the
+              rest keep their relative order. */}
+          {isMac && appPrefs.showTrayIcon && appPrefs.menuBarQuota && quotaSources.length > 1 && (
+            <Row label={t('settings.menuBarQuotaOrder')} hint={t('settings.menuBarQuotaOrder.hint')}>
               <div className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
-                <button
-                  onClick={() => setPrefs({ preferredTerminal: 'terminal' })}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium transition',
-                    prefs.preferredTerminal === 'terminal' ? 'bg-surface shadow-soft text-text' : 'text-text-muted hover:text-text'
-                  )}
-                >
-                  <TerminalIcon className="w-3.5 h-3.5" />
-                  Terminal
-                </button>
-                <button
-                  onClick={() => setPrefs({ preferredTerminal: 'iterm' })}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium transition',
-                    prefs.preferredTerminal === 'iterm' ? 'bg-surface shadow-soft text-text' : 'text-text-muted hover:text-text'
-                  )}
-                >
-                  <TerminalIcon className="w-3.5 h-3.5" />
-                  iTerm
-                </button>
+                {quotaSources.map(id => {
+                  // Mirrors the poller's own normalisation: the first provider
+                  // the pref names that this host actually has, else the first
+                  // one it has. A pref left pointing at an absent provider
+                  // therefore highlights what the menu bar really draws first.
+                  const first = appPrefs.menuBarQuotaOrder?.find(x => quotaSources.includes(x)) ?? quotaSources[0];
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => setAppPrefs({ menuBarQuotaOrder: [id, ...SOURCE_ORDER.filter(x => x !== id)] })}
+                      className={cn(
+                        'px-3 py-1 rounded-md text-[12px] font-medium transition',
+                        first === id ? 'bg-surface shadow-soft text-text' : 'text-text-muted hover:text-text'
+                      )}
+                    >
+                      {getSource(id).label}
+                    </button>
+                  );
+                })}
               </div>
             </Row>
           )}
-          <Row label={t('settings.toolbarLabels')} hint={t('settings.toolbarLabels.hint')}>
-            <Switch checked={prefs.toolbarLabels} onChange={v => setPrefs({ toolbarLabels: v })} />
-          </Row>
         </Section>
 
-        {/* Terminal — the embedded PTY. Its own section because the cost model
-            is unlike anything else in Settings: every terminal is a whole CLI
-            process, so this is really a memory control. */}
-        <Section title={t('settings.section.terminal')}>
+        {/* Terminal — the embedded PTY, plus which external terminal the
+            open-in buttons use. One section because the user's question is
+            "how do terminals work here", not "which process owns them". */}
+        <Section id="terminal" active={tab} title={t('settings.section.terminal')}>
           {/* Turning it on goes through the modal — it spawns a real shell and,
               on macOS, hands the CLI's permission prompts to the user under
               Lens's name. Turning it off needs no ceremony. */}
@@ -194,10 +266,36 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
             </Row>
           )}
           </>)}
+          {showTerminalChoice && (
+            <Row label={t('settings.preferredTerminal')} hint={t('settings.preferredTerminal.hint')}>
+              <div className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
+                <button
+                  onClick={() => setPrefs({ preferredTerminal: 'terminal' })}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium transition',
+                    prefs.preferredTerminal === 'terminal' ? 'bg-surface shadow-soft text-text' : 'text-text-muted hover:text-text'
+                  )}
+                >
+                  <TerminalIcon className="w-3.5 h-3.5" />
+                  Terminal
+                </button>
+                <button
+                  onClick={() => setPrefs({ preferredTerminal: 'iterm' })}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium transition',
+                    prefs.preferredTerminal === 'iterm' ? 'bg-surface shadow-soft text-text' : 'text-text-muted hover:text-text'
+                  )}
+                >
+                  <TerminalIcon className="w-3.5 h-3.5" />
+                  iTerm
+                </button>
+              </div>
+            </Row>
+          )}
         </Section>
 
         {/* App behavior — tray + close + autostart. Standard packaged-app prefs. */}
-        <Section title={t('settings.section.appBehavior')}>
+        <Section id="general" active={tab} title={t('settings.section.appBehavior')}>
           <Row label={t('settings.tray')} hint={t('settings.tray.hint')}>
             <Switch checked={appPrefs.showTrayIcon} onChange={v => setAppPrefs({ showTrayIcon: v })} />
           </Row>
@@ -230,74 +328,13 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
               <Switch checked={appPrefs.launchAtLogin} onChange={v => setAppPrefs({ launchAtLogin: v })} />
             </Row>
           )}
-          {/* macOS only: `tray.setTitle()` exists on no other platform. Needs a
-              tray to draw on, so it follows the same disabled treatment as the
-              close-behavior buttons above. */}
-          {isMac && quotaSources.length > 0 && (
-            <Row
-              label={t('settings.menuBarQuota')}
-              hint={appPrefs.showTrayIcon ? t('settings.menuBarQuota.hint') : t('settings.closeBehavior.disabledTip')}
-            >
-              <Switch
-                checked={appPrefs.menuBarQuota && appPrefs.showTrayIcon}
-                disabled={!appPrefs.showTrayIcon}
-                onChange={v => setAppPrefs({ menuBarQuota: v })}
-              />
-            </Row>
-          )}
-          {/* The title is two bare percentages, so position is the only thing
-              identifying them — this row is what makes that readable. Only
-              shown while the title is on AND there are actually two numbers to
-              tell apart: with one provider the title is a single unambiguous
-              percentage and an order to pick would be meaningless. Driven by
-              the provider list rather than a hardcoded one, so a new provider
-              needs no edit here; picking one moves it to the front and the
-              rest keep their relative order. */}
-          {isMac && appPrefs.showTrayIcon && appPrefs.menuBarQuota && quotaSources.length > 1 && (
-            <Row label={t('settings.menuBarQuotaOrder')} hint={t('settings.menuBarQuotaOrder.hint')}>
-              <div className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
-                {quotaSources.map(id => {
-                  // Mirrors the poller's own normalisation: the first provider
-                  // the pref names that this host actually has, else the first
-                  // one it has. A pref left pointing at an absent provider
-                  // therefore highlights what the menu bar really draws first.
-                  const first = appPrefs.menuBarQuotaOrder?.find(x => quotaSources.includes(x)) ?? quotaSources[0];
-                  return (
-                    <button
-                      key={id}
-                      onClick={() => setAppPrefs({ menuBarQuotaOrder: [id, ...SOURCE_ORDER.filter(x => x !== id)] })}
-                      className={cn(
-                        'px-3 py-1 rounded-md text-[12px] font-medium transition',
-                        first === id ? 'bg-surface shadow-soft text-text' : 'text-text-muted hover:text-text'
-                      )}
-                    >
-                      {getSource(id).label}
-                    </button>
-                  );
-                })}
-              </div>
-            </Row>
-          )}
-        </Section>
-
-        {/* Usage — subscription quota probe */}
-        <Section title={t('settings.section.usage')}>
-          <Row label={t('settings.realQuota')} hint={t('settings.realQuota.hint')}>
-            <div className="flex items-center gap-2">
-              <Activity className={cn('w-3.5 h-3.5', rlConsent === 'granted' ? 'text-accent' : 'text-text-muted')} />
-              <Switch
-                checked={rlConsent === 'granted'}
-                onChange={v => { if (v) onOpenRlPrompt(); else onRlConsentChange('denied'); }}
-              />
-            </div>
-          </Row>
         </Section>
 
         {/* Advanced — local folders + power-user toggles. Order: AI tool's
             data dir first (source-aware), then Lens's own user-data dir, then
             the debug log dir. Diagnostics-only rows live after the everyday
             ones; Demo mode (dev-only) anchors the bottom. */}
-        <Section title={t('settings.section.advanced')}>
+        <Section id="advanced" active={tab} title={t('settings.section.advanced')}>
           {/* Source-aware: button label / path follow the active AI tool, so
              switching to Codex flips this to "Open ~/.codex/sessions". */}
           <Row
@@ -347,10 +384,19 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ id, active, title, children }: { id: string; active: string; title: string; children: React.ReactNode }) {
+  // Unmounted rather than hidden: every row here is a controlled input reading
+  // from a store, so there is no scroll position or draft text to preserve, and
+  // keeping inactive panels mounted would keep their subscriptions live for
+  // nothing.
+  if (id !== active) return null;
   return (
-    <section className="mb-8">
-      <h2 className="text-[11px] uppercase tracking-wider font-semibold text-text-muted mb-3">{title}</h2>
+    <section className="mb-6 last:mb-0">
+      {/* A tab holding one group repeats its own name here, which reads as a
+          mistake — but General holds two, and there the headings are the only
+          thing separating "how it looks" from "how it behaves". Cheap enough
+          to always draw, and the duplication only shows on single-group tabs. */}
+      <h2 className="text-[11px] uppercase tracking-wider font-semibold text-text-muted mb-2">{title}</h2>
       <div className="bg-surface border border-border-soft rounded-xl divide-y divide-border-soft/60">
         {children}
       </div>

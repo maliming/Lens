@@ -97,7 +97,13 @@ function AgentBody({ filePath, source, prefs }: { filePath: string; source: Sour
   if (state.status === 'error') {
     return <div className="px-3 py-2 text-[11.5px] text-rose-500">{t('subagent.loadError')}: {cleanDisplayText(state.error || '')}</div>;
   }
-  const msgs = state.messages || [];
+  // Same rule as the main transcript: "Show tool calls" is a preference about
+  // reading conversations, and a subagent's transcript is one. Without this the
+  // setting silently stopped applying the moment a turn was nested — which is
+  // exactly where tool traffic is densest. No subagent-link exemption here:
+  // agents do not spawn further agents from inside their own transcript, so
+  // nothing is reachable only through a hidden tool card.
+  const msgs = (state.messages || []).filter(m => prefs.showTools || !(m.isToolUse || m.isToolResult));
   if (!msgs.length) {
     return <div className="px-3 py-2 text-[11.5px] text-text-muted">{t('subagent.empty')}</div>;
   }

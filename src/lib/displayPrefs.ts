@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export type TerminalApp = 'terminal' | 'iterm';
 
@@ -61,12 +61,36 @@ function parsePrefs(raw: string | null): DisplayPrefs {
   } catch { return DEFAULTS; }
 }
 
+// Module-level singleton. Per-hook `useState` gave every component its own copy
+// of what is one setting: flipping "Show toolbar button labels" in Settings
+// changed Settings' copy and nothing else, and the detail pane kept rendering
+// from a copy that never heard about it. Worse, each copy also wrote itself
+// back to localStorage, so whichever component re-rendered last could overwrite
+// a change it never saw. One store, one writer, all subscribers re-render.
+let _prefs: DisplayPrefs = readStored();
+const _subs = new Set<() => void>();
+
+function readStored(): DisplayPrefs {
+  // Private windows and blocked site data throw on access, and a preview or
+  // thumbnail capture can hand us an empty store — defaults have to survive
+  // both without taking the page down.
+  try { return parsePrefs(localStorage.getItem(STORAGE_KEY)); } catch { return DEFAULTS; }
+}
+
 export function useDisplayPrefs(): [DisplayPrefs, (patch: Partial<DisplayPrefs>) => void] {
-  const [prefs, setPrefs] = useState<DisplayPrefs>(() => parsePrefs(localStorage.getItem(STORAGE_KEY)));
+  const [, bump] = useState(0);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-  }, [prefs]);
+    const fn = () => bump(n => n + 1);
+    _subs.add(fn);
+    return () => { _subs.delete(fn); };
+  }, []);
 
-  return [prefs, (patch: Partial<DisplayPrefs>) => setPrefs(p => ({ ...p, ...patch }))];
+  const update = useCallback((patch: Partial<DisplayPrefs>) => {
+    _prefs = { ..._prefs, ...patch };
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_prefs)); } catch { /* not worth failing the toggle */ }
+    for (const fn of _subs) fn();
+  }, []);
+
+  return [_prefs, update];
 }

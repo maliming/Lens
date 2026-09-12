@@ -214,66 +214,66 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     }
     prevRefreshingRef.current = refreshing ?? false;
   }, [refreshing]);
-  // `prefs.toolbarLabels` decides whether the icon buttons carry text. It is
-  // a preference, not a fit signal: when the row still overflows (narrow
-  // pane, wide locale), the hero buttons drop their labels instead — see
-  // toolbarCompact below.
-  const showLabel = prefs.toolbarLabels;
-
-  // Resume and Terminal are the widest items on the row, so shedding their
-  // labels is what buys a second line back. Measured, not a breakpoint: the
-  // wrap point moves with the locale, the label preference, and the pane
-  // width the user drags.
+  // `prefs.toolbarLabels` decides whether the small icon buttons carry text.
+  // Resume and Terminal always carry theirs: a play triangle and a terminal
+  // glyph are the two things on this row that don't say what they do, and a
+  // narrow pane is exactly where guessing wrong costs the most. They match the
+  // other buttons' height instead, so the words cost no extra line — the fill
+  // and the outline are what mark them as the primary pair, not their size.
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const resumeBtnRef = useRef<HTMLButtonElement>(null);
-  const terminalBtnRef = useRef<HTMLButtonElement>(null);
-  const [toolbarCompact, setToolbarCompact] = useState(false);
-  const toolbarCompactRef = useRef(false);
-  // Width the two labels add back, captured as the row collapses. A compact
-  // row measured on its own always fits, so re-expansion must be judged
-  // against the expanded width — otherwise a pane a few pixels too narrow
-  // flaps between the two layouts on every resize tick.
-  const heroExtraRef = useRef(0);
-  useLayoutEffect(() => {
-    const row = toolbarRef.current;
-    if (!row || typeof ResizeObserver === 'undefined') return;
+  // Hide the four tool buttons' labels when the row actually wraps, rather
+  // than at a width guessed in advance — the guess has to hold for every
+  // locale and every combination of buttons, and the first one landed exactly
+  // on the wrap point, which is the same as no threshold at all.
+  //
+  // Wrapping is read off the layout: in a flex-wrap row, a last child sitting
+  // lower than the first child means a second line exists. The measurement is
+  // taken only while labels are showing, so what it observes is always "does
+  // the full-width row fit".
+  //
+  // Coming back is deliberately not symmetrical. Re-testing the collapsed row
+  // for fit is what oscillates: it fits precisely because it collapsed, so it
+  // expands, wraps, collapses again. Instead the width that wrapped is
+  // remembered, and labels return only once the pane is meaningfully wider
+  // than that — one direction is driven by layout, the other by a number that
+  // the layout cannot influence.
+  const [roomForLabels, setRoomForLabels] = useState(true);
+  const roomRef = useRef(true);
+  const wrappedAtRef = useRef(Infinity);
+  const RELAX_PX = 48;
+  useEffect(() => {
+    // A manual flip of the preference is a fresh question: re-measure instead
+    // of holding a verdict that was reached about the other setting.
+    roomRef.current = true;
+    wrappedAtRef.current = Infinity;
+    setRoomForLabels(true);
+  }, [prefs.toolbarLabels, locale]);
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
     const measure = () => {
-      const el = toolbarRef.current;
-      if (!el) return;
       const kids = Array.from(el.children) as HTMLElement[];
-      if (kids.length === 0) return;
-      const avail = el.getBoundingClientRect().width;
-      // Hidden pane (view not active) measures 0 — the observer fires again
-      // once it is shown.
-      if (avail === 0) return;
-      const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
-      const need = kids.reduce((sum, k) => sum + k.getBoundingClientRect().width, 0) + gap * (kids.length - 1);
-      if (!toolbarCompactRef.current) {
-        if (need > avail) {
-          // Icon-only the buttons are square (w-10 against h-10), so their
-          // rendered height is the compact width — measured rather than
-          // hardcoded because the rem size is not 16px here.
-          heroExtraRef.current = [resumeBtnRef, terminalBtnRef].reduce((sum, r) => {
-            if (!r.current) return sum;
-            const { width, height } = r.current.getBoundingClientRect();
-            return sum + Math.max(0, width - height);
-          }, 0);
-          toolbarCompactRef.current = true;
-          setToolbarCompact(true);
+      if (kids.length < 2) return;
+      const width = el.getBoundingClientRect().width;
+      // A hidden pane measures 0; the observer fires again when it is shown.
+      if (width === 0) return;
+      if (roomRef.current) {
+        if (kids[kids.length - 1].offsetTop > kids[0].offsetTop) {
+          wrappedAtRef.current = width;
+          roomRef.current = false;
+          setRoomForLabels(false);
         }
-      } else if (need + heroExtraRef.current <= avail) {
-        toolbarCompactRef.current = false;
-        setToolbarCompact(false);
+      } else if (width > wrappedAtRef.current + RELAX_PX) {
+        roomRef.current = true;
+        setRoomForLabels(true);
       }
     };
     measure();
     const ro = new ResizeObserver(measure);
-    ro.observe(row);
-    // Children too: a label swap (Copy → Copied, Refresh → Refreshed) moves
-    // the wrap point without changing the row's own box.
-    for (const k of Array.from(row.children)) ro.observe(k);
+    ro.observe(el);
     return () => ro.disconnect();
-  }, [session?.source, session?.id, prefs.toolbarLabels, locale]);
+  }, [prefs.toolbarLabels, locale, session?.source, session?.id]);
+  const showLabel = prefs.toolbarLabels && roomForLabels;
 
   // Reset the in-session search when switching sessions; keep it when the
   // current session is just being refreshed (parent toggles messages=null
@@ -740,16 +740,14 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
              preferred terminal (iTerm on macOS if available, otherwise
              system Terminal). */}
           <button
-            ref={resumeBtnRef}
             onClick={handleTerminal}
             title={effectivePreferred === 'iterm' ? t('detail.tip.openInIterm') : t('detail.tip.openInTerminal')}
             aria-label={t('detail.btn.resume')}
             className={cn(
-              'h-10 bg-accent text-white rounded-lg text-[13.5px] font-semibold hover:opacity-90 flex items-center justify-center gap-1.5 shadow-soft whitespace-nowrap flex-shrink-0',
-              toolbarCompact ? 'w-10' : 'px-4',
+              'h-9 px-3 bg-accent text-white rounded-lg text-[12.5px] font-semibold hover:opacity-90 flex items-center justify-center gap-1.5 shadow-soft whitespace-nowrap flex-shrink-0',
             )}
           >
-            <Play className="w-4 h-4" />{!toolbarCompact && t('detail.btn.resume')}
+            <Play className="w-3.5 h-3.5" />{t('detail.btn.resume')}
           </button>
           {/* Peer of Resume, not a toolbar icon: continuing the work inside
               Lens is the same order of action as continuing it outside. Same
@@ -758,19 +756,17 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
               actually live so the running state is unmissable. */}
           {session && appPrefs.embeddedTerminal && getSource(session.source).terminal.supported && (
             <button
-              ref={terminalBtnRef}
               onClick={requestTerminal}
               title={t('term.open')}
               aria-label={t('term.label')}
               className={cn(
-                'h-10 rounded-lg text-[13.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0 transition',
-                toolbarCompact ? 'w-10' : 'px-4',
+                'h-9 px-3 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0 transition',
                 getTerminal(sessionKeyOf(session))
                   ? 'bg-accent text-white hover:opacity-90 shadow-soft'
                   : 'border border-accent/50 text-accent hover:bg-accent-soft',
               )}
             >
-              <TerminalSquare className="w-4 h-4" />{!toolbarCompact && t('term.label')}
+              <TerminalSquare className="w-3.5 h-3.5" />{t('term.label')}
             </button>
           )}
           <ToolbarBtn
@@ -804,9 +800,14 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
           <ToolbarBtn onClick={handleVSCode} icon={<Code2 className="w-4 h-4" />} label={t('detail.btn.vscode')} showLabel={showLabel} title={t('detail.tip.openInVSCode')} />
           <DisplayMenu prefs={prefs} onChange={setPrefs} />
 
+          {/* `ml-auto` only pushes right while the row fits on one line; once it
+              wraps the margin collapses and this sits at the start of line two.
+              Narrow padding because the two labels are already as short as text
+              gets — the width here is nearly all padding, and it is the last
+              thing standing between a one-line and a two-line toolbar. */}
           <div className="ml-auto inline-flex p-0.5 bg-muted rounded-lg flex-shrink-0">
-            <button onClick={() => setGlobalMode('markdown')} className={cn('px-3 h-8 rounded-md text-[12px] font-semibold', globalMode === 'markdown' ? 'bg-surface shadow-soft text-text' : 'text-text-muted')}>MD</button>
-            <button onClick={() => setGlobalMode('raw')} className={cn('px-3 h-8 rounded-md text-[12px] font-semibold', globalMode === 'raw' ? 'bg-surface shadow-soft text-text' : 'text-text-muted')}>{t('detail.modeRawBtn')}</button>
+            <button onClick={() => setGlobalMode('markdown')} className={cn('px-2 h-8 rounded-md text-[12px] font-semibold', globalMode === 'markdown' ? 'bg-surface shadow-soft text-text' : 'text-text-muted')}>MD</button>
+            <button onClick={() => setGlobalMode('raw')} className={cn('px-2 h-8 rounded-md text-[12px] font-semibold', globalMode === 'raw' ? 'bg-surface shadow-soft text-text' : 'text-text-muted')}>{t('detail.modeRawBtn')}</button>
           </div>
         </div>
 

@@ -272,7 +272,7 @@ function WorkspaceOverview({
 }) {
   const { t } = useTranslationLocal();
   return (
-    <div className="px-8 py-7 max-w-[820px] mx-auto">
+    <div className="px-8 py-7 max-w-[1600px] mx-auto">
       <div className="mb-7">
         <div className="text-[11px] uppercase tracking-wider font-semibold text-text-muted mb-1.5">{t('config.workspaceLabel')}</div>
         <h1 className="text-[22px] font-bold text-text leading-tight mb-1">{sourceDef.workspaceRoot}</h1>
@@ -294,7 +294,7 @@ function WorkspaceOverview({
       </div>
 
       {/* Resource cards — these are the primary scanning grid */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
         {KIND_ORDER.map(kind => {
           const cardMeta = meta[kind];
           const Icon = cardMeta.icon;
@@ -356,7 +356,7 @@ function ResourceDetail({
   const hasEntries = item.contentKind === 'dir' && (item.entries?.length || 0) > 0;
 
   return (
-    <div className="px-8 py-7 max-w-[820px] mx-auto">
+    <div className="px-8 py-7 max-w-[1600px] mx-auto">
       {/* Breadcrumb back to overview */}
       <button onClick={onBack} className="flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text transition mb-4">
         <ChevronLeft className="w-3.5 h-3.5" /> {t('config.workspaceLabel')}
