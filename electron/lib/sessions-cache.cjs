@@ -65,7 +65,12 @@ const { normalizeSessionForCache, cacheRevision, isEmptySession } = require('./s
 // v18: Codex rows round-trip `reasoningEffort` (the turn's thinking level). v17
 //     caches can be sharded, a shape the legacy flat-array migration does not
 //     handle, so they are simply ignored and re-scanned rather than migrated.
-const SESSIONS_CACHE_VERSION = 18;
+// v19: Codex rows carry `repoUrl` (session_meta's git.repository_url) and a
+//     real `gitBranch`, both of which v18 threw away. Usage's repository
+//     grouping keys on it, and it is the only repository identity that
+//     outlives the working directory — so cached rows have to be re-parsed
+//     rather than left to resolve from a path that may no longer exist.
+const SESSIONS_CACHE_VERSION = 19;
 const LEGACY_SOURCE_CACHE_VERSION = 16;
 const LEGACY_CACHE_VERSION = 15;
 const SESSION_SOURCES = ['claude', 'codex'];
@@ -434,9 +439,13 @@ function createSessionsCache({ userDataDir }) {
 //   • `planType` — last seen plan tier; the Sidebar quota card displays it.
 //   • `reasoningEffort` — last seen thinking level ("high" etc); the session
 //                  info drawer shows it. Codex-only; Claude never records one.
-// All three are Codex-only; cached Claude sessions never populate them, so
-// `s.codexId === undefined` and `planType`/`reasoningEffort === undefined`
-// round-trip as `null` which the parser treats as "no info" without branching.
+//   • `repoUrl` — session_meta's git.repository_url; Usage groups repositories
+//                  on it. Survives the working directory being deleted, which a
+//                  path never does.
+// All four are Codex-only; cached Claude sessions never populate them, so
+// `s.codexId === undefined` and `planType`/`reasoningEffort`/`repoUrl ===
+// undefined` round-trip as `null`, which the parser treats as "no info"
+// without branching.
 function extractMetaFromSession(s) {
   return {
     summary: s.summary || '', firstUser: s.firstUser || '',
@@ -457,6 +466,11 @@ function extractMetaFromSession(s) {
     subagentSignature: s.subagentSignature ?? null,
     planType: s.planType ?? null,
     reasoningEffort: s.reasoningEffort ?? null,
+    // Codex-only, like the three above: the repository the session ran in, as
+    // recorded by the CLI. Has to round-trip or a warm launch would group by
+    // the working directory again — and the directories this exists to group
+    // are exactly the ones that get deleted.
+    repoUrl: s.repoUrl ?? null,
   };
 }
 

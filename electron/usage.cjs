@@ -25,7 +25,10 @@
 
 const { isUsableModel } = require('./parsers/shared.cjs');
 
-function createUsage({ listSessions, readClaudeStatsCache }) {
+// `getRepoIndex` is a getter, not the index itself: createUsage runs at module
+// load, and the index can't exist until `app.whenReady` has produced a
+// userData dir to persist into.
+function createUsage({ listSessions, readClaudeStatsCache, getRepoIndex }) {
   async function usageSummary(source) {
     // Pass noRefresh: a fresh sessions push will trigger the renderer to call
     // getUsage again. If usageSummary itself starts another scan, that scan
@@ -105,6 +108,11 @@ function createUsage({ listSessions, readClaudeStatsCache }) {
 
     const byModel = new Map();
     const byProject = new Map();
+    // Sessions that named their own repository, keyed by that name.
+    const repoDirect = new Map();
+    // Sessions that didn't, parked under their working directory until the
+    // filesystem can say what repository it belongs to.
+    const repoByDir = new Map();
     const byDay = new Map();
 
     const tm = new Date();
@@ -152,6 +160,19 @@ function createUsage({ listSessions, readClaudeStatsCache }) {
       const pcur = byProject.get(proj) || { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, sessions: 0 };
       pcur.input += inT; pcur.output += outT; pcur.cacheRead += cr; pcur.cacheCreate += cc; pcur.sessions++;
       byProject.set(proj, pcur);
+
+      // Repository grouping accumulates per session, not by re-folding the
+      // per-directory rows: a session carries its own repository identity, and
+      // one directory can legitimately host sessions from several (`~` is the
+      // extreme case). Sessions the CLI stamped with a repository are keyed on
+      // it straight away; the rest are parked under their directory for the
+      // filesystem pass after the loop.
+      const repoBucket = s.repoUrl ? repoDirect : repoByDir;
+      const repoKey = s.repoUrl || proj;
+      const rcur = repoBucket.get(repoKey) || { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, sessions: 0, dirs: new Set() };
+      rcur.input += inT; rcur.output += outT; rcur.cacheRead += cr; rcur.cacheCreate += cc; rcur.sessions++;
+      if (proj) rcur.dirs.add(proj);
+      repoBucket.set(repoKey, rcur);
 
       // byDay (heatmap + calendar): scatter tokens across the days they
       // actually happened, not the session-end day. Previously we lumped a
@@ -308,11 +329,23 @@ function createUsage({ listSessions, readClaudeStatsCache }) {
 
     const stats = computeStats(sessions, byDayAll, byModel);
 
+    // Same tokens, grouped by repository instead of by directory. Worth its own
+    // list rather than a renderer-side regroup because the folder list is
+    // already capped at 20: folding the top 20 folders would miss a repo whose
+    // worktrees each rank 21st but together rank first — exactly the case this
+    // is for. Fold everything, then cap.
+    const byRepo = await groupByRepo(repoDirect, repoByDir, getRepoIndex && getRepoIndex());
+
+    const billedSort = (a, b) => (b.input + b.output + b.cacheRead) - (a.input + a.output + a.cacheRead);
+
     return {
       buckets,
       currentWindows,
       byModel: [...byModel.entries()].map(([k, v]) => ({ model: k, ...v })).sort((a, b) => (b.input + b.output) - (a.input + a.output)),
-      byProject: [...byProject.entries()].map(([k, v]) => ({ project: k, ...v })).sort((a, b) => (b.input + b.output + b.cacheRead) - (a.input + a.output + a.cacheRead)).slice(0, 20),
+      byProject: [...byProject.entries()]
+        .map(([k, v]) => ({ project: k, input: v.input, output: v.output, cacheRead: v.cacheRead, cacheCreate: v.cacheCreate, sessions: v.sessions }))
+        .sort(billedSort).slice(0, 20),
+      byRepo: byRepo.sort(billedSort).slice(0, 20),
       // Newest first; keep up to 400 days so the heatmap can show ~52 weeks.
       byDay: byDayAll.slice(0, 400),
       stats,
@@ -320,6 +353,67 @@ function createUsage({ listSessions, readClaudeStatsCache }) {
   }
 
   return { usageSummary };
+}
+
+// "git@github.com:volosoft/taskever.git" / "https://github.com/foo/bar" →
+// "volosoft/taskever". The row is about a project; the transport, host and
+// .git suffix are identical noise on every one of them. Anything that doesn't
+// parse is shown as-is rather than mangled.
+function repoLabel(url) {
+  const m = String(url).match(/^(?:[a-z+]+:\/\/)?(?:[^@\s]+@)?[^/:\s]+[:/](.+?)(?:\.git)?\/?$/i);
+  return m ? m[1] : String(url);
+}
+
+// Merges the two accumulations into one list of repositories.
+//
+// `direct` is keyed by the repository the CLI recorded inside the session
+// itself — authoritative, and the only key that still resolves once the
+// directory it ran in has been deleted. Codex writes it into session_meta;
+// Claude records no remote at all, so every Claude session lands in `byDir`
+// and is resolved from the filesystem instead.
+//
+// A directory that resolves to nothing — not under git, or a worktree deleted
+// before Lens ever saw it — keeps its own row under its own path. The two lists
+// therefore always account for exactly the same tokens: grouping moves rows
+// together, it never drops them.
+//
+// The two halves can name the same repository by different keys (a remote URL
+// on one side, a checkout path on the other) and are deliberately not
+// reconciled: turning a path into a remote means reading `config` out of a
+// directory that may be gone, which is the guesswork this exists to avoid. In
+// practice a source populates one side or the other, not both.
+async function groupByRepo(direct, byDir, repoIndex) {
+  // No index yet (a usage call that beat startup): directory-keyed sessions
+  // stand alone, which is what the folder view already shows.
+  const roots = repoIndex && byDir.size
+    ? await repoIndex.resolveRepoRoots([...byDir.keys()])
+    : new Map();
+
+  const out = new Map();
+  const add = (key, label, v) => {
+    const cur = out.get(key) || { repo: label, input: 0, output: 0, cacheRead: 0, cacheCreate: 0, sessions: 0, dirs: new Set() };
+    cur.input += v.input;
+    cur.output += v.output;
+    cur.cacheRead += v.cacheRead;
+    cur.cacheCreate += v.cacheCreate;
+    cur.sessions += v.sessions;
+    for (const d of v.dirs) cur.dirs.add(d);
+    out.set(key, cur);
+  };
+
+  for (const [url, v] of direct) add(url, repoLabel(url), v);
+  for (const [dir, v] of byDir) {
+    const root = roots.get(dir) || dir;
+    add(root, root, v);
+  }
+
+  // `dirCount` is how many distinct working directories folded into the row —
+  // what explains to the reader why a repository outweighs any single folder
+  // they recognise. Deliberately not called "worktrees": the directories behind
+  // one repository are a mix of worktrees, separate clones and subdirectories,
+  // and naming them after only the first kind is what sent an earlier version
+  // of this down the wrong path. 1 means nothing was folded.
+  return [...out.values()].map(({ dirs, ...v }) => ({ ...v, dirCount: dirs.size || 1 }));
 }
 
 // Derived activity stats: streaks, active days, longest session, favorite model.

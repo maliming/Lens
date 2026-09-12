@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 
 export type TerminalApp = 'terminal' | 'iterm';
 
+// How the Usage view's project breakdown is grouped. 'folder' is one row per
+// working directory (what the numbers have always been); 'repo' folds every
+// worktree and subdirectory of a git repository into one row.
+export type ProjectGrouping = 'folder' | 'repo';
+
 export type DisplayPrefs = {
   showTools: boolean;
   showTimestamps: boolean;
@@ -15,6 +20,7 @@ export type DisplayPrefs = {
   // remote image surfaces as a click-to-load placeholder instead — useful
   // when a JSONL came from someone else and might point at tracking URLs.
   loadRemoteImages: boolean;
+  projectGrouping: ProjectGrouping;
 };
 
 const DEFAULTS: DisplayPrefs = {
@@ -26,6 +32,9 @@ const DEFAULTS: DisplayPrefs = {
   preferredTerminal: 'iterm',
   toolbarLabels: false,
   loadRemoteImages: true,
+  // Folder-based by default: it's what existing users' numbers already mean,
+  // and anyone who doesn't use worktrees sees the same list either way.
+  projectGrouping: 'folder',
 };
 
 const STORAGE_KEY = 'display-prefs-v1';
@@ -47,6 +56,7 @@ function parsePrefs(raw: string | null): DisplayPrefs {
     if (typeof obj.toolbarLabels === 'boolean') out.toolbarLabels = obj.toolbarLabels;
     if (typeof obj.loadRemoteImages === 'boolean') out.loadRemoteImages = obj.loadRemoteImages;
     if (obj.preferredTerminal === 'terminal' || obj.preferredTerminal === 'iterm') out.preferredTerminal = obj.preferredTerminal;
+    if (obj.projectGrouping === 'folder' || obj.projectGrouping === 'repo') out.projectGrouping = obj.projectGrouping;
     return out;
   } catch { return DEFAULTS; }
 }

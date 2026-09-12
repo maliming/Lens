@@ -6,6 +6,7 @@ import { Coins, TrendingUp, Zap, Database, Activity, Hourglass, RefreshCw, Alert
 import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/I18nProvider';
 import { pct, resetInLabel, rateStatusKind, isWindowExpired, hasWindow, useNowTick, type RateLimitsState } from '../lib/rateLimits';
+import { useDisplayPrefs, type ProjectGrouping } from '../lib/displayPrefs';
 
 type Props = {
   usage: UsageSummary | null;
@@ -40,6 +41,7 @@ export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isAct
   const [currentSource] = useCurrentSource();
   const sourceDef = getSource(currentSource);
   const Glyph = sourceDef.Glyph;
+  const [{ projectGrouping }, setDisplayPrefs] = useDisplayPrefs();
   const hasBeenActive = useRef(isActive);
   if (isActive) hasBeenActive.current = true;
   if (!hasBeenActive.current) return null;
@@ -105,7 +107,7 @@ export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isAct
         />
 
         {/* Insights — turn raw numbers into stories per v3 brief */}
-        <InsightCards usage={usage} />
+        <InsightCards usage={usage} projectGrouping={projectGrouping} />
 
         {/* 1. Activity — the only "how much have I used" view */}
         <SectionHeading icon={Hourglass}>{t('usage.activity')}</SectionHeading>
@@ -188,9 +190,20 @@ export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isAct
             </div>
           </div>
           <div className="flex flex-col h-full">
-            <SectionHeading icon={Database}>{t('usage.topProjects')}</SectionHeading>
+            <SectionHeading
+              icon={Database}
+              action={
+                <GroupingToggle value={projectGrouping} onChange={v => setDisplayPrefs({ projectGrouping: v })} />
+              }
+            >
+              {t('usage.topProjects')}
+            </SectionHeading>
             <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex-1">
-              <ProjectList projects={usage.byProject.slice(0, 10)} />
+              <ProjectList
+                projects={projectGrouping === 'repo'
+                  ? usage.byRepo.slice(0, 10).map(r => ({ ...r, key: r.repo }))
+                  : usage.byProject.slice(0, 10).map(p => ({ ...p, key: p.project, dirCount: 1 }))}
+              />
             </div>
           </div>
         </div>
@@ -216,11 +229,12 @@ export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isAct
   );
 }
 
-function SectionHeading({ icon: Icon, children }: { icon: any; children: React.ReactNode }) {
+function SectionHeading({ icon: Icon, children, action }: { icon: any; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <h2 className="text-[12.5px] font-semibold text-text mb-3 flex items-center gap-2 uppercase tracking-wider text-text-muted">
       <Icon className="w-3.5 h-3.5 text-accent" />
       {children}
+      {action && <span className="ml-auto">{action}</span>}
     </h2>
   );
 }
@@ -373,30 +387,67 @@ function ModelList({ models, showCacheWrite = true }: { models: UsageSummary['by
   );
 }
 
-function ProjectList({ projects }: { projects: UsageSummary['byProject'] }) {
+// Folder rows and repo rows differ only in what the path means and whether more
+// than one directory folded into it, so both arrive here already normalised to
+// `{ key, dirCount, ...totals }` rather than the list branching per shape.
+type ProjectRow = { key: string; dirCount: number; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number };
+
+function ProjectList({ projects }: { projects: ProjectRow[] }) {
+  const { t } = useTranslation();
   const max = Math.max(1, ...projects.map(billed));
-  if (!projects.length) return <div className="text-text-muted text-[12px] py-4 text-center">No project data</div>;
+  if (!projects.length) return <div className="text-text-muted text-[12px] py-4 text-center">{t('usage.noProjectData')}</div>;
   return (
     <div className="space-y-2">
       {projects.map(p => {
-        const t = billed(p);
-        const w = (t / max) * 100;
+        const total = billed(p);
+        const w = (total / max) * 100;
         return (
-          <div key={p.project} className="grid grid-cols-[1fr_auto] gap-3 items-center min-w-0 group">
+          <div key={p.key} className="grid grid-cols-[1fr_auto] gap-3 items-center min-w-0 group">
             <div className="min-w-0">
-              <div className="font-mono text-[11px] truncate text-text" title={p.project}>{shortCwd(p.project)}</div>
+              <div className="font-mono text-[11px] truncate text-text" title={p.key}>{shortCwd(p.key)}</div>
               <div className="mt-1 h-1.5 bg-border rounded-full overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-accent to-purple-400 rounded-full group-hover:from-pink-500 group-hover:to-purple-500 transition-colors" style={{ width: `${w}%` }} />
               </div>
             </div>
             <div className="text-[11px] tabular-nums text-text-muted flex-shrink-0 text-right">
-              <div className="text-text font-semibold">{fmtTokens(t)}</div>
-              <div className="text-[10px]">{p.sessions} session{p.sessions !== 1 ? 's' : ''}</div>
+              <div className="text-text font-semibold">{fmtTokens(total)}</div>
+              {/* Only worth saying when it explains why the row is bigger than
+                  any single directory the reader would recognise. */}
+              <div className="text-[10px]">
+                {p.dirCount > 1
+                  ? `${t('usage.folderCount', { n: p.dirCount })} · ${t('list.sessions', { n: p.sessions })}`
+                  : t('list.sessions', { n: p.sessions })}
+              </div>
             </div>
           </div>
         );
       })}
     </div>
+  );
+}
+
+function GroupingToggle({ value, onChange }: { value: ProjectGrouping; onChange: (v: ProjectGrouping) => void }) {
+  const { t } = useTranslation();
+  const options: Array<{ value: ProjectGrouping; label: string }> = [
+    { value: 'folder', label: t('usage.groupByFolder') },
+    { value: 'repo', label: t('usage.groupByRepo') },
+  ];
+  return (
+    <span className="flex rounded-md overflow-hidden border border-border-soft normal-case tracking-normal">
+      {options.map(opt => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          aria-pressed={value === opt.value}
+          className={cn(
+            'px-2 h-5 text-[10.5px] font-medium transition-colors',
+            value === opt.value ? 'bg-accent-soft text-accent' : 'text-text-dim hover:bg-muted'
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </span>
   );
 }
 
@@ -725,8 +776,13 @@ function HeroMetric({ eyebrow, value, sub }: { eyebrow: string; value: string; s
 
 // Insight cards: turn aggregate stats into 3 narrative cards at the top of
 // Usage. Per v3 brief: "Transform raw numbers into meaningful stories."
-function InsightCards({ usage }: { usage: UsageSummary }) {
-  const topProject = usage.byProject[0];
+function InsightCards({ usage, projectGrouping }: { usage: UsageSummary; projectGrouping: ProjectGrouping }) {
+  // Follows the same toggle as the list below it. Leaving this on folders while
+  // the list showed repos let the two disagree about which project is biggest —
+  // and the hero is the one people read.
+  const topProject = projectGrouping === 'repo'
+    ? (usage.byRepo[0] ? { path: usage.byRepo[0].repo, ...usage.byRepo[0] } : undefined)
+    : (usage.byProject[0] ? { path: usage.byProject[0].project, ...usage.byProject[0] } : undefined);
   // Most-productive day from byDay (already token-sorted? no — sort by total here).
   const topDay = useMemo(() => {
     let best: typeof usage.byDay[number] | null = null;
@@ -745,7 +801,7 @@ function InsightCards({ usage }: { usage: UsageSummary }) {
       {topProject && (
         <InsightCard
           eyebrow="Favorite project"
-          title={shortCwd(topProject.project)}
+          title={shortCwd(topProject.path)}
           metric={fmtTokens(billed(topProject)) + ' tokens'}
           sub={`${topProject.sessions} session${topProject.sessions !== 1 ? 's' : ''}`}
           tint="from-purple-500 to-fuchsia-500"

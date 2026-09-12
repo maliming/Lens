@@ -52,6 +52,7 @@ export const DEMO_USAGE: UsageSummary = {
   },
   byModel: [],
   byProject: [],
+  byRepo: [],
   byDay: [],
   stats: {
     activeDays: 0,

@@ -138,6 +138,9 @@ function normalizeCommonSessionFields(session) {
     userMsgs: finiteNumber(session?.userMsgs),
     assistantMsgs: finiteNumber(session?.assistantMsgs),
     gitBranch: capSessionText(session, 'gitBranch'),
+    // Codex-only; Claude sessions record no remote, so this stays null there
+    // and Usage resolves that source's repositories from the filesystem.
+    repoUrl: session?.repoUrl == null ? null : capText(String(session.repoUrl), SMALL_TEXT_MAX_LENGTH),
     model: capSessionText(session, 'model'),
     version: capSessionText(session, 'version'),
     tokensIn: finiteNumber(session?.tokensIn),

@@ -862,6 +862,21 @@ export const DEMO_USAGE: UsageSummary = {
     }
     return [...map.entries()].map(([project, v]) => ({ project, ...v }));
   })(),
+  // The demo corpus is one directory per project — nothing to fold — so the
+  // repo view mirrors the folder view. Real grouping happens in the main
+  // process, which can read the sessions' recorded repository and the
+  // filesystem; the renderer can do neither.
+  byRepo: (() => {
+    const map = new Map<string, { input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>();
+    for (const s of DEMO_SESSIONS) {
+      const cur = map.get(s.decodedCwd) || { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, sessions: 0 };
+      cur.input += s.tokensIn; cur.output += s.tokensOut;
+      cur.cacheRead += s.tokensCacheRead; cur.cacheCreate += s.tokensCacheCreate;
+      cur.sessions++;
+      map.set(s.decodedCwd, cur);
+    }
+    return [...map.entries()].map(([repo, v]) => ({ repo, dirCount: 1, ...v }));
+  })(),
   byDay: (() => {
     const map = new Map<string, { input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>();
     // Seed from the real SEEDS so recent weeks have accurate numbers tied to

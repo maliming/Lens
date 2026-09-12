@@ -13,6 +13,13 @@ export type SessionMeta = {
   userMsgs: number;
   assistantMsgs: number;
   gitBranch: string;
+  // The repository this session ran against, as the CLI recorded it at the
+  // time — e.g. "git@github.com:volosoft/taskever.git". Codex stamps it into
+  // session_meta; Claude records no remote, so it stays undefined there and the
+  // Usage view resolves that source's repositories from the filesystem instead.
+  // Present even when the working directory has since been deleted, which is
+  // the whole point: worktrees are temporary, their sessions are not.
+  repoUrl?: string | null;
   model: string;
   version: string;
   tokensIn: number;
@@ -176,6 +183,13 @@ export type UsageSummary = {
   };
   byModel: Array<{ model: string; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>;
   byProject: Array<{ project: string; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>;
+  // Same totals as byProject, grouped by repository: every worktree, clone and
+  // subdirectory of one repo lands in a single row. `repo` is a display label —
+  // "volosoft/taskever" when the session recorded a remote, otherwise the
+  // repository's path on disk. `dirCount` is how many distinct working
+  // directories folded in (1 = nothing folded). Directories that belong to no
+  // repository keep their own row, so the two lists always total the same.
+  byRepo: Array<{ repo: string; dirCount: number; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>;
   byDay: Array<{ day: string; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>;
   stats: UsageStats;
 };

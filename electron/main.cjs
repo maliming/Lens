@@ -38,6 +38,7 @@ let ptyIpc = null;
 const { createUserData } = require('./lib/userdata.cjs');
 const { createAppPrefs } = require('./lib/prefs.cjs');
 const { createSessionsCache } = require('./lib/sessions-cache.cjs');
+const { createRepoIndex } = require('./lib/git-repo.cjs');
 const { probeCodexLimits: _probeCodexLimits } = require('./auth/codex.cjs');
 // codex probe needs the current client version (sent in JSON-RPC initialize).
 // `app.getVersion()` isn't safe to call at module load; wrap so each
@@ -51,6 +52,7 @@ const { createUsage } = require('./usage.cjs');
 const { readClaudeStatsCache } = require('./parsers/claude-stats-cache.cjs');
 const { usageSummary } = createUsage({
   listSessions: (opts) => listSessions(opts),
+  getRepoIndex: () => repoIndex,
   // Reader for `~/.claude/stats-cache.json` so usage:summary can fill in
   // months that the local JSONL inventory no longer covers — see the
   // parser module for the full rationale.
@@ -62,6 +64,7 @@ const { registerIpc } = require('./ipc.cjs');
 const { createPtyManager } = require('./pty.cjs');
 
 let userData = null;       // createUserData(...)
+let repoIndex = null;      // createRepoIndex(...) — cwd → git repo root
 let prefsStore = null;     // createAppPrefs(...)
 let sessionsStore = null;  // createSessionsCache(...)
 let claude = null;         // claudeParser.createParser(...)
@@ -82,6 +85,8 @@ async function loadPersistedSets() {
   userData = createUserData({ userDataDir });
   prefsStore = createAppPrefs({ userDataDir });
   sessionsStore = createSessionsCache({ userDataDir });
+  repoIndex = createRepoIndex({ userDataDir });
+  await repoIndex.load();
   await userData.load();
   await prefsStore.load();
   appPrefs = prefsStore.get();

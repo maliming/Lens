@@ -85,6 +85,7 @@ function createParser({ fileMetaCache, userdata }) {
     // full messages array into the renderer.
 
     let id = '', rootId = '', cwd = '', model = '', version = '';
+    let repoUrl = '', gitBranch = '';
     let isSubagent = false, sawFirstMeta = false;
     let firstUser = '', summary = '';
     let firstTs = null, lastTs = null;
@@ -121,6 +122,20 @@ function createParser({ fileMetaCache, userdata }) {
         rootId = p.session_id || rootId;
         id = p.id || id;
         cwd = p.cwd || cwd;
+        // Codex stamps the repository the session ran against straight into
+        // session_meta. That is the only identity that survives the directory:
+        // worktrees get deleted the moment their branch lands, and the sessions
+        // run inside them stay in the history forever with a cwd that no longer
+        // resolves to anything. It also names the repository rather than one
+        // checkout of it, so two clones of the same project answer the same.
+        //
+        // Not every session has it — one started outside a repository has no
+        // `git` block at all — so this stays optional and the usage grouping
+        // falls back to resolving the cwd on disk.
+        if (p.git && typeof p.git === 'object') {
+          if (typeof p.git.repository_url === 'string' && p.git.repository_url) repoUrl = p.git.repository_url;
+          if (!gitBranch && typeof p.git.branch === 'string') gitBranch = p.git.branch;
+        }
         // session_meta only carries `model_provider` ("openai") — the real
         // model name comes later in `turn_context`. Skip model_provider as
         // a fallback so Usage's by-model breakdown never shows "openai" as
@@ -214,7 +229,7 @@ function createParser({ fileMetaCache, userdata }) {
       firstUser: capText(firstUser, FIRST_USER_MAX_LENGTH),
       firstTs, lastTs,
       userMsgs, assistantMsgs,
-      cwd, gitBranch: '', model, version,
+      cwd, gitBranch, repoUrl, model, version,
       tokensIn, tokensOut, tokensCacheRead, tokensCacheCreate,
       tokenEvents: usage.tokenEvents,
       tokenDays: usage.tokenDays,
