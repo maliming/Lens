@@ -62,6 +62,11 @@ export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isAct
   }
   const total = usage.buckets.total;
   const totalSum = billed(total);
+  // Whether this source bills cache writes at all. Read off the lifetime total
+  // rather than branching on the provider id, so a provider that starts (or
+  // stops) reporting them needs no code change — and so the rule stays out of
+  // the per-source registry, which is about presentation, not data shape.
+  const showCacheWrite = total.cacheCreate > 0;
   const cacheHit = total.input + total.cacheRead > 0
     ? (total.cacheRead / (total.input + total.cacheRead)) * 100
     : 0;
@@ -105,10 +110,10 @@ export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isAct
         {/* 1. Activity — the only "how much have I used" view */}
         <SectionHeading icon={Hourglass}>{t('usage.activity')}</SectionHeading>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-          <RollingWindow label={t('usage.today')} sub={t('usage.sinceMidnight')} highlight bucket={usage.currentWindows.today} />
-          <RollingWindow label={t('usage.last3d')} sub={t('usage.rolling72h')} bucket={usage.currentWindows.last3d} />
-          <RollingWindow label={t('usage.last7d')} sub={t('usage.weeklyRolling')} bucket={usage.currentWindows.last7d} />
-          <RollingWindow label={t('usage.last30d')} sub={t('usage.monthlyRolling')} bucket={usage.currentWindows.last30d} />
+          <RollingWindow label={t('usage.today')} sub={t('usage.sinceMidnight')} highlight bucket={usage.currentWindows.today} showCacheWrite={showCacheWrite} />
+          <RollingWindow label={t('usage.last3d')} sub={t('usage.rolling72h')} bucket={usage.currentWindows.last3d} showCacheWrite={showCacheWrite} />
+          <RollingWindow label={t('usage.last7d')} sub={t('usage.weeklyRolling')} bucket={usage.currentWindows.last7d} showCacheWrite={showCacheWrite} />
+          <RollingWindow label={t('usage.last30d')} sub={t('usage.monthlyRolling')} bucket={usage.currentWindows.last30d} showCacheWrite={showCacheWrite} />
         </div>
 
         {/* 1.5 Activity cluster — "Activity Overview" three-segment design.
@@ -179,7 +184,7 @@ export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isAct
           <div className="flex flex-col h-full">
             <SectionHeading icon={Zap}>By model</SectionHeading>
             <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex-1">
-              <ModelList models={usage.byModel} />
+              <ModelList models={usage.byModel} showCacheWrite={showCacheWrite} />
             </div>
           </div>
           <div className="flex flex-col h-full">
@@ -202,7 +207,8 @@ export function UsageView({ usage, error, demoMode, rlConsent, rateLimits, isAct
           <span>·</span>
           <span><span className="text-text">{fmtTokens(total.msgs || 0)}</span> messages</span>
           <span className="ml-auto text-[10.5px]">
-            in {fmtTokens(total.input)} · out {fmtTokens(total.output)} · cache r {fmtTokens(total.cacheRead)} · cache w {fmtTokens(total.cacheCreate)}
+            in {fmtTokens(total.input)} · out {fmtTokens(total.output)} · cache r {fmtTokens(total.cacheRead)}
+            {showCacheWrite && <> · cache w {fmtTokens(total.cacheCreate)}</>}
           </span>
         </div>
       </div>
@@ -219,12 +225,13 @@ function SectionHeading({ icon: Icon, children }: { icon: any; children: React.R
   );
 }
 
-function RollingWindow({ label, sub, bucket, highlight, compact }: {
+function RollingWindow({ label, sub, bucket, highlight, compact, showCacheWrite = true }: {
   label: string;
   sub: string;
   bucket: { input: number; output: number; cacheRead: number; cacheCreate: number; msgs: number; sessions: number; oldestTs: number | null };
   highlight?: boolean;
   compact?: boolean;
+  showCacheWrite?: boolean;
 }) {
   const tokens = billed(bucket);
   const oldestAgo = bucket.oldestTs ? humanAgo(Date.now() - bucket.oldestTs) : null;
@@ -247,12 +254,18 @@ function RollingWindow({ label, sub, bucket, highlight, compact }: {
         <span><span className="text-text font-medium">{bucket.msgs}</span> msg{bucket.msgs !== 1 ? 's' : ''}</span>
         {oldestAgo && (<><span>·</span><span>since {oldestAgo}</span></>)}
       </div>
+      {/* A provider that never bills cache writes would otherwise get a column
+          of permanent zeros in every window — the same reasoning that hides the
+          5h quota bar when a provider reports no such window. The test is the
+          data, not the provider's name: if any cache-write token has ever been
+          recorded for this source, the column stays. */}
       {!compact && tokens > 0 && (
-        <div className="mt-2.5 pt-2.5 border-t border-border-soft/60 grid grid-cols-4 gap-1.5 text-[10px] tabular-nums">
+        <div className={cn('mt-2.5 pt-2.5 border-t border-border-soft/60 grid gap-1.5 text-[10px] tabular-nums',
+          showCacheWrite ? 'grid-cols-4' : 'grid-cols-3')}>
           <MiniStat label="in" value={bucket.input} color="text-blue-600 dark:text-blue-400" />
           <MiniStat label="out" value={bucket.output} color="text-pink-600 dark:text-pink-400" />
           <MiniStat label="c·r" value={bucket.cacheRead} color="text-amber-600 dark:text-amber-400" />
-          <MiniStat label="c·w" value={bucket.cacheCreate} color="text-orange-600 dark:text-orange-400" />
+          {showCacheWrite && <MiniStat label="c·w" value={bucket.cacheCreate} color="text-orange-600 dark:text-orange-400" />}
         </div>
       )}
     </div>
@@ -318,7 +331,7 @@ function DailyChart({ byDay }: { byDay: UsageSummary['byDay'] }) {
   );
 }
 
-function ModelList({ models }: { models: UsageSummary['byModel'] }) {
+function ModelList({ models, showCacheWrite = true }: { models: UsageSummary['byModel']; showCacheWrite?: boolean }) {
   const filtered = models.filter(m => m.model !== 'unknown');
   const sumAll = filtered.reduce((s, m) => s + billed(m), 0);
   const max = Math.max(1, ...filtered.map(billed));
@@ -351,7 +364,7 @@ function ModelList({ models }: { models: UsageSummary['byModel'] }) {
               <span>in {fmtTokens(m.input)}</span>
               <span>out {fmtTokens(m.output)}</span>
               <span>cache r {fmtTokens(m.cacheRead)}</span>
-              <span>cache w {fmtTokens(m.cacheCreate)}</span>
+              {showCacheWrite && <span>cache w {fmtTokens(m.cacheCreate)}</span>}
             </div>
           </div>
         );

@@ -181,7 +181,14 @@ function createParser({ fileMetaCache, userdata }) {
         const outT = (last.output_tokens || last.completion_tokens || 0)
           + (last.reasoning_output_tokens || 0);
         const cacheR = last.cached_input_tokens || last.cache_read_input_tokens || 0;
-        const cacheC = last.cache_creation_input_tokens || 0;
+        // Codex's own name for this is `cache_write_input_tokens`;
+        // `cache_creation_input_tokens` is Anthropic's and was the only key
+        // read here, so the value silently stayed 0 whatever Codex reported.
+        // It happens to be 0 in every Codex rollout on this machine — OpenAI
+        // caches automatically and doesn't bill the write — so reading the
+        // right key changes no number today. It stops the field from being
+        // wrong the moment that changes.
+        const cacheC = last.cache_write_input_tokens || last.cache_creation_input_tokens || 0;
         tokensIn += inT;
         tokensOut += outT;
         tokensCacheRead += cacheR;
