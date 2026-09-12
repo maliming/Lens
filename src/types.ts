@@ -356,12 +356,23 @@ export type SystemCapabilities = {
     claude: { installed: boolean; hasHistory: boolean; hasBinary: boolean; binaryPath: string | null };
     codex:  { installed: boolean; hasHistory: boolean; hasBinary: boolean; binaryPath: string | null };
   };
+  // Sources this host can report a live quota for. Not the same question as
+  // `aiTools[id].installed`: the two probes need different things (Claude's
+  // reads stored credentials, Codex's runs the CLI), so main answers it once
+  // and both the menu-bar title and Settings follow that answer.
+  quotaSources?: SessionMeta['source'][];
 };
 
 export type AppPrefs = {
   showTrayIcon: boolean;
   closeBehavior: 'quit' | 'hide';
   launchAtLogin: boolean;
+  // macOS only: weekly quota remaining drawn next to the tray icon in the
+  // menu bar. The Claude half additionally needs `rateLimitsConsent`.
+  menuBarQuota: boolean;
+  // Which provider's percentage comes first in that title. The numbers carry
+  // no labels, so position is the only thing telling them apart.
+  menuBarQuotaOrder: SessionMeta['source'][];
   // Mirrored from renderer's useRateLimitsConsent so main.cjs's IPC gate can
   // refuse Anthropic probes when the user hasn't granted consent yet.
   rateLimitsConsent: 'pending' | 'granted' | 'denied';

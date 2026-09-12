@@ -36,8 +36,7 @@ const {
 } = require('./lib/shell.cjs');
 const { deepSearch } = require('./search.cjs');
 const { readClaudeConfig, readCodexConfig } = require('./config.cjs');
-const { readClaudeOAuthCredential, fetchClaudeUsage } = require('./auth/claude.cjs');
-const { applyLaunchAtLogin } = require('./lib/prefs.cjs');
+const { applyLaunchAtLogin, isSourceOrder } = require('./lib/prefs.cjs');
 const { toRendererSessionsWithRevision } = require('./lib/session-data.cjs');
 
 // Deep search input caps. Keeps a misbehaving / hostile renderer from forcing
@@ -45,11 +44,6 @@ const { toRendererSessionsWithRevision } = require('./lib/session-data.cjs');
 // these numbers.
 const DEEP_SEARCH_QUERY_MAX_LEN = 512;
 const DEEP_SEARCH_QUERY_MAX_TERMS = 32;
-
-// Rate-limits cache. 5 min TTL — short enough to feel live, long enough that
-// 1-token probes don't add up. Keyed by source so claude + codex don't
-// trample each other.
-const RATE_LIMITS_TTL = 5 * 60 * 1000;
 
 function registerIpc(deps) {
   const {
@@ -60,7 +54,7 @@ function registerIpc(deps) {
     claude, codex,
     userData, prefsStore,
     usageSummary,
-    probeCodexLimits,
+    rateLimits, trayQuota,
     titleBarColors,
     getMainWindow,
     createTray, destroyTray,
@@ -363,6 +357,10 @@ function registerIpc(deps) {
     platform: process.platform,
     terminals: detectTerminals(),
     aiTools: detectAiTools(),
+    // Which providers can yield a quota number here. Settings uses it to decide
+    // whether the menu-bar rows are worth showing at all, and reads it from the
+    // same service the poller does so the two never disagree.
+    quotaSources: rateLimits.availableSources(),
   }));
 
   ipcMain.handle('app:openExternal', async (_e, url) => {
@@ -425,6 +423,9 @@ function registerIpc(deps) {
     }
     appPrefs.rateLimitsConsent = value;
     await saveAppPrefs();
+    // Granting consent is what unlocks the Claude half of the menu-bar title;
+    // revoking it should drop that half right away rather than at the next tick.
+    trayQuota.sync();
     return value;
   });
 
@@ -440,6 +441,8 @@ function registerIpc(deps) {
     if (typeof patch.showTrayIcon === 'boolean') appPrefs.showTrayIcon = patch.showTrayIcon;
     if (patch.closeBehavior === 'quit' || patch.closeBehavior === 'hide') appPrefs.closeBehavior = patch.closeBehavior;
     if (typeof patch.launchAtLogin === 'boolean') appPrefs.launchAtLogin = patch.launchAtLogin;
+    if (typeof patch.menuBarQuota === 'boolean') appPrefs.menuBarQuota = patch.menuBarQuota;
+    if (isSourceOrder(patch.menuBarQuotaOrder)) appPrefs.menuBarQuotaOrder = patch.menuBarQuotaOrder.slice();
     await saveAppPrefs();
     // Apply side-effects immediately.
     if (prev.showTrayIcon !== appPrefs.showTrayIcon) {
@@ -447,6 +450,14 @@ function registerIpc(deps) {
     }
     if (prev.launchAtLogin !== appPrefs.launchAtLogin) {
       applyLaunchAtLogin(appPrefs.launchAtLogin);
+    }
+    // Runs after the createTray/destroyTray above: turning the tray back on
+    // hands the poller a brand-new Tray to paint, and turning it off leaves it
+    // with none, so the title state has to be re-derived either way.
+    if (prev.menuBarQuota !== appPrefs.menuBarQuota
+      || prev.showTrayIcon !== appPrefs.showTrayIcon
+      || String(prev.menuBarQuotaOrder) !== String(appPrefs.menuBarQuotaOrder)) {
+      trayQuota.sync();
     }
     return { ...appPrefs };
   });
@@ -673,95 +684,10 @@ function registerIpc(deps) {
     };
   });
 
-  // Per-source rate-limits provider registry. Dispatcher reads from here so
-  // adding a new AI tool is one entry, not new branches in the IPC handler.
-  const rateLimitsCacheBySource = new Map();
-  const rateLimitsInFlightBySource = new Map();
-  const RATE_LIMIT_PROVIDERS = {
-    claude: {
-      needsToken: true,
-      probe: async () => {
-        const cred = await readClaudeOAuthCredential();
-        if (!cred) return { ok: false, error: 'no-token', message: 'Sign in via `claude` CLI first' };
-        // Short-circuit a request we know comes back 401: the CLI renews its
-        // access token only when it runs, so an idle machine keeps serving a
-        // dead one. Re-login is the wrong advice here — the refresh token is
-        // still good, it just needs the CLI to spend it.
-        if (cred.expired) {
-          return { ok: false, error: 'expired', message: 'Claude Code token expired — run any `claude` command to renew it (no re-login needed)' };
-        }
-        const result = await fetchClaudeUsage(cred.token);
-        const bodyPreview = String(result.body || '').slice(0, 4000);
-        if (result.status === 401 || result.status === 403) {
-          // Expiry is already ruled out above, so a rejection here means the
-          // credential itself is no longer accepted (revoked, logged out
-          // elsewhere) — that one really does need a fresh login.
-          return { ok: false, error: 'unauthorized', status: result.status, message: 'Anthropic rejected the token — re-login Claude Code', debug: { status: result.status, body: bodyPreview } };
-        }
-        const haveAny = result.limits != null
-          && (result.limits.fiveHour.utilization != null || result.limits.weekly.utilization != null || result.limits.modelWindows.length > 0);
-        if (!haveAny) {
-          return { ok: false, error: 'no-data', status: result.status, message: 'Usage endpoint returned no rate limit data', debug: { status: result.status, body: bodyPreview } };
-        }
-        return { ok: true, limits: result.limits, debug: { status: result.status, body: bodyPreview } };
-      },
-    },
-    codex: {
-      needsToken: false,
-      probe: async () => {
-        try {
-          const result = await probeCodexLimits();
-          const haveAny = result.limits.fiveHour.utilization != null || result.limits.weekly.utilization != null;
-          if (!haveAny) {
-            return { ok: false, error: 'no-data', message: 'codex app-server returned no rate limits' };
-          }
-          return { ok: true, limits: result.limits, debug: result.headersDump };
-        } catch (e) {
-          return { ok: false, error: 'codex-probe-failed', message: String(e?.message || e) };
-        }
-      },
-    },
-  };
-
-  ipcMain.handle('rateLimits:get', async (_e, { force = false, source = 'claude' } = {}) => {
-    // Defense-in-depth consent gate: Claude probes hit Anthropic's API with the
-    // user's OAuth token. Renderer enforces consent before calling, but main also
-    // checks the persisted appPrefs flag so a compromised renderer can't skip it.
-    // Codex probe is a local subprocess (no network) — no gate.
-    if (source !== 'codex' && appPrefs.rateLimitsConsent !== 'granted') {
-      return { ok: false, error: 'no-consent', message: 'Rate limits consent not granted' };
-    }
-    const provider = RATE_LIMIT_PROVIDERS[source] || RATE_LIMIT_PROVIDERS.claude;
-    const cached = rateLimitsCacheBySource.get(source);
-    if (!force && cached && Date.now() - cached.fetchedAt < RATE_LIMITS_TTL) {
-      return { ok: true, cached: true, ...cached.data };
-    }
-    // Join a probe that is already running instead of starting a second one.
-    // Several triggers can land together — the reset-aligned refresh colliding
-    // with the ordinary poll, a manual refresh, or StrictMode's double effect
-    // in dev — and each would otherwise open its own network request. A forced
-    // caller never joins: it is asking for data newer than anything already in
-    // flight (that is the whole point of skipping the TTL above).
-    const inFlight = rateLimitsInFlightBySource.get(source);
-    if (!force && inFlight) return inFlight;
-    const pending = (async () => {
-      try {
-        const res = await provider.probe();
-        if (!res.ok) return res;
-        const data = { limits: res.limits, fetchedAt: Date.now() };
-        rateLimitsCacheBySource.set(source, { fetchedAt: Date.now(), data });
-        return { ok: true, cached: false, ...data, debug: res.debug };
-      } catch (e) {
-        return { ok: false, error: 'network', message: String(e?.message || e) };
-      }
-    })();
-    rateLimitsInFlightBySource.set(source, pending);
-    try {
-      return await pending;
-    } finally {
-      if (rateLimitsInFlightBySource.get(source) === pending) rateLimitsInFlightBySource.delete(source);
-    }
-  });
+  // Live quota probe. The service is shared with main's menu-bar poller, so
+  // the two never probe twice for the same 5-minute window; consent gating and
+  // caching both live in there.
+  ipcMain.handle('rateLimits:get', async (_e, opts = {}) => rateLimits.get(opts || {}));
 
   // Quick credential discovery check — used by the renderer's consent flow to
   // know whether we'll hit the keychain prompt path before asking the user.

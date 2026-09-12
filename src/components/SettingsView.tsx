@@ -48,6 +48,10 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
   const [appPrefs, setAppPrefs] = useAppPrefs();
   const isMac = caps?.platform === 'darwin';
   const supportsLaunchAtLogin = caps?.platform === 'darwin' || caps?.platform === 'win32';
+  // Providers this machine can report a quota for, in declaration order. Main
+  // owns the rule — the two probes need different things installed — so these
+  // rows can never offer to configure a number the menu bar won't draw.
+  const quotaSources = SOURCE_ORDER.filter(id => caps?.quotaSources?.includes(id));
 
   return (
     <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
@@ -211,6 +215,54 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
           {supportsLaunchAtLogin && (
             <Row label={t('settings.launchAtLogin')} hint={t('settings.launchAtLogin.hint')}>
               <Switch checked={appPrefs.launchAtLogin} onChange={v => setAppPrefs({ launchAtLogin: v })} />
+            </Row>
+          )}
+          {/* macOS only: `tray.setTitle()` exists on no other platform. Needs a
+              tray to draw on, so it follows the same disabled treatment as the
+              close-behavior buttons above. */}
+          {isMac && quotaSources.length > 0 && (
+            <Row
+              label={t('settings.menuBarQuota')}
+              hint={appPrefs.showTrayIcon ? t('settings.menuBarQuota.hint') : t('settings.closeBehavior.disabledTip')}
+            >
+              <Switch
+                checked={appPrefs.menuBarQuota && appPrefs.showTrayIcon}
+                disabled={!appPrefs.showTrayIcon}
+                onChange={v => setAppPrefs({ menuBarQuota: v })}
+              />
+            </Row>
+          )}
+          {/* The title is two bare percentages, so position is the only thing
+              identifying them — this row is what makes that readable. Only
+              shown while the title is on AND there are actually two numbers to
+              tell apart: with one provider the title is a single unambiguous
+              percentage and an order to pick would be meaningless. Driven by
+              the provider list rather than a hardcoded one, so a new provider
+              needs no edit here; picking one moves it to the front and the
+              rest keep their relative order. */}
+          {isMac && appPrefs.showTrayIcon && appPrefs.menuBarQuota && quotaSources.length > 1 && (
+            <Row label={t('settings.menuBarQuotaOrder')} hint={t('settings.menuBarQuotaOrder.hint')}>
+              <div className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
+                {quotaSources.map(id => {
+                  // Mirrors the poller's own normalisation: the first provider
+                  // the pref names that this host actually has, else the first
+                  // one it has. A pref left pointing at an absent provider
+                  // therefore highlights what the menu bar really draws first.
+                  const first = appPrefs.menuBarQuotaOrder?.find(x => quotaSources.includes(x)) ?? quotaSources[0];
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => setAppPrefs({ menuBarQuotaOrder: [id, ...SOURCE_ORDER.filter(x => x !== id)] })}
+                      className={cn(
+                        'px-3 py-1 rounded-md text-[12px] font-medium transition',
+                        first === id ? 'bg-surface shadow-soft text-text' : 'text-text-muted hover:text-text'
+                      )}
+                    >
+                      {getSource(id).label}
+                    </button>
+                  );
+                })}
+              </div>
             </Row>
           )}
         </Section>
@@ -393,13 +445,15 @@ function LanguagePicker({ locale, onChange }: { locale: Locale; onChange: (l: Lo
   );
 }
 
-function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
       onClick={() => onChange(!checked)}
+      disabled={disabled}
       className={cn(
         'relative w-9 h-5 rounded-full transition-colors duration-150 outline-none',
-        checked ? 'bg-accent' : 'bg-muted'
+        checked ? 'bg-accent' : 'bg-muted',
+        disabled && 'opacity-40 cursor-not-allowed'
       )}
       role="switch"
       aria-checked={checked}

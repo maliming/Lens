@@ -10,6 +10,8 @@ const DEFAULT: AppPrefs = {
   showTrayIcon: true,
   closeBehavior: isMacRenderer ? 'hide' : 'quit',
   launchAtLogin: false,
+  menuBarQuota: false,
+  menuBarQuotaOrder: ['claude', 'codex'],
   rateLimitsConsent: 'pending',
 };
 

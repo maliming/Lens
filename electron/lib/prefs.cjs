@@ -17,6 +17,15 @@ const APP_PREFS_DEFAULTS = {
   // users expect close=quit. We default per platform on first launch.
   closeBehavior: process.platform === 'darwin' ? 'hide' : 'quit',
   launchAtLogin: false,
+  // macOS only: draw "CC 62%  CX 41%" (weekly quota remaining) next to the
+  // tray icon in the menu bar. Off by default — the menu bar is the user's
+  // real estate, and the Claude half additionally needs rateLimitsConsent.
+  menuBarQuota: false,
+  // Which provider's percentage comes first. The title carries no labels, so
+  // this is the only thing distinguishing the two numbers. Semantic
+  // normalisation (unknown ids, duplicates, missing providers) happens in
+  // lib/tray-quota.cjs, which owns the provider list — validate shape here.
+  menuBarQuotaOrder: ['claude', 'codex'],
   // Persisted between launches. null = first launch, use defaults.
   windowBounds: null,
   // Whether the user has consented to letting the main process probe
@@ -30,6 +39,14 @@ const APP_PREFS_DEFAULTS = {
   // native dialog.
   rateLimitsConsent: 'pending',
 };
+
+// Shape check only — a short list of plausible source-id strings. Shared with
+// the appPrefs:set IPC so a renderer can't push a nested object in here.
+function isSourceOrder(v) {
+  return Array.isArray(v)
+    && v.length <= 8
+    && v.every(x => typeof x === 'string' && x.length > 0 && x.length <= 32);
+}
 
 function applyLaunchAtLogin(on) {
   // `openAsHidden: true` so when the OS auto-launches Lens at user login,
@@ -54,6 +71,8 @@ function createAppPrefs({ userDataDir }) {
       if (typeof obj.showTrayIcon === 'boolean') next.showTrayIcon = obj.showTrayIcon;
       if (obj.closeBehavior === 'hide' || obj.closeBehavior === 'quit') next.closeBehavior = obj.closeBehavior;
       if (typeof obj.launchAtLogin === 'boolean') next.launchAtLogin = obj.launchAtLogin;
+      if (typeof obj.menuBarQuota === 'boolean') next.menuBarQuota = obj.menuBarQuota;
+      if (isSourceOrder(obj.menuBarQuotaOrder)) next.menuBarQuotaOrder = obj.menuBarQuotaOrder.slice();
       if (obj.rateLimitsConsent === 'pending' || obj.rateLimitsConsent === 'granted' || obj.rateLimitsConsent === 'denied') {
         next.rateLimitsConsent = obj.rateLimitsConsent;
       }
@@ -134,4 +153,5 @@ module.exports = {
   APP_PREFS_DEFAULTS,
   applyLaunchAtLogin,
   createAppPrefs,
+  isSourceOrder,
 };

@@ -61,6 +61,8 @@ const { usageSummary } = createUsage({
 
 // Phase 7b: all IPC handlers live in ipc.cjs as `registerIpc({ deps })`.
 const { registerIpc } = require('./ipc.cjs');
+const { createRateLimitsService } = require('./lib/rate-limits.cjs');
+const { createTrayQuota } = require('./lib/tray-quota.cjs');
 const { createPtyManager } = require('./pty.cjs');
 
 let userData = null;       // createUserData(...)
@@ -69,6 +71,11 @@ let prefsStore = null;     // createAppPrefs(...)
 let sessionsStore = null;  // createSessionsCache(...)
 let claude = null;         // claudeParser.createParser(...)
 let codex = null;          // codexParser.createParser(...)
+// Shared by the `rateLimits:get` IPC and the menu-bar poller, so a probe one
+// pays for is reused by the other. Built in whenReady, once prefs are loaded
+// (the service reads the consent flag through a getter).
+let rateLimitsService = null;
+let trayQuota = null;
 
 // `appPrefs` is the only store value main.cjs reaches at module scope
 // (window-bounds save + close-behavior branching in `createWindow`). All
@@ -434,8 +441,12 @@ function showOrCreateWindow() {
   if (!mainWindow.isFocused()) mainWindow.focus();
 }
 
+// Rebuilt on every right-click rather than once at createTray time: the quota
+// rows carry live numbers and a countdown to the next reset, and a menu
+// captured at startup would render both as they were when Lens launched.
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
+    ...(trayQuota ? trayQuota.menuItems() : []),
     { label: 'Show Lens', click: () => showOrCreateWindow() },
     { type: 'separator' },
     { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
@@ -450,7 +461,6 @@ function createTray() {
   // side by side there are two identical tray icons, and the tooltip is the
   // only thing telling them apart.
   tray.setToolTip(`${app.getName()} — Search, resume, and understand your AI coding sessions`);
-  const menu = buildTrayMenu();
   if (process.platform === 'darwin') {
     // macOS: left click opens the window; right click pops the menu. Using
     // setContextMenu attaches the menu to BOTH clicks, which made the menu
@@ -458,10 +468,12 @@ function createTray() {
     // showOrCreateWindow. popUpContextMenu only fires on the right-click
     // event, so left click is clean.
     tray.on('click', () => showOrCreateWindow());
-    tray.on('right-click', () => { try { tray.popUpContextMenu(menu); } catch {} });
+    tray.on('right-click', () => { try { tray.popUpContextMenu(buildTrayMenu()); } catch {} });
   } else {
     // Windows/Linux: keep the platform-standard click-shows-menu behavior.
-    tray.setContextMenu(menu);
+    // Built once — `setContextMenu` owns the menu, and neither platform can
+    // show a tray title, so there are no live quota rows to keep fresh.
+    tray.setContextMenu(buildTrayMenu());
     tray.on('click', () => showOrCreateWindow());
   }
 }
@@ -835,6 +847,17 @@ if (!_gotLock) {
     // The terminal manager owns PTY processes; ipc.cjs registers its handlers
     // so every ipcMain.handle stays in one auditable place.
     ptyIpc = createPtyManager({ getMainWindow: () => mainWindow, claude, codex });
+    // Consent is read through a getter, not captured: `rateLimits:setConsent`
+    // mutates appPrefs in place and the next probe must see the new value.
+    rateLimitsService = createRateLimitsService({
+      probeCodexLimits,
+      getConsent: () => appPrefs.rateLimitsConsent,
+    });
+    trayQuota = createTrayQuota({
+      getTray: () => tray,
+      getPrefs: () => appPrefs,
+      rateLimits: rateLimitsService,
+    });
     // Register IPC handlers now that userdata + parser instances exist.
     // mainWindow / tray are wired via getter callbacks so handlers always see
     // the live values (the window can be recreated after a hide-close).
@@ -844,7 +867,8 @@ if (!_gotLock) {
       refreshSessionsInBackground,
       userData, prefsStore,
       usageSummary,
-      probeCodexLimits,
+      rateLimits: rateLimitsService,
+      trayQuota,
       titleBarColors: TITLEBAR_COLORS,
       getMainWindow: () => mainWindow,
       createTray, destroyTray,
@@ -867,6 +891,8 @@ if (!_gotLock) {
     } catch {}
     createWindow({ startHidden });
     createTray();
+    // After createTray so the poller has a Tray to paint on its first pass.
+    trayQuota.sync();
     if (startHidden && process.platform === 'darwin' && app.dock) {
       // Hide Dock too so a tray-only launch doesn't leave a Lens icon
       // bouncing in the Dock the user never clicked. showOrCreateWindow
