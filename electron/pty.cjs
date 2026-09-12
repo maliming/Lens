@@ -50,6 +50,44 @@ const MAX_ROWS = 200;
 // blank terminal. Sized for a screenful of a redraw-heavy TUI, not for history.
 const REPLAY_BYTES = 256 * 1024;
 
+// The locale a terminal emulator is expected to hand its child.
+//
+// A GUI process inherits none: macOS gives a Finder-launched app an
+// environment with LANG and every LC_* unset, so without this the CLI and
+// everything it spawns run in the C locale. Terminal.app and iTerm2 both set
+// one, and command-line tools assume their terminal did.
+//
+// The visible failure is the clipboard. Claude Code copies a selection by
+// piping it to `pbcopy`, and pbcopy decodes its stdin with the locale's
+// charset — in the C locale that is MacRoman, so every byte of a UTF-8
+// character is re-read as its own Latin glyph and CJK text pastes as
+// mojibake. Nothing in the terminal shows it: xterm.js decodes the child's
+// output as UTF-8 whatever the locale says, so the selection looks right on
+// screen and only the paste is wrong.
+//
+// That same unconditional decode is why an inherited non-UTF-8 locale (a dev
+// build launched from a shell with LANG=zh_CN.GBK) is corrected too: this
+// terminal can only render UTF-8, so the child has to speak it.
+const UTF8_LOCALE = process.platform === 'darwin'
+  // Installed on every macOS. C.UTF-8 only arrived in recent versions.
+  ? 'en_US.UTF-8'
+  : 'C.UTF-8';
+
+function withUtf8Locale(env) {
+  // Windows has no POSIX locale, and conpty is UTF-16 end to end.
+  if (process.platform === 'win32') return env;
+  if (/utf-?8/i.test(env.LC_ALL || env.LC_CTYPE || env.LANG || '')) return env;
+  // LC_ALL outranks everything below it, so a non-UTF-8 one cannot stay.
+  delete env.LC_ALL;
+  // The charset is the only part that is ours to decide; language and region
+  // stay whatever the user set. LANG is filled in only when nothing set it —
+  // that is the GUI launch, where tools reading LANG alone would otherwise see
+  // no locale at all.
+  env.LC_CTYPE = UTF8_LOCALE;
+  if (!env.LANG) env.LANG = UTF8_LOCALE;
+  return env;
+}
+
 let ptyLib = null;
 function loadPty() {
   // Required lazily: it is a native module, and a user who never opens the
@@ -318,14 +356,14 @@ function createPtyManager({ getMainWindow, claude, codex }) {
         cols,
         rows,
         cwd,
-        env: {
+        env: withUtf8Locale({
           ...process.env,
           // These CLIs render differently when they think they are inside an
           // editor's task runner; tell them plainly this is a real terminal.
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',
           ...(adapter.env || {}),
-        },
+        }),
       });
     } catch (err) {
       return { ok: false, error: 'spawn-failed', message: String(err?.message || err) };
