@@ -52,6 +52,13 @@ const TIME_OPTIONS: Array<{ value: Filters['time']; labelKey: TKey; shortKey: TK
   { value: '30', labelKey: 'list.time30d', shortKey: 'list.timeShort.30d' },
 ];
 
+// Re-filtering the inventory is cheap per session and not cheap over a few
+// thousand of them, and every committed keystroke also makes the virtualizer
+// re-measure the whole list. Holding the commit until typing pauses turns a
+// word into one pass instead of one per character. Short enough that a reader
+// who types and stops never notices waiting for it.
+const QUERY_DEBOUNCE_MS = 160;
+
 const SORT_OPTIONS: Array<{ value: Filters['sort']; labelKey: TKey }> = [
   { value: 'recent', labelKey: 'list.sortNewest' },
   { value: 'tokens', labelKey: 'list.sortTokens' },
@@ -65,6 +72,45 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
   // CLI animates its terminal title. See terminalsSignature.
   const [, setTerminalSig] = useState(terminalsSignature);
   useEffect(() => subscribeTerminals(() => setTerminalSig(terminalsSignature())), []);
+
+  // The text box renders from `queryDraft` so every character appears at once;
+  // `filters.query` — what actually filters — trails it by QUERY_DEBOUNCE_MS.
+  const [queryDraft, setQueryDraft] = useState(filters.query);
+  const committedQueryRef = useRef(filters.query);
+  const queryTimerRef = useRef<number | null>(null);
+  // Read at commit time rather than captured, so a debounced commit that lands
+  // after the user changed the project or sort doesn't write back the filters
+  // as they were when the key was pressed.
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
+  // `filters.query` moving on its own — a view switch carrying that view's own
+  // filters, or App clearing it on a jump from Search — has to reach the box.
+  // Comparing against the last value committed from here is what tells an
+  // outside change apart from this component's own echo.
+  useEffect(() => {
+    if (filters.query !== committedQueryRef.current) {
+      committedQueryRef.current = filters.query;
+      if (queryTimerRef.current != null) { clearTimeout(queryTimerRef.current); queryTimerRef.current = null; }
+      setQueryDraft(filters.query);
+    }
+  }, [filters.query]);
+
+  useEffect(() => () => { if (queryTimerRef.current != null) clearTimeout(queryTimerRef.current); }, []);
+
+  const commitQuery = (value: string) => {
+    committedQueryRef.current = value;
+    onFilters({ ...filtersRef.current, query: value });
+  };
+  // Typing debounces; clearing and picking a suggestion are deliberate single
+  // actions, so those apply straight away — waiting on an empty box would read
+  // as the clear button not working.
+  const setQuery = (value: string, immediate = false) => {
+    setQueryDraft(value);
+    if (queryTimerRef.current != null) { clearTimeout(queryTimerRef.current); queryTimerRef.current = null; }
+    if (immediate) commitQuery(value);
+    else queryTimerRef.current = window.setTimeout(() => { queryTimerRef.current = null; commitQuery(value); }, QUERY_DEBOUNCE_MS);
+  };
   const { t } = useTranslation();
   const [currentSource] = useCurrentSource();
   // Signature of everything that changes the list's length/contents/order.
@@ -116,17 +162,17 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
           <input
             id="history-search-input"
             type="search"
-            value={filters.query}
-            onChange={e => onFilters({ ...filters, query: e.target.value })}
+            value={queryDraft}
+            onChange={e => setQuery(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Escape') onFilters({ ...filters, query: '' });
+              if (e.key === 'Escape') setQuery('', true);
             }}
             placeholder={t('list.searchPlaceholder')}
             className="w-full pl-9 pr-20 h-10 bg-surface border border-border-soft rounded-[11px] text-[13px] outline-none focus:border-accent focus:ring-1 focus:ring-accent placeholder:text-text-muted"
           />
-          {filters.query ? (
+          {queryDraft ? (
             <button
-              onClick={() => onFilters({ ...filters, query: '' })}
+              onClick={() => setQuery('', true)}
               title={t('common.clear')}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md hover:bg-muted text-text-muted hover:text-text flex items-center justify-center"
             >
@@ -213,7 +259,7 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
         onToggleFavorite={onToggleFavorite}
         onToggleExclude={onToggleExclude}
         onStatus={onStatus}
-        onPickSuggestion={q => onFilters({ ...filters, query: q })}
+        onPickSuggestion={q => setQuery(q, true)}
       />
 
       {/* Footer — visible inside the list pane, lightweight summary */}

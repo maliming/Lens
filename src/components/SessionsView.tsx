@@ -175,15 +175,22 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
     });
   }, [currentSource]);
 
+  // Strip query (in-flight typing isn't worth persisting); keep the other
+  // dimensions per-view. `filtersByView` changes identity on every committed
+  // keystroke, and the projection below is identical across all of them, so
+  // compare the serialised form and skip the write — otherwise every character
+  // typed costs a synchronous localStorage write that stores nothing new.
+  const persistedFiltersRef = useRef<string | null>(null);
   useEffect(() => {
-    // Strip query (in-flight typing isn't worth persisting); keep the other
-    // dimensions per-view.
     const persist: Partial<Record<ViewKey, Omit<Filters, 'query'>>> = {};
     for (const v of VIEW_KEYS) {
       const { project, time, sort } = filtersByView[v];
       persist[v] = { project, time, sort };
     }
-    localStorage.setItem(FILTERS_STORAGE, JSON.stringify(persist));
+    const serialised = JSON.stringify(persist);
+    if (serialised === persistedFiltersRef.current) return;
+    persistedFiltersRef.current = serialised;
+    localStorage.setItem(FILTERS_STORAGE, serialised);
   }, [filtersByView]);
 
   // App.tsx dispatches this when the user jumps from Search → History. Drop
@@ -230,7 +237,25 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
   // it shows every project the user could still switch to — previously the
   // dropdown reused the post-project list, which collapsed to just the active
   // project (+ "no project") after one selection.
-  const preProjectFiltered = useMemo(() => {
+  // The text a session is matched against, built once per inventory instead of
+  // once per keystroke. Seven fields joined and lowercased across a few
+  // thousand sessions is not free, and the query filter below used to redo all
+  // of it on every character typed.
+  const haystacks = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of sessions) {
+      m.set(`${s.source}:${s.id}`, [s.alias, s.summary, s.firstUser, s.decodedCwd, s.gitBranch, s.projectDir, s.id]
+        .filter(Boolean).join(' ').toLowerCase());
+    }
+    return m;
+  }, [sessions]);
+
+  // Everything the query doesn't affect. Split out so typing re-runs only the
+  // substring pass below: view, favorites, excludes and the time window are the
+  // same before and after a keystroke, and re-deriving them per character meant
+  // `sessionTimestamp` (a Date.parse each) ran over the whole inventory on
+  // every key.
+  const preQueryFiltered = useMemo(() => {
     let arr = sessions.slice();
     const k = (s: SessionMeta) => `${s.source}:${s.id}`;
     if (view === 'favorites') arr = arr.filter(s => favorites.has(k(s)));
@@ -249,17 +274,15 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
       const cutoff = Date.now() - days * 86400000;
       arr = arr.filter(s => sessionTimestamp(s) >= cutoff);
     }
-    const q = filters.query.trim().toLowerCase();
-    if (q) {
-      arr = arr.filter(s => {
-        const hay = [s.alias, s.summary, s.firstUser, s.decodedCwd, s.gitBranch, s.projectDir, s.id]
-          .filter(Boolean).join(' ').toLowerCase();
-        return hay.includes(q);
-      });
-    }
     return arr;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions, view, favorites, excluded, filters.time, filters.query, terminalTick]);
+  }, [sessions, view, favorites, excluded, filters.time, terminalTick]);
+
+  const preProjectFiltered = useMemo(() => {
+    const q = filters.query.trim().toLowerCase();
+    if (!q) return preQueryFiltered;
+    return preQueryFiltered.filter(s => (haystacks.get(`${s.source}:${s.id}`) || '').includes(q));
+  }, [preQueryFiltered, haystacks, filters.query]);
 
   const filtered = useMemo(() => {
     let arr = filters.project
