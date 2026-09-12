@@ -187,9 +187,10 @@ export type UsageSummary = {
   // subdirectory of one repo lands in a single row. `repo` is a display label —
   // "volosoft/taskever" when the session recorded a remote, otherwise the
   // repository's path on disk. `dirCount` is how many distinct working
-  // directories folded in (1 = nothing folded). Directories that belong to no
-  // repository keep their own row, so the two lists always total the same.
-  byRepo: Array<{ repo: string; dirCount: number; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>;
+  // directories folded in (1 = nothing folded). Directories under no repository
+  // at all share one `noRepo` row — main flags it rather than naming it, having
+  // no locale — so the two lists always total the same.
+  byRepo: Array<{ repo: string; dirCount: number; noRepo?: boolean; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>;
   byDay: Array<{ day: string; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number }>;
   stats: UsageStats;
 };

@@ -359,6 +359,15 @@ function createUsage({ listSessions, readClaudeStatsCache, getRepoIndex }) {
 // "volosoft/taskever". The row is about a project; the transport, host and
 // .git suffix are identical noise on every one of them. Anything that doesn't
 // parse is shown as-is rather than mangled.
+// Key for the "belongs to no repository" bucket: a Codex Desktop chat folder
+// (it opens one per session under ~/Documents/Codex/<date>/<title>, never a
+// git dir), /tmp, a project that was simply never git-managed. One row each is
+// what the folder view already gives; in a view grouped by repository a handful
+// of one-session scratch directories would crowd out the repositories the view
+// exists to show — and they can only ever accumulate, since each is used once.
+// The NUL byte keeps it from colliding with a real path.
+const NO_REPO_KEY = '\0no-repo';
+
 function repoLabel(url) {
   const m = String(url).match(/^(?:[a-z+]+:\/\/)?(?:[^@\s]+@)?[^/:\s]+[:/](.+?)(?:\.git)?\/?$/i);
   return m ? m[1] : String(url);
@@ -373,9 +382,9 @@ function repoLabel(url) {
 // and is resolved from the filesystem instead.
 //
 // A directory that resolves to nothing — not under git, or a worktree deleted
-// before Lens ever saw it — keeps its own row under its own path. The two lists
-// therefore always account for exactly the same tokens: grouping moves rows
-// together, it never drops them.
+// before Lens ever saw it — goes into one shared bucket rather than keeping a
+// row of its own. The two lists still account for exactly the same tokens:
+// grouping moves rows together, it never drops them.
 //
 // The two halves can name the same repository by different keys (a remote URL
 // on one side, a checkout path on the other) and are deliberately not
@@ -403,8 +412,8 @@ async function groupByRepo(direct, byDir, repoIndex) {
 
   for (const [url, v] of direct) add(url, repoLabel(url), v);
   for (const [dir, v] of byDir) {
-    const root = roots.get(dir) || dir;
-    add(root, root, v);
+    const root = roots.get(dir);
+    add(root || NO_REPO_KEY, root || NO_REPO_KEY, v);
   }
 
   // `dirCount` is how many distinct working directories folded into the row —
@@ -413,7 +422,15 @@ async function groupByRepo(direct, byDir, repoIndex) {
   // one repository are a mix of worktrees, separate clones and subdirectories,
   // and naming them after only the first kind is what sent an earlier version
   // of this down the wrong path. 1 means nothing was folded.
-  return [...out.values()].map(({ dirs, ...v }) => ({ ...v, dirCount: dirs.size || 1 }));
+  //
+  // `noRepo` marks the shared bucket. It travels as a flag rather than a
+  // localised label because main has no locale; the renderer names it.
+  return [...out.values()].map(({ dirs, repo, ...v }) => ({
+    ...v,
+    repo,
+    dirCount: dirs.size || 1,
+    ...(repo === NO_REPO_KEY ? { noRepo: true } : null),
+  }));
 }
 
 // Derived activity stats: streaks, active days, longest session, favorite model.

@@ -399,7 +399,7 @@ function ModelList({ models, showCacheWrite = true }: { models: UsageSummary['by
 // Folder rows and repo rows differ only in what the path means and whether more
 // than one directory folded into it, so both arrive here already normalised to
 // `{ key, dirCount, ...totals }` rather than the list branching per shape.
-type ProjectRow = { key: string; dirCount: number; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number };
+type ProjectRow = { key: string; dirCount: number; noRepo?: boolean; input: number; output: number; cacheRead: number; cacheCreate: number; sessions: number };
 
 function ProjectList({ projects }: { projects: ProjectRow[] }) {
   const { t } = useTranslation();
@@ -413,7 +413,9 @@ function ProjectList({ projects }: { projects: ProjectRow[] }) {
         return (
           <div key={p.key} className="grid grid-cols-[1fr_auto] gap-3 items-center min-w-0 group">
             <div className="min-w-0">
-              <div className="font-mono text-[11px] truncate text-text" title={p.key}>{shortCwd(p.key)}</div>
+              {p.noRepo
+                ? <div className="text-[11px] truncate text-text-muted italic" title={t('usage.noRepository.hint')}>{t('usage.noRepository')}</div>
+                : <div className="font-mono text-[11px] truncate text-text" title={p.key}>{shortCwd(p.key)}</div>}
               <div className="mt-1 h-1.5 bg-border rounded-full overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-accent to-purple-400 rounded-full group-hover:from-pink-500 group-hover:to-purple-500 transition-colors" style={{ width: `${w}%` }} />
               </div>
@@ -423,7 +425,7 @@ function ProjectList({ projects }: { projects: ProjectRow[] }) {
               {/* Only worth saying when it explains why the row is bigger than
                   any single directory the reader would recognise. */}
               <div className="text-[10px]">
-                {p.dirCount > 1
+                {p.dirCount > 1 || p.noRepo
                   ? `${t('usage.folderCount', { n: p.dirCount })} · ${t('list.sessions', { n: p.sessions })}`
                   : t('list.sessions', { n: p.sessions })}
               </div>
@@ -789,8 +791,9 @@ function InsightCards({ usage, projectGrouping }: { usage: UsageSummary; project
   // Follows the same toggle as the list below it. Leaving this on folders while
   // the list showed repos let the two disagree about which project is biggest —
   // and the hero is the one people read.
+  const topRepo = usage.byRepo.find(r => !r.noRepo);
   const topProject = projectGrouping === 'repo'
-    ? (usage.byRepo[0] ? { path: usage.byRepo[0].repo, ...usage.byRepo[0] } : undefined)
+    ? (topRepo ? { path: topRepo.repo, ...topRepo } : undefined)
     : (usage.byProject[0] ? { path: usage.byProject[0].project, ...usage.byProject[0] } : undefined);
   // Most-productive day from byDay (already token-sorted? no — sort by total here).
   const topDay = useMemo(() => {
