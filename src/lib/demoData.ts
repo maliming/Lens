@@ -1481,16 +1481,18 @@ export const DEMO_RATE_LIMITS: RateLimits = {
   status: 'allowed',
   representativeClaim: 'five_hour',
   fiveHour: {
-    utilization: 0.06,
+    // 7% left — the danger threshold, and the window most likely to be there.
+    utilization: 0.93,
     status: 'allowed',
     // ~18 minutes from demo NOW so label reads "18m / 5h"
     reset: Math.floor((NOW + 18 * 60_000) / 1000),
   },
   weekly: {
-    utilization: 0.28,
+    // 24% left with most of the week still to run — spent well ahead of the
+    // clock, which is what the warning colour is for.
+    utilization: 0.76,
     status: 'allowed',
-    // ~9.8 hours from demo NOW so label reads "9h 48m / 7d"
-    reset: Math.floor((NOW + 9.8 * 3600_000) / 1000),
+    reset: Math.floor((NOW + 80 * 3600_000) / 1000),
   },
   overage: {
     utilization: 0,
@@ -1502,9 +1504,11 @@ export const DEMO_RATE_LIMITS: RateLimits = {
   modelWindows: [
     {
       name: 'Fable',
+      // Healthy, so the row shows all three colours side by side.
       utilization: 0.12,
       status: null,
-      reset: Math.floor((NOW + 9.8 * 3600_000) / 1000),
+      // Same weekly window as above, so both reset together.
+      reset: Math.floor((NOW + 80 * 3600_000) / 1000),
     },
   ],
 };

@@ -243,7 +243,26 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
   );
 }
 
-function QuotaRing({ label, window, notReported }: { label: string; window: { utilization: number | null; reset: number | null }; notReported?: boolean }) {
+// Claude Code's own warning rule, read out of the CLI binary. It is not a
+// percentage but a pair: how much is spent against how much of the window has
+// elapsed. Burning 25% of a week in its first 15% is worth flagging; the same
+// 25% on a Friday is just normal use. Anthropic also sends an authoritative
+// `anthropic-ratelimit-unified-<window>-surpassed-threshold` header, but the
+// usage endpoint Lens reads does not carry it, so this is the local rule.
+const OUTPACING: Record<number, Array<{ used: number; elapsed: number }>> = {
+  [5 * 3600]: [{ used: 0.9, elapsed: 0.72 }],
+  [7 * 86400]: [
+    { used: 0.75, elapsed: 0.6 },
+    { used: 0.5, elapsed: 0.35 },
+    { used: 0.25, elapsed: 0.15 },
+  ],
+};
+// Spent outright, whatever the clock says. The pair above answers "are you
+// ahead of schedule"; this answers "is there anything left", and a ring is the
+// wrong place to stay calm about 6% remaining.
+const SPENT = 0.9;
+
+function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label: string; window: { utilization: number | null; reset: number | null }; windowSeconds: number; notReported?: boolean; sweep?: number }) {
   const { t } = useTranslation();
   // Keeps the countdown honest between the five-minute polls.
   useNowTick();
@@ -255,34 +274,99 @@ function QuotaRing({ label, window, notReported }: { label: string; window: { ut
   const unknown = left == null || expired || !!notReported;
   const resetLabel = resetInLabel(window.reset, t);
 
-  // Remaining headroom, same thresholds the bars used: low left = nearly out.
+  const used = left == null ? null : (100 - left) / 100;
+  // How far into the window we are: the reset is its end, so subtracting the
+  // window length gives its start.
+  const elapsed = window.reset == null
+    ? null
+    : Math.min(1, Math.max(0, 1 - (window.reset * 1000 - Date.now()) / (windowSeconds * 1000)));
+  const outpacing = !unknown && used != null && elapsed != null
+    && (OUTPACING[windowSeconds] ?? []).some(r => used >= r.used && elapsed <= r.elapsed);
+  const spent = !unknown && used != null && used >= SPENT;
+
   const stroke = unknown ? 'stroke-border'
-    : left <= 10 ? 'stroke-rose-500'
-    : left <= 30 ? 'stroke-amber-500'
+    : spent ? 'stroke-danger'
+    : outpacing ? 'stroke-warning'
     : 'stroke-accent';
   const text = unknown ? 'text-text-muted'
-    : left <= 10 ? 'text-rose-500'
-    : left <= 30 ? 'text-amber-500'
+    : spent ? 'text-danger'
+    : outpacing ? 'text-warning'
     : 'text-text';
 
   const R = 15.5;
   const CIRC = 2 * Math.PI * R;
-  const arc = unknown ? 0 : (left / 100) * CIRC;
+  const offset = unknown ? CIRC : CIRC - (left / 100) * CIRC;
+  const arcRef = useRef<SVGCircleElement | null>(null);
+  useEffect(() => {
+    const el = arcRef.current;
+    if (!el) return;
+    // Drop any sweep still in flight — two animations on one property fight
+    // over its value, and a click landing mid-sweep is exactly when that
+    // happens.
+    try { el.getAnimations().forEach(a => a.cancel()); } catch {}
+    el.style.strokeDashoffset = String(offset);
+    if (unknown || left == null) return;
 
+    // Sweep down from a full ring, not up from an empty one: the arc is what
+    // is *left*, so draining it to the real figure is the motion that matches
+    // the number. Starting from the previous value was the other option, and
+    // it needs that value remembered — a ref loses it to StrictMode's double
+    // effect, computed style catches a half-finished sweep. Full has no state
+    // to get wrong.
+    //
+    // Colour rides along: passing 30% and 10% mid-drain flips the stroke, so a
+    // ring on its way to 7% goes accent → amber → red instead of arriving red.
+    // Resolved from the CSS variables because keyframes need real colours, not
+    // class names, and the values differ per theme.
+    const rootStyle = getComputedStyle(document.documentElement);
+    const hsl = (name: string) => `hsl(${rootStyle.getPropertyValue(name).trim()})`;
+    const colourAt = (pctLeft: number) =>
+      pctLeft <= 10 ? hsl('--danger') : pctLeft <= 30 ? hsl('--warning') : hsl('--accent');
+
+    const frames: Keyframe[] = [{ strokeDashoffset: '0', stroke: colourAt(100), offset: 0 }];
+    for (const mark of [30, 10]) {
+      if (left < mark) {
+        // Where in the drain the ring passes this mark, as a fraction of the
+        // distance from full to the target.
+        frames.push({
+          strokeDashoffset: String(CIRC - (mark / 100) * CIRC),
+          stroke: colourAt(mark),
+          offset: (100 - mark) / (100 - left),
+        });
+      }
+    }
+    // The last stop uses the colour the ring actually settles on, which is not
+    // always the one the marks predict: an outpacing window can be amber with
+    // plenty left.
+    frames.push({ strokeDashoffset: String(offset), stroke: spent ? hsl('--danger') : outpacing ? hsl('--warning') : hsl('--accent'), offset: 1 });
+
+    try {
+      // fill: none on purpose. The dash offset falls back to the inline style
+      // set above and the stroke falls back to the class — both of which are
+      // already the final state, so nothing snaps and the class keeps owning
+      // the colour once the motion is over.
+      el.animate(frames, { duration: 700, easing: 'ease-out', fill: 'none' });
+    } catch { /* older engines just land on the final value */ }
+  }, [offset, sweep, unknown, left, spent, outpacing]);
+
+  // Radix rather than a `title`: the outpacing line exists to answer "why is
+  // this amber when it still says 24%", and the native tooltip answers it after
+  // a second, in the OS's own styling, on one unbreakable line. The provider is
+  // already mounted app-wide in main.tsx, and the rescan button below uses the
+  // same shell.
   return (
-    <div
-      className="flex flex-col items-center gap-1 min-w-0 flex-1"
-      title={notReported
-        ? t('quota.notReported', { label })
-        : `${label} · ${unknown ? '—' : t('sidebar.quotaLeft', { n: left.toFixed(1) })}${resetLabel ? ` · ${t('sidebar.resetsIn', { when: resetLabel })}` : ''}`}
-    >
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+    <div className="flex flex-col items-center gap-1 min-w-0 flex-1">
       <div className={cn('relative w-[42px] h-[42px] flex-shrink-0', notReported && 'opacity-45')}>
         <svg viewBox="0 0 40 40" className="w-full h-full -rotate-90" aria-hidden>
           <circle cx="20" cy="20" r={R} fill="none" strokeWidth="3.5" className="stroke-border/70" />
           <circle
+            ref={arcRef}
             cx="20" cy="20" r={R} fill="none" strokeWidth="3.5" strokeLinecap="round"
-            className={cn(stroke, 'transition-[stroke-dasharray] duration-700 ease-out', unknown && !notReported && 'animate-pulse')}
-            strokeDasharray={`${arc} ${CIRC}`}
+            className={cn(stroke, unknown && !notReported && 'animate-pulse')}
+            strokeDasharray={CIRC}
+            style={{ strokeDashoffset: CIRC }}
           />
         </svg>
         <span className={cn('absolute inset-0 flex items-center justify-center text-[11px] font-bold tabular-nums', text)}>
@@ -291,6 +375,35 @@ function QuotaRing({ label, window, notReported }: { label: string; window: { ut
       </div>
       <span className="text-[9.5px] text-text-muted truncate max-w-full leading-none">{label}</span>
     </div>
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content
+          side="bottom"
+          sideOffset={6}
+          align="center"
+          className="z-50 max-w-[220px] bg-elevated border border-border rounded-lg shadow-pop px-2.5 py-1.5 text-[11.5px] text-text leading-snug animate-in"
+        >
+          {notReported ? (
+            <div className="text-text-dim">{t('quota.notReported', { label })}</div>
+          ) : (
+            <>
+              <div className="font-semibold">
+                {label} · {unknown ? '—' : t('sidebar.quotaLeft', { n: left.toFixed(1) })}
+              </div>
+              {resetLabel && (
+                <div className="text-text-dim mt-0.5">{t('sidebar.resetsIn', { when: resetLabel })}</div>
+              )}
+              {/* Only when the pace is the reason for the colour. Once a window
+                  is simply spent, the number says it and this would be noise. */}
+              {outpacing && !spent && (
+                <div className="text-warning mt-1">{t('quota.outpacing')}</div>
+              )}
+            </>
+          )}
+          <Tooltip.Arrow className="fill-border" />
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
   );
 }
 
@@ -347,8 +460,10 @@ function ProfileQuotaCard({
   liveLabel: string;
 }) {
   const { t } = useTranslation();
+  const [source] = useCurrentSource();
+  const [sweep, setSweep] = useState(0);
   useNowTick();
-  const hasQuota = !!rateLimits?.limits;
+  const hasQuota = !!rateLimits?.limits && rateLimits.limitsSource === source;
   // Mount the section once the probe is enabled — even before the first
   // response lands — so it doesn't blink in/out around source flips or
   // refreshes. Skeleton bars render via RateBar's null-window fallback.
@@ -359,9 +474,19 @@ function ProfileQuotaCard({
   // Before data lands both bars show the skeleton; once it has, a window the
   // provider never reported is simply not there.
   const fiveHourMissing = hasQuota && !hasWindow(fiveHour);
-  const headlineReset = hasQuota
-    ? (resetInLabel(rateLimits!.limits!.weekly.reset, t) ?? resetInLabel(rateLimits!.limits!.fiveHour.reset, t))
+  const headline = hasQuota
+    ? (hasWindow(weekly) ? { w: weekly, secs: 7 * 86400, label: '7d' }
+      : hasWindow(fiveHour) ? { w: fiveHour, secs: 5 * 3600, label: '5h' }
+      : null)
     : null;
+  const headlineReset = headline ? resetInLabel(headline.w.reset, t) : null;
+  // How much of that window has gone by. This is the other half of the pair the
+  // ring colours are decided on: the ring shows what is spent, this shows what
+  // has elapsed, and the two side by side make "spending faster than the window
+  // refills" something you can see rather than something a tooltip has to say.
+  const headlineElapsed = headline?.w.reset == null
+    ? null
+    : Math.min(1, Math.max(0, 1 - (headline.w.reset * 1000 - Date.now()) / (headline.secs * 1000)));
 
   return (
     <div className="no-drag border-t border-border-soft/60 rounded-b-2xl overflow-hidden">
@@ -412,24 +537,8 @@ function ProfileQuotaCard({
                 )} aria-hidden />
                 {liveLabel}
               </span>
-            </div>
-            <div className="flex items-start gap-1">
-              <QuotaRing label="5h" window={fiveHour} notReported={fiveHourMissing} />
-              <QuotaRing label="7d" window={weekly} />
-              {(rateLimits?.limits?.modelWindows ?? []).slice(0, 1).map(w => (
-                <QuotaRing key={w.name} label={cleanDisplayText(w.name)} window={w} />
-              ))}
-            </div>
-            <div className="flex items-center justify-between gap-2 mt-2.5">
-              <span className="text-[10.5px] text-text-muted truncate">
-                {headlineReset ? t('sidebar.resetsIn', { when: headlineReset }) : ''}
-              </span>
-              {/* The numbers are the point of this section, and the one thing
-                  you want from them is a fresher copy. Usage is one click away
-                  in the nav right below, so spending this slot on a second
-                  route there bought nothing. */}
               <button
-                onClick={onRefreshQuota}
+                onClick={() => { setSweep(n => n + 1); onRefreshQuota?.(); }}
                 disabled={!onRefreshQuota || rateLimits?.loading}
                 title={t('footer.refresh')}
                 aria-label={t('footer.refresh')}
@@ -438,6 +547,41 @@ function ProfileQuotaCard({
                 <RefreshCw className={cn('w-3 h-3', rateLimits?.loading && 'animate-spin')} />
               </button>
             </div>
+            <div className="flex items-start gap-1" key={source}>
+              <QuotaRing label="5h" window={fiveHour} windowSeconds={5 * 3600} notReported={fiveHourMissing} sweep={sweep} />
+              <QuotaRing label="7d" window={weekly} windowSeconds={7 * 86400} sweep={sweep} />
+              {(rateLimits?.limits?.modelWindows ?? []).slice(0, 1).map(w => (
+                <QuotaRing key={w.name} label={cleanDisplayText(w.name)} window={w} windowSeconds={7 * 86400} sweep={sweep} />
+              ))}
+            </div>
+            {headline && headlineElapsed != null && (
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <div className="mt-3 h-1 rounded-full bg-border overflow-hidden cursor-default">
+                    {/* Neutral grey on purpose: this is the clock, not usage.
+                        Colouring it would put it in competition with the rings,
+                        which are the thing worth reacting to. */}
+                    <div
+                      className="h-full rounded-full bg-text-muted/50 transition-[width] duration-700 ease-out"
+                      style={{ width: `${headlineElapsed * 100}%` }}
+                    />
+                  </div>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    side="bottom"
+                    sideOffset={6}
+                    className="z-50 max-w-[220px] bg-elevated border border-border rounded-lg shadow-pop px-2.5 py-1.5 text-[11.5px] text-text leading-snug animate-in"
+                  >
+                    <div className="font-semibold">{t('quota.windowElapsed', { label: headline.label, n: Math.round(headlineElapsed * 100) })}</div>
+                    {headlineReset && (
+                      <div className="text-text-dim mt-0.5">{t('sidebar.resetsIn', { when: headlineReset })}</div>
+                    )}
+                    <Tooltip.Arrow className="fill-border" />
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            )}
           </div>
         </>
       )}

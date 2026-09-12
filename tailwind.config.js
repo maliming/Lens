@@ -16,6 +16,9 @@ export default {
         'text-muted': 'hsl(var(--text-muted))',
         accent: 'hsl(var(--accent))',
         'accent-soft': 'hsl(var(--accent-soft))',
+        success: 'hsl(var(--success))',
+        warning: 'hsl(var(--warning))',
+        danger: 'hsl(var(--danger))',
         ring: 'hsl(var(--ring))',
         // semantic
         'token-total': 'hsl(var(--token-total))',

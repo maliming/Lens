@@ -21,6 +21,11 @@
     --accent-soft: 263 70% 95%;
     --ring: 262 83% 58%;
 
+    /* claude.ai role fills: green-450 / yellow-200 / red-450 */
+    --success: 120 100% 29%;
+    --warning: 41 96% 54%;
+    --danger: 0 61% 52%;
+
     --token-total: 262 83% 58%;
     --token-input: 217 91% 60%;
     --token-output: 330 81% 60%;
@@ -48,6 +53,10 @@
     --accent: 262 83% 70%;
     --accent-soft: 263 30% 22%;
     --ring: 262 83% 70%;
+
+    --success: 120 55% 46%;
+    --warning: 41 96% 58%;
+    --danger: 0 73% 63%;
 
     --token-total: 262 83% 70%;
     --token-input: 217 91% 70%;
