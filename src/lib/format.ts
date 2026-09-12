@@ -27,6 +27,20 @@ export function visibleMessageCount(
   return (s.userMsgs || 0) + (s.assistantMsgs || 0);
 }
 
+// `Date.prototype.toLocale*String` builds a fresh Intl formatter on every
+// call, and these run once per row per render — profiling a nav switch put
+// `fmtDate` at the top of the flame chart, ahead of React itself. Building the
+// four formatters once collapses that to a lookup. Locale stays `undefined`
+// (the runtime default) exactly as the `[]` argument it replaces did: these
+// are deliberately host-locale, not app-locale, dates.
+const DATE_SHORT = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+const DATE_SHORT_YEAR = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+// Spelled out rather than `dateStyle: 'short'` — this one stands in for a bare
+// `toLocaleDateString()`, whose defaults are numeric y/m/d ("9/11/2026"), while
+// `dateStyle: 'short'` would silently shorten the year to "9/11/26".
+const DATE_PLAIN = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'numeric', day: 'numeric' });
+const TIME_HM = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+
 // Relative time formatter. Pass the i18n translator (`t` from useTranslation)
 // to localise the unit suffixes — "just now" / "5m ago" / "2h ago" / "3d ago".
 // Without t, falls back to English for non-React callers (debug logs, IPC
@@ -39,7 +53,7 @@ export function fmtTime(iso: string | null | undefined, t?: (key: any, vars?: Re
   // Clock-skew defense: show the absolute timestamp for any future date
   // rather than "just now". Sorting can also normalise via sessionTimestamp.
   if (d.getTime() > now) {
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return DATE_PLAIN.format(d) + ' ' + TIME_HM.format(d);
   }
   const diff = (now - d.getTime()) / 1000;
   if (diff < 60) return t ? t('time.justNow') : 'just now';
@@ -55,7 +69,7 @@ export function fmtTime(iso: string | null | undefined, t?: (key: any, vars?: Re
     const n = Math.floor(diff / 86400);
     return t ? t('time.dAgo', { n }) : `${n}d ago`;
   }
-  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return DATE_PLAIN.format(d) + ' ' + TIME_HM.format(d);
 }
 
 // Compact absolute date for stable labels (e.g. a session's creation date):
@@ -68,9 +82,7 @@ export function fmtDate(iso: string | null | undefined): string {
   const now = new Date();
   const dd = new Date(Math.min(d.getTime(), now.getTime()));
   const sameYear = dd.getFullYear() === now.getFullYear();
-  return dd.toLocaleDateString([], sameYear
-    ? { month: 'short', day: 'numeric' }
-    : { month: 'short', day: 'numeric', year: 'numeric' });
+  return (sameYear ? DATE_SHORT : DATE_SHORT_YEAR).format(dd);
 }
 
 export function fmtBytes(n: number): string {
@@ -145,8 +157,18 @@ const ANSI_OSC_RE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const CONTROL_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g;
 // Unicode bidi overrides: U+202A-U+202E + U+2066-U+2069.
 const BIDI_RE = /[‪-‮⁦-⁩]/g;
+// Union of everything the four passes below strip, used only to answer "is
+// there anything here at all". Virtually every string reaching this function is
+// ordinary text, and one scan that finds nothing is cheaper than four scans
+// plus four string allocations — this runs on every title, path, and branch of
+// every row, on every render.
+// eslint-disable-next-line no-control-regex
+const DIRTY_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\u202A-\u202E\u2066-\u2069]/;
 export function cleanDisplayText(s: string | null | undefined): string {
   if (!s) return '';
+  // ESC (\x1b) is inside the control range above, so a string carrying an ANSI
+  // sequence always trips this test and still takes the full path.
+  if (!DIRTY_RE.test(s)) return s;
   return s
     .replace(ANSI_OSC_RE, '')
     .replace(ANSI_CSI_RE, '')

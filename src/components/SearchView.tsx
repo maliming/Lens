@@ -811,6 +811,29 @@ function ResultsLayout({ rows, query, favorites, onSelect, onToggleFav, onStatus
 // local clock. Used for timeline group headers per the reference screenshot.
 // `tr` is the i18n translator from the calling component — passed in so the
 // fixed labels follow the active locale.
+// Every `toLocale*String` call builds a fresh Intl formatter, and these run
+// once per result row per render — the same cost that put `fmtDate` at the top
+// of a nav-switch profile before it was cached in lib/format.ts. Here the
+// locale is a prop (the app's i18n picker, not the host default), so the cache
+// is keyed by locale as well as by shape.
+const DATE_SHAPES = {
+  dayFull: { month: 'short', day: 'numeric', year: 'numeric' },
+  dayShort: { month: 'short', day: 'numeric' },
+  weekday: { weekday: 'long' },
+  timeHM: { hour: '2-digit', minute: '2-digit' },
+} as const satisfies Record<string, Intl.DateTimeFormatOptions>;
+
+const intlCache = new Map<string, Intl.DateTimeFormat>();
+function fmt(locale: string, shape: keyof typeof DATE_SHAPES): Intl.DateTimeFormat {
+  const key = `${locale}|${shape}`;
+  let f = intlCache.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, DATE_SHAPES[shape]);
+    intlCache.set(key, f);
+  }
+  return f;
+}
+
 function relDayLabel(key: string, tr: (k: any) => string, locale: string): string {
   if (key === 'unknown') return tr('search.day.undated');
   const today = new Date();
@@ -822,14 +845,14 @@ function relDayLabel(key: string, tr: (k: any) => string, locale: string): strin
     // Future date (clock skew on the writing machine, or corrupt JSONL). Don't
     // call it "Today" or a past weekday; surface the actual calendar date so
     // the user can spot the bad data.
-    return day.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
+    return fmt(locale, 'dayFull').format(day);
   }
   if (diffDays === 0) return tr('search.day.today');
   if (diffDays === 1) return tr('search.day.yesterday');
   // Pass the user's selected app locale so weekday / month names follow the
   // i18n picker instead of the OS default ("Wednesday" vs "周三").
-  if (diffDays < 7) return day.toLocaleDateString(locale, { weekday: 'long' });
-  return day.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: day.getFullYear() === t.getFullYear() ? undefined : 'numeric' });
+  if (diffDays < 7) return fmt(locale, 'weekday').format(day);
+  return fmt(locale, day.getFullYear() === t.getFullYear() ? 'dayShort' : 'dayFull').format(day);
 }
 
 function formatTimeHM(ts: string | null, locale: string): string {
@@ -838,7 +861,7 @@ function formatTimeHM(ts: string | null, locale: string): string {
   if (isNaN(d.getTime())) return '';
   // Let the locale decide 12 vs 24-hour. zh-CN/de/fr/ru expect 24h; en
   // expects AM/PM. Forcing hour12 made the timeline look wrong outside en.
-  return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  return fmt(locale, 'timeHM').format(d);
 }
 
 function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav, onStatus }: {
