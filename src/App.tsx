@@ -738,6 +738,7 @@ export default function App() {
           profile={profile}
           onOpenProfile={() => setProfileOpen(true)}
           rateLimits={rateLimitsState}
+          onRefreshQuota={refreshRateLimits}
           quotaEnabled={rlEnabled || demoMode}
           terminalEnabled={appPrefs.embeddedTerminal}
           demoMode={demoMode}

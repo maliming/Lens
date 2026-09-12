@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Sun, Moon, Monitor, Settings as Gear, Check, FolderOpen, FlaskConical, Activity, Terminal as TerminalIcon, ChevronDown, SlidersHorizontal, MessageSquare, Gauge, Wrench } from 'lucide-react';
+import { Sun, Moon, Monitor, Settings as Gear, Check, FolderOpen, FlaskConical, Activity, Terminal as TerminalIcon, ChevronDown, SlidersHorizontal, MessageSquare, BarChart3, Wrench } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useDisplayPrefs } from '../lib/displayPrefs';
 import type { ThemeMode } from '../App';
@@ -22,7 +22,7 @@ import { useCurrentSource, getSource, SOURCE_ORDER } from '../lib/sources';
 const SETTINGS_TABS = [
   { id: 'general', icon: SlidersHorizontal },
   { id: 'conversation', icon: MessageSquare },
-  { id: 'usage', icon: Gauge },
+  { id: 'usage', icon: BarChart3 },
   { id: 'terminal', icon: TerminalIcon },
   { id: 'advanced', icon: Wrench },
 ] as const;
@@ -80,14 +80,20 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
 
   return (
     <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
-      <div className="max-w-5xl mx-auto px-10 py-8">
-        <div className="flex items-center gap-3 mb-1">
-          <Gear className="w-5 h-5 text-accent" />
-          <h1 className="text-[22px] font-bold text-text">{t('settings.title')}</h1>
+      <div className="px-8 py-8 max-w-[2000px] mx-auto">
+        {/* Same header shape as Usage and Workspace: tinted icon tile beside a
+            title-and-subtitle block, so the three pages share a baseline. */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-9 h-9 rounded-xl bg-accent-soft flex items-center justify-center shadow-soft flex-shrink-0">
+            <Gear className="w-5 h-5 text-accent" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-[22px] font-bold text-text leading-tight">{t('settings.title')}</h1>
+            <p className="text-text-muted text-[12px] mt-0.5">{t('settings.subtitle')}</p>
+          </div>
         </div>
-        <p className="text-text-muted text-[12px] mb-6">{t('settings.subtitle')}</p>
 
-        {/* Wraps rather than scrolls: six short labels, and a horizontally
+        {/* Wraps rather than scrolls: five short labels, and a horizontally
             scrolling strip hides the fact that more tabs exist. */}
         <nav className="flex flex-wrap gap-1 mb-6 border-b border-border-soft pb-2">
           {SETTINGS_TABS.map(({ id, icon: Icon }) => (

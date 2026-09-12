@@ -67,7 +67,7 @@ export function AISourceSelector({ value, onChange, demoMode = false }: Props) {
   // Empty state — no AI CLI detected anywhere. Surface a single guidance card.
   if (enabledDefs.length === 0 && caps) {
     return (
-      <div className="no-drag mx-1 mt-3 mb-3 rounded-2xl border border-amber-200 bg-amber-50/70 dark:border-amber-800/40 dark:bg-amber-900/15 px-3 py-2.5">
+      <div className="no-drag rounded-2xl bg-amber-50/70 dark:bg-amber-900/15 px-3 py-2.5">
         <div className="flex items-start gap-2 text-amber-800 dark:text-amber-300">
           <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
           <div className="text-[11.5px] leading-snug">
@@ -80,18 +80,18 @@ export function AISourceSelector({ value, onChange, demoMode = false }: Props) {
   }
 
   return (
-    <div className="no-drag mx-1 mt-3 mb-3 relative" ref={wrapRef}>
+    <div className="no-drag relative" ref={wrapRef}>
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl border border-border-soft bg-surface/60 hover:bg-muted/30 transition text-left"
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-t-2xl hover:bg-muted/30 transition text-left"
       >
-        <SourceBadge source={current} size={26} />
-        <span className="text-[13.5px] font-semibold text-text flex-1 truncate">{current.label}</span>
+        <SourceBadge source={current} size={24} />
+        <span className="text-[13px] font-semibold text-text flex-1 truncate">{current.label}</span>
         <ChevronDown className={cn('w-3.5 h-3.5 text-text-muted transition-transform', open && 'rotate-180')} />
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl border border-border bg-elevated shadow-pop p-1 animate-in">
+        <div className="absolute left-1 right-1 top-full mt-1 z-30 rounded-xl border border-border bg-elevated shadow-pop p-1 animate-in">
           {allDefs.map(def => {
             const installed = isInstalled(def.id);
             const active = def.id === effectiveId;
