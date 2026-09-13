@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Clock, Star, X, BarChart3, RefreshCw, Check, Command, Settings as Gear, Terminal as TerminalIcon } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { ClaudeIcon } from './ClaudeIcon';
@@ -262,6 +262,14 @@ const OUTPACING: Record<number, Array<{ used: number; elapsed: number }>> = {
 // wrong place to stay calm about 6% remaining.
 const SPENT = 0.9;
 
+// A source switch keeps the previous provider's figures until the new ones are
+// in, so the rings never drop to skeletons in between. The wait is capped so a
+// probe that never answers still ends in the skeleton rather than stale data.
+const QUOTA_SWAP_TIMEOUT_MS = 1500;
+// The per-model ring is the only one a provider may or may not report, so it is
+// the only one that grows in and shrinks out.
+const EXTRA_RING_MS = 260;
+
 function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label: string; window: { utilization: number | null; reset: number | null }; windowSeconds: number; notReported?: boolean; sweep?: number }) {
   const { t } = useTranslation();
   // Keeps the countdown honest between the five-minute polls.
@@ -297,56 +305,134 @@ function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label
   const CIRC = 2 * Math.PI * R;
   const offset = unknown ? CIRC : CIRC - (left / 100) * CIRC;
   const arcRef = useRef<SVGCircleElement | null>(null);
-  useEffect(() => {
+  const numRef = useRef<HTMLSpanElement | null>(null);
+  // The figure in the middle while the arc is draining; null once it has
+  // landed, so the real value takes over.
+  const [drainLeft, setDrainLeft] = useState<number | null>(null);
+  // Whether the ring showed a figure the last time the effect ran, and which
+  // refresh click it last answered. Together they decide where a sweep starts.
+  const wasKnownRef = useRef(false);
+  const lastSweepRef = useRef(sweep);
+  // The colours the arc and the figure last came to rest on. They cannot be
+  // read back from the DOM at rest: by the time a layout effect runs, React has
+  // already committed the destination's class names, so the computed colour is
+  // the one the sweep is heading for, not the one it is leaving.
+  const settledRef = useRef<{ stroke: string; text: string } | null>(null);
+  // Layout, not passive: the figure in the middle is rendered straight from the
+  // new value, and a passive effect would only rewind it to the sweep's start
+  // after that frame has been painted — a one-frame flash of the destination
+  // before the count begins.
+  useLayoutEffect(() => {
     const el = arcRef.current;
-    if (!el) return;
+    const num = numRef.current;
+    if (!el || !num) return;
+    // Where the arc is on screen right now, read before anything is cancelled.
+    // Mid-sweep that is the in-flight value, so an interrupted sweep carries on
+    // from where the eye already is instead of jumping to its old start. It is
+    // also what keeps StrictMode's second effect run honest: the first run's
+    // sweep has only just started, so it reads back as that sweep's start.
+    // Colours follow the same rule while a sweep owns them; at rest they come
+    // from what the last sweep settled on.
+    let fromOffset: number | null = null;
+    let fromStroke: string | null = null;
+    let fromText: string | null = null;
+    try {
+      const v = parseFloat(getComputedStyle(el).strokeDashoffset);
+      if (Number.isFinite(v)) fromOffset = v;
+      if (el.getAnimations().some(a => a.playState === 'running')) {
+        fromStroke = getComputedStyle(el).stroke || null;
+        fromText = getComputedStyle(num).color || null;
+      } else if (settledRef.current) {
+        fromStroke = settledRef.current.stroke;
+        fromText = settledRef.current.text;
+      }
+    } catch {}
+    const wasKnown = wasKnownRef.current;
+    const replay = sweep !== lastSweepRef.current;
+    wasKnownRef.current = !unknown && left != null;
+    lastSweepRef.current = sweep;
+
     // Drop any sweep still in flight — two animations on one property fight
     // over its value, and a click landing mid-sweep is exactly when that
     // happens.
-    try { el.getAnimations().forEach(a => a.cancel()); } catch {}
+    try {
+      el.getAnimations().forEach(a => a.cancel());
+      num.getAnimations().forEach(a => a.cancel());
+    } catch {}
     el.style.strokeDashoffset = String(offset);
-    if (unknown || left == null) return;
+    setDrainLeft(null);
+    if (unknown || left == null) { settledRef.current = null; return; }
 
-    // Sweep down from a full ring, not up from an empty one: the arc is what
-    // is *left*, so draining it to the real figure is the motion that matches
-    // the number. Starting from the previous value was the other option, and
-    // it needs that value remembered — a ref loses it to StrictMode's double
-    // effect, computed style catches a half-finished sweep. Full has no state
-    // to get wrong.
-    //
-    // Colour rides along: passing 30% and 10% mid-drain flips the stroke, so a
-    // ring on its way to 7% goes accent → amber → red instead of arriving red.
-    // Resolved from the CSS variables because keyframes need real colours, not
-    // class names, and the values differ per theme.
+    // Colour rides along: passing 30% and 10% mid-sweep flips the stroke, so a
+    // ring on its way to 7% goes accent → amber → red instead of arriving red,
+    // and one climbing back goes the other way. The figure follows the same
+    // marks, over neutral text instead of accent. Resolved from the CSS
+    // variables because keyframes need real colours, not class names, and the
+    // values differ per theme.
     const rootStyle = getComputedStyle(document.documentElement);
     const hsl = (name: string) => `hsl(${rootStyle.getPropertyValue(name).trim()})`;
-    const colourAt = (pctLeft: number) =>
+    const strokeAt = (pctLeft: number) =>
       pctLeft <= 10 ? hsl('--danger') : pctLeft <= 30 ? hsl('--warning') : hsl('--accent');
-
-    const frames: Keyframe[] = [{ strokeDashoffset: '0', stroke: colourAt(100), offset: 0 }];
-    for (const mark of [30, 10]) {
-      if (left < mark) {
-        // Where in the drain the ring passes this mark, as a fraction of the
-        // distance from full to the target.
-        frames.push({
-          strokeDashoffset: String(CIRC - (mark / 100) * CIRC),
-          stroke: colourAt(mark),
-          offset: (100 - mark) / (100 - left),
-        });
-      }
-    }
+    const textAt = (pctLeft: number) =>
+      pctLeft <= 10 ? hsl('--danger') : pctLeft <= 30 ? hsl('--warning') : hsl('--text');
     // The last stop uses the colour the ring actually settles on, which is not
     // always the one the marks predict: an outpacing window can be amber with
     // plenty left.
-    frames.push({ strokeDashoffset: String(offset), stroke: spent ? hsl('--danger') : outpacing ? hsl('--warning') : hsl('--accent'), offset: 1 });
+    const endStroke = spent ? hsl('--danger') : outpacing ? hsl('--warning') : hsl('--accent');
+    const endText = spent ? hsl('--danger') : outpacing ? hsl('--warning') : hsl('--text');
+    settledRef.current = { stroke: endStroke, text: endText };
 
+    // A ring that already showed a figure moves from it, up or down, so a
+    // provider switch reads as the same gauge settling somewhere else. A ring
+    // with nothing to move from — its first figure, or the model ring that has
+    // just grown in — drains from full, and so does a refresh click.
+    const fromFull = !wasKnown || replay || fromOffset == null;
+    const startOffset = fromFull ? 0 : Math.min(CIRC, Math.max(0, fromOffset!));
+    const startLeft = ((CIRC - startOffset) / CIRC) * 100;
+    if (Math.abs(startLeft - left) < 0.05) return;
+
+    const frames: Keyframe[] = [{
+      strokeDashoffset: String(startOffset),
+      stroke: fromFull || !fromStroke ? strokeAt(100) : fromStroke,
+      offset: 0,
+    }];
+    const textFrames: Keyframe[] = [{ color: fromFull || !fromText ? textAt(100) : fromText, offset: 0 }];
+    const down = left < startLeft;
+    for (const mark of down ? [30, 10] : [10, 30]) {
+      const crosses = down ? left < mark && mark < startLeft : startLeft <= mark && mark < left;
+      if (!crosses) continue;
+      // Where in the sweep the ring passes this mark, as a fraction of the
+      // distance from the start to the target.
+      const at = Math.abs(startLeft - mark) / Math.abs(startLeft - left);
+      const side = down ? mark : mark + 1;
+      frames.push({ strokeDashoffset: String(CIRC - (mark / 100) * CIRC), stroke: strokeAt(side), offset: at });
+      textFrames.push({ color: textAt(side), offset: at });
+    }
+    frames.push({ strokeDashoffset: String(offset), stroke: endStroke, offset: 1 });
+    textFrames.push({ color: endText, offset: 1 });
+
+    let raf = 0;
     try {
       // fill: none on purpose. The dash offset falls back to the inline style
-      // set above and the stroke falls back to the class — both of which are
-      // already the final state, so nothing snaps and the class keeps owning
-      // the colour once the motion is over.
-      el.animate(frames, { duration: 700, easing: 'ease-out', fill: 'none' });
+      // set above and both colours fall back to their classes — all of which
+      // are already the final state, so nothing snaps and the classes keep
+      // owning the colours once the motion is over.
+      const timing: KeyframeAnimationOptions = { duration: 700, easing: 'ease-out', fill: 'none' };
+      const anim = el.animate(frames, timing);
+      num.animate(textFrames, timing);
+      // The number counts down with the arc by reading the arc's live offset
+      // each frame, rather than running a second tween whose timing and easing
+      // would have to be kept in step by hand.
+      const step = () => {
+        if (anim.playState !== 'running') { setDrainLeft(null); return; }
+        const current = parseFloat(getComputedStyle(el).strokeDashoffset);
+        if (Number.isFinite(current)) setDrainLeft(Math.max(0, ((CIRC - current) / CIRC) * 100));
+        raf = requestAnimationFrame(step);
+      };
+      setDrainLeft(startLeft);
+      raf = requestAnimationFrame(step);
     } catch { /* older engines just land on the final value */ }
+    return () => cancelAnimationFrame(raf);
   }, [offset, sweep, unknown, left, spent, outpacing]);
 
   // Radix rather than a `title`: the outpacing line exists to answer "why is
@@ -369,8 +455,8 @@ function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label
             style={{ strokeDashoffset: CIRC }}
           />
         </svg>
-        <span className={cn('absolute inset-0 flex items-center justify-center text-[11px] font-bold tabular-nums', text)}>
-          {unknown ? '—' : Math.round(left)}
+        <span ref={numRef} className={cn('absolute inset-0 flex items-center justify-center text-[11px] font-bold tabular-nums', text)}>
+          {unknown ? '—' : Math.round(drainLeft ?? left)}
         </span>
       </div>
       <span className="text-[9.5px] text-text-muted truncate max-w-full leading-none">{label}</span>
@@ -405,6 +491,28 @@ function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label
       </Tooltip.Portal>
     </Tooltip.Root>
   );
+}
+
+// Keeps a value mounted for `exitMs` after it goes away, so it can animate out,
+// and holds it hidden for a frame after it arrives, so it can animate in.
+function usePresence<T>(value: T | null, exitMs: number): { item: T | null; visible: boolean } {
+  const [kept, setKept] = useState<T | null>(value);
+  const [visible, setVisible] = useState(value != null);
+  const present = value != null;
+  useEffect(() => {
+    if (present) {
+      // Two frames: the first lets the hidden state reach the page, otherwise
+      // there is nothing for the transition to start from.
+      let inner = 0;
+      const outer = requestAnimationFrame(() => { inner = requestAnimationFrame(() => setVisible(true)); });
+      return () => { cancelAnimationFrame(outer); cancelAnimationFrame(inner); };
+    }
+    setVisible(false);
+    const id = window.setTimeout(() => setKept(null), exitMs);
+    return () => clearTimeout(id);
+  }, [present, exitMs]);
+  useEffect(() => { if (value != null) setKept(value); }, [value]);
+  return { item: value ?? kept, visible: present && visible };
 }
 
 function SidebarSourceSlot({ demoMode }: { demoMode: boolean }) {
@@ -463,14 +571,36 @@ function ProfileQuotaCard({
   const [source] = useCurrentSource();
   const [sweep, setSweep] = useState(0);
   useNowTick();
-  const hasQuota = !!rateLimits?.limits && rateLimits.limitsSource === source;
+  // What the rings draw: the active provider's numbers the moment they are in,
+  // and until then whatever was already on screen. Both providers share the
+  // same 5h and 7d rings, so a switch is just those rings moving from one
+  // provider's figures to the other's.
+  //
+  // Derived in render on purpose. Swapping a shown source in an effect left one
+  // render where the new numbers had landed but the rings still counted as
+  // empty — and an empty ring's next figure sweeps from full, which undid the
+  // whole point of moving from the old value.
+  const live = quotaEnabled && rateLimits?.limits && rateLimits.limitsSource === source ? rateLimits.limits : null;
+  const [held, setHeld] = useState(live);
+  const [stale, setStale] = useState(false);
+  useEffect(() => { if (live) setHeld(live); }, [live]);
+  const hasLive = live != null;
+  useEffect(() => {
+    if (hasLive) { setStale(false); return; }
+    const id = window.setTimeout(() => setStale(true), QUOTA_SWAP_TIMEOUT_MS);
+    return () => clearTimeout(id);
+  }, [hasLive, source]);
+  const shown = live ?? (quotaEnabled && !stale ? held : null);
+  const hasQuota = shown != null;
+
   // Mount the section once the probe is enabled — even before the first
   // response lands — so it doesn't blink in/out around source flips or
   // refreshes. Skeleton bars render via RateBar's null-window fallback.
   const showQuotaSection = hasQuota || quotaEnabled;
+  const extraRing = usePresence(shown?.modelWindows?.[0] ?? null, EXTRA_RING_MS);
   const EMPTY_WINDOW = { utilization: null, reset: null };
-  const fiveHour = rateLimits?.limits?.fiveHour ?? EMPTY_WINDOW;
-  const weekly = rateLimits?.limits?.weekly ?? EMPTY_WINDOW;
+  const fiveHour = shown?.fiveHour ?? EMPTY_WINDOW;
+  const weekly = shown?.weekly ?? EMPTY_WINDOW;
   // Before data lands both bars show the skeleton; once it has, a window the
   // provider never reported is simply not there.
   const fiveHourMissing = hasQuota && !hasWindow(fiveHour);
@@ -526,7 +656,7 @@ function ProfileQuotaCard({
           <div className="px-3 pt-2.5 pb-3">
             <div
               className="flex items-center justify-between mb-1.5"
-              title={hasQuota ? t('quota.updated', { when: agoLabel(rateLimits!.fetchedAt, t) }) : undefined}
+              title={live ? t('quota.updated', { when: agoLabel(rateLimits!.fetchedAt, t) }) : undefined}
             >
               <span className="text-[9.5px] uppercase tracking-wider font-semibold text-text-muted flex items-center gap-1">
                 {/* Pulse the live dot until data arrives so the loading
@@ -547,12 +677,27 @@ function ProfileQuotaCard({
                 <RefreshCw className={cn('w-3 h-3', rateLimits?.loading && 'animate-spin')} />
               </button>
             </div>
-            <div className="flex items-start gap-1" key={source}>
+            <div className="flex items-start gap-1">
               <QuotaRing label="5h" window={fiveHour} windowSeconds={5 * 3600} notReported={fiveHourMissing} sweep={sweep} />
               <QuotaRing label="7d" window={weekly} windowSeconds={7 * 86400} sweep={sweep} />
-              {(rateLimits?.limits?.modelWindows ?? []).slice(0, 1).map(w => (
-                <QuotaRing key={w.name} label={cleanDisplayText(w.name)} window={w} windowSeconds={7 * 86400} sweep={sweep} />
-              ))}
+              {extraRing.item && (
+                // Grows from zero width rather than appearing at full size, so
+                // the two rings beside it slide over instead of jumping. The
+                // negative margin cancels the row gap while it is collapsed.
+                <div
+                  className="flex min-w-0 overflow-hidden ease-out transition-[flex-grow,margin,opacity,transform] motion-reduce:transition-none"
+                  style={{
+                    flexGrow: extraRing.visible ? 1 : 0,
+                    flexBasis: 0,
+                    marginLeft: extraRing.visible ? 0 : -4,
+                    opacity: extraRing.visible ? 1 : 0,
+                    transform: `scale(${extraRing.visible ? 1 : 0.6})`,
+                    transitionDuration: `${EXTRA_RING_MS}ms`,
+                  }}
+                >
+                  <QuotaRing key={extraRing.item.name} label={cleanDisplayText(extraRing.item.name)} window={extraRing.item} windowSeconds={7 * 86400} sweep={sweep} />
+                </div>
+              )}
             </div>
             {/* The track is always here, even with nothing to draw in it.
                 Rendering it only when a window is known made the card lose a
