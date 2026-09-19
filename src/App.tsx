@@ -845,7 +845,7 @@ export default function App() {
           <ConfigView demoMode={demoMode} onStatus={setStatusMsg} refreshTick={refreshTick} isActive={view === 'config'} />
         </ViewSlot>
         <ViewSlot active={view === 'settings'}>
-          <SettingsView themeMode={themeMode} resolvedTheme={theme} onThemeChange={setThemeMode} demoMode={demoMode} onDemoModeChange={setDemoMode} rlConsent={rlConsent} onRlConsentChange={setRlConsent} onOpenRlPrompt={() => setRlPromptOpen(true)} onOpenTerminalPrompt={() => setTermPromptOpen(true)} />
+          <SettingsView isActive={view === 'settings'} themeMode={themeMode} resolvedTheme={theme} onThemeChange={setThemeMode} demoMode={demoMode} onDemoModeChange={setDemoMode} rlConsent={rlConsent} onRlConsentChange={setRlConsent} onOpenRlPrompt={() => setRlPromptOpen(true)} onOpenTerminalPrompt={() => setTermPromptOpen(true)} />
         </ViewSlot>
         </div>
       </div>

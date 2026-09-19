@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Sun, Moon, Monitor, Settings as Gear, Check, FolderOpen, FlaskConical, Activity, Terminal as TerminalIcon, ChevronDown, SlidersHorizontal, MessageSquare, BarChart3, Wrench } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -29,6 +29,13 @@ const SETTINGS_TABS = [
   { id: 'advanced', icon: Wrench },
 ] as const;
 const TAB_STORAGE = 'settings-tab-v1';
+// When the page was last in use: any click or key on it, a tab change, or
+// leaving it. A tab is only picked up where it was left within this window;
+// after that Settings opens at its first tab again.
+const TAB_SEEN_STORAGE = 'settings-tab-seen-v1';
+const TAB_IDLE_MS = 60_000;
+const readTabSeen = () => { try { return Number(localStorage.getItem(TAB_SEEN_STORAGE)) || 0; } catch { return 0; } };
+const markTabSeen = () => { try { localStorage.setItem(TAB_SEEN_STORAGE, String(Date.now())); } catch { /* not worth failing over */ } };
 
 type Props = {
   themeMode: ThemeMode;
@@ -40,9 +47,12 @@ type Props = {
   onRlConsentChange: (v: 'pending' | 'granted' | 'denied') => void;
   onOpenRlPrompt: () => void;
   onOpenTerminalPrompt: () => void;
+  // Whether Settings is the visible view. It stays mounted while hidden, so
+  // this is how it knows it has just been opened again.
+  isActive?: boolean;
 };
 
-export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode, onDemoModeChange, rlConsent, onRlConsentChange, onOpenRlPrompt, onOpenTerminalPrompt }: Props) {
+export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode, onDemoModeChange, rlConsent, onRlConsentChange, onOpenRlPrompt, onOpenTerminalPrompt, isActive = true }: Props) {
   // Terminal prefs live outside React (lib/terminals owns them so non-component
   // code can read them); this tick just re-renders the rows after a change.
   const [, setTermTick] = useState<number>(0);
@@ -72,16 +82,30 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
   const [tab, setTab] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(TAB_STORAGE);
-      if (saved && SETTINGS_TABS.some(x => x.id === saved)) return saved;
+      if (saved && SETTINGS_TABS.some(x => x.id === saved) && Date.now() - readTabSeen() <= TAB_IDLE_MS) return saved;
     } catch { /* private window, blocked storage */ }
     return SETTINGS_TABS[0].id;
   });
   useEffect(() => {
     try { localStorage.setItem(TAB_STORAGE, tab); } catch { /* not worth failing over */ }
+    markTabSeen();
   }, [tab]);
 
+  // Coming back after a minute or more away starts over at the first tab, from
+  // the top, rather than wherever the page was left.
+  const paneRef = useRef<HTMLElement>(null);
+  const wasActiveRef = useRef(isActive);
+  useEffect(() => {
+    if (isActive && !wasActiveRef.current && Date.now() - readTabSeen() > TAB_IDLE_MS) {
+      setTab(SETTINGS_TABS[0].id);
+      paneRef.current?.scrollTo({ top: 0 });
+    }
+    if (isActive !== wasActiveRef.current) markTabSeen();
+    wasActiveRef.current = isActive;
+  }, [isActive]);
+
   return (
-    <Surface kind="pane" as="main" data-pane="detail" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
+    <Surface ref={paneRef} kind="pane" as="main" data-pane="detail" onPointerDown={markTabSeen} onKeyDown={markTabSeen} className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
       <div className="px-8 py-8 max-w-[2000px] mx-auto">
         {/* Same header shape as Usage and Workspace: tinted icon tile beside a
             title-and-subtitle block, so the three pages share a baseline. */}
