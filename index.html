@@ -34,6 +34,14 @@
           && window.matchMedia
           && window.matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+
+        // Same for the style family. The ids repeat src/themes/families.ts.
+        var family = 'lens';
+        try {
+          var prefs = JSON.parse(localStorage.getItem('display-prefs-v1') || 'null');
+          if (prefs && /^(lens|claude|openai|github)$/.test(prefs.themeFamily)) family = prefs.themeFamily;
+        } catch (e) {}
+        document.documentElement.setAttribute('data-theme-family', family);
       })();
     </script>
 

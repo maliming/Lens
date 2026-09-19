@@ -9,6 +9,7 @@ import { useDisplayPrefs } from '../lib/displayPrefs';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
 import { demoDeepSearch } from '../lib/demoData';
 import { setDeepSearchInFlight } from '../lib/deepSearchState';
+import { Button, Surface, TextInput } from '../ui';
 import type { SessionMeta } from '../types';
 import type { TKey } from '../lib/i18n';
 
@@ -490,7 +491,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
   const loadMore = () => setVisibleCount(c => Math.min(c + PAGE_SIZE, filteredRows.length));
 
   return (
-    <main data-pane="detail" className="flex-1 min-w-0 min-h-0 overflow-hidden bg-surface border border-border rounded-2xl flex flex-col">
+    <Surface kind="pane" as="main" data-pane="detail" className="flex-1 min-w-0 min-h-0 overflow-hidden bg-surface border border-border rounded-2xl flex flex-col">
       <header className="flex-shrink-0 px-8 pt-7 pb-4 border-b border-border-soft">
         <div className="mb-3">
           <h1 className="text-[22px] font-bold text-text leading-tight">{t('search.title')}</h1>
@@ -500,7 +501,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
         <form onSubmit={onSubmit}>
           <div className="relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />
-            <input
+            <TextInput
               id="deep-search-input"
               ref={inputRef}
               value={query}
@@ -511,7 +512,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
             />
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
               {query && (
-                <button type="button" onClick={() => {
+                <Button variant="icon" type="button" onClick={() => {
                   abandonDeep();
                   setQuery('');
                   setSubmitted('');
@@ -522,12 +523,17 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
                   setShowExcludedMatches(false);
                 }} className="p-1 rounded text-text-muted hover:bg-muted" title={t('common.clear')}>
                   <X className="w-3.5 h-3.5" />
-                </button>
+                </Button>
               )}
               {deepLoading ? (
                 // Same slot as the submit button so the row doesn't reflow
-                // when a search starts or stops.
-                <button
+                // when a search starts or stops. Distinct keys are required:
+                // with a reused node, React flips it back to type="submit"
+                // before the click's default action runs, so Stop would
+                // resubmit the form and restart the search.
+                <Button
+                  variant="secondary"
+                  key="stop"
                   type="button"
                   onClick={cancelDeep}
                   className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[11.5px] font-semibold transition bg-muted text-text hover:bg-border"
@@ -535,22 +541,24 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
                 >
                   <Square className="w-3 h-3 fill-current" />
                   {t('search.stop')}
-                  <kbd className="text-[10px] px-1 py-0 rounded border font-mono border-border-soft text-text-muted">Esc</kbd>
-                </button>
+                  <Surface kind="kbd" as="kbd" className="text-[10px] px-1 py-0 rounded border font-mono border-border-soft text-text-muted">Esc</Surface>
+                </Button>
               ) : (
-                <button
+                <Button
+                  variant="primary"
+                  key="submit"
                   type="submit"
                   disabled={!query.trim()}
                   className={cn(
                     'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[11.5px] font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed',
-                    query.trim() ? 'bg-accent text-white hover:opacity-90' : 'bg-muted text-text-muted',
+                    query.trim() ? 'bg-accent text-on-accent hover:opacity-90' : 'bg-muted text-text-muted',
                   )}
                   title={t('search.deep.tooltip')}
                 >
                   <Search className="w-3 h-3" />
                   {t('search.deepSearch')}
-                  <kbd className={cn('text-[10px] px-1 py-0 rounded border font-mono', query.trim() ? 'border-white/30 text-white' : 'border-border-soft text-text-muted')}>↵</kbd>
-                </button>
+                  <Surface kind="kbd" as="kbd" className={cn('text-[10px] px-1 py-0 rounded border font-mono', query.trim() ? 'border-on-accent/30 text-on-accent' : 'border-border-soft text-text-muted')}>↵</Surface>
+                </Button>
               )}
             </div>
           </div>
@@ -575,7 +583,9 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
             onChange={(v) => setTimeFilter(v as TimeFilter)}
             options={(Object.keys(TIME_KEYS) as TimeFilter[]).map(k => ({ value: k, label: t(TIME_KEYS[k] as any) }))}
           />
-          <button
+          <Button
+            variant="chip"
+            active={favOnly}
             onClick={() => setFavOnly(v => !v)}
             className={cn(
               'inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-medium border transition-colors',
@@ -584,7 +594,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
           >
             <Star className={cn('w-3 h-3', favOnly && 'fill-amber-400 text-amber-400')} />
             {t('search.favorites')}
-          </button>
+          </Button>
           <div className="ml-auto flex items-center gap-2">
             <SelectChip
               label={`${t('search.sortPrefix')}: ${t(SORT_KEYS[sort] as any)}`}
@@ -594,20 +604,20 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
               align="right"
             />
             {hasFilters && (
-              <button onClick={clearAll} className="text-[11.5px] text-text-muted hover:text-text underline-offset-2 hover:underline">{t('common.clear')}</button>
+              <Button variant="link" onClick={clearAll} className="text-[11.5px] text-text-muted hover:text-text underline-offset-2 hover:underline">{t('common.clear')}</Button>
             )}
           </div>
         </div>
 
         {!query && recent.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mr-1">{t('search.recent')}</span>
+            <Surface kind="eyebrow" as="span" className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mr-1">{t('search.recent')}</Surface>
             {recent.map(r => (
-              <button key={r} onClick={() => { setQuery(r); submitDeep(r); }} className="px-2.5 py-1 rounded-full text-[11.5px] bg-muted/60 border border-border-soft text-text-muted hover:text-text hover:border-border transition">
+              <Button variant="chip" key={r} onClick={() => { setQuery(r); submitDeep(r); }} className="px-2.5 py-1 rounded-full text-[11.5px] bg-muted/60 border border-border-soft text-text-muted hover:text-text hover:border-border transition">
                 {r}
-              </button>
+              </Button>
             ))}
-            <button onClick={() => setRecent([])} className="ml-1 text-[10.5px] text-text-muted hover:text-text">{t('common.clear').toLowerCase()}</button>
+            <Button variant="ghost" onClick={() => setRecent([])} className="ml-1 text-[10.5px] text-text-muted hover:text-text">{t('common.clear').toLowerCase()}</Button>
           </div>
         )}
       </header>
@@ -628,7 +638,9 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
                 Hidden while the user is editing past the submitted query
                 so the count + label match what's actually being displayed. */}
             {excludedMatchCount > 0 && submittedMatchesLive && (
-              <button
+              <Button
+                variant="chip"
+                active={showExcludedMatches}
                 onClick={() => setShowExcludedMatches(v => !v)}
                 className={cn(
                   'mb-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[11.5px] border transition',
@@ -641,7 +653,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
                 {showExcludedMatches
                   ? t('search.excludedHide', { n: excludedMatchCount })
                   : t('search.excludedShow', { n: excludedMatchCount })}
-              </button>
+              </Button>
             )}
             {displayRows.length === 0 ? (
               // First-search-or-zero-prior-results path: no rows to dim, so
@@ -690,7 +702,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
           </>
         )}
       </div>
-    </main>
+    </Surface>
   );
 }
 
@@ -880,7 +892,8 @@ function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav, onStat
   // through the gutter; each row places its dot at the same x to land on the
   // track, vertically anchored to the title baseline.
   return (
-    <div
+    <Surface
+      kind="row"
       role="button"
       tabIndex={0}
       onClick={() => onSelect(srcKey(row.session))}
@@ -900,7 +913,7 @@ function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav, onStat
       />
       {/* Card — min-w-0 lets the truncate-h3 child shrink below its natural
          width; without it, long titles push the card past the grid column. */}
-      <div className="rounded-xl border border-border-soft group-hover:border-border bg-surface px-4 py-4 transition ml-2 min-w-0">
+      <Surface kind="card" className="rounded-xl border border-border-soft group-hover:border-border bg-surface px-4 py-4 transition ml-2 min-w-0">
         <div className="flex items-center gap-2 min-w-0">
           {isFav && <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 flex-shrink-0" />}
           <h3 className="text-[14.5px] font-semibold text-text truncate flex-1">{highlight(row.title, query)}</h3>
@@ -910,9 +923,9 @@ function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav, onStat
               <span className="text-[10px] text-text-muted/60 tabular-nums" title={`${t('info.row.created')} ${fmtDate(row.session.firstTs)}`}>{fmtDate(row.session.firstTs)}</span>
             )}
           </span>
-          <button onClick={e => { e.stopPropagation(); onToggleFav(row.session.id); }} className="p-1 rounded hover:bg-muted">
+          <Button variant="icon" onClick={e => { e.stopPropagation(); onToggleFav(row.session.id); }} className="p-1 rounded hover:bg-muted">
             <Star className={cn('w-3.5 h-3.5', isFav ? 'fill-amber-400 text-amber-400' : 'text-text-muted')} />
-          </button>
+          </Button>
         </div>
         <div className="flex items-center gap-2 mt-2 text-[12px] text-text-muted">
           <span className="truncate">{row.project}</span>
@@ -927,12 +940,12 @@ function TimelineItem({ row, isFav, query, locale, onSelect, onToggleFav, onStat
           <span>{row.msgs} {t('units.msgs')}</span>
           {/* Hover-revealed Resume — same affordance as list mode, lives in
              the meta row so it never displaces the card content. */}
-          <button onClick={handleResume} className="ml-auto inline-flex items-center gap-1 px-2 h-6 rounded-md bg-accent-soft text-accent text-[11px] font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition">
+          <Button variant="secondary" onClick={handleResume} className="ml-auto inline-flex items-center gap-1 px-2 h-6 rounded-md bg-accent-soft text-accent text-[11px] font-semibold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition">
             <Play className="w-3 h-3" /> {t('detail.btn.resume')}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </Surface>
+    </Surface>
   );
 }
 
@@ -984,7 +997,9 @@ function SelectChip({ icon, label, value, onChange, options, align = 'left' }: {
   const active = value !== '' && value !== 'all' && value !== 'relevance';
   return (
     <div ref={ref} className="relative">
-      <button
+      <Button
+        variant="chip"
+        active={active}
         onClick={() => setOpen(v => !v)}
         className={cn(
           'inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-medium border transition-colors whitespace-nowrap',
@@ -994,14 +1009,16 @@ function SelectChip({ icon, label, value, onChange, options, align = 'left' }: {
         {icon}
         <span>{label}</span>
         <ChevronDown className="w-3 h-3 opacity-60" />
-      </button>
+      </Button>
       {open && (
-        <div className={cn(
+        <Surface kind="popover" className={cn(
           'absolute top-full mt-1 z-30 min-w-[180px] max-h-[300px] overflow-y-auto rounded-lg border border-border bg-elevated shadow-pop p-1',
           align === 'right' ? 'right-0' : 'left-0'
         )}>
           {options.map(o => (
-            <button
+            <Button
+              variant="option"
+              active={o.value === value}
               key={o.value}
               onClick={() => { onChange(o.value); setOpen(false); }}
               className={cn(
@@ -1010,9 +1027,9 @@ function SelectChip({ icon, label, value, onChange, options, align = 'left' }: {
               )}
             >
               {o.label}
-            </button>
+            </Button>
           ))}
-        </div>
+        </Surface>
       )}
     </div>
   );
@@ -1102,9 +1119,9 @@ function EmptyState({ onPick }: { onPick: (q: string) => void }) {
       <p className="text-[12.5px] text-text-muted mt-1.5 mb-5">{t('search.empty.hint')}</p>
       <div className="flex flex-wrap justify-center gap-1.5">
         {SUGGESTED_PROMPTS.map(p => (
-          <button key={p.seed} onClick={() => onPick(p.seed)} className="px-2.5 py-1 rounded-full text-[11.5px] bg-muted/40 border border-border-soft text-text-muted hover:text-text hover:border-border">
+          <Button variant="chip" key={p.seed} onClick={() => onPick(p.seed)} className="px-2.5 py-1 rounded-full text-[11.5px] bg-muted/40 border border-border-soft text-text-muted hover:text-text hover:border-border">
             {t(p.labelKey)}
-          </button>
+          </Button>
         ))}
       </div>
     </div>
@@ -1132,14 +1149,15 @@ function NoResults({ currentSource, crossSourceHits, query, onSwitchSource }: {
         {showCross ? t('search.noResultsHintInSource', { source: currentDef.label }) : t('search.noResultsHint')}
       </p>
       {showCross && (
-        <button
+        <Button
+          variant="primary"
           onClick={() => onSwitchSource(otherSource)}
-          className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-[12.5px] font-semibold hover:opacity-90"
+          className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-on-accent text-[12.5px] font-semibold hover:opacity-90"
           title={t('search.switchSourceTitle', { source: otherDef.label, q: query })}
         >
           <ArrowRightLeft className="w-3.5 h-3.5" />
           {t('search.foundInOther', { n: crossSourceHits, source: otherDef.label })}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -1154,15 +1172,15 @@ function MatchBlock({ row, query, compact = false }: { row: ResultRowData; query
   if (!row.snippet && !hasShallowMatch(row, query)) return null;
   const sources = getMatchSources(row, query);
   return (
-    <div className={cn('rounded-md bg-accent-soft/40 border border-accent/15 px-2.5 py-1.5', compact ? 'mt-2' : 'mt-2')}>
+    <Surface kind="panel" className={cn('rounded-md bg-accent-soft/40 border border-accent/15 px-2.5 py-1.5', compact ? 'mt-2' : 'mt-2')}>
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] uppercase tracking-wider font-semibold text-accent/70 mb-1">
         <Search className="w-2.5 h-2.5" />
         <span>{t('search.matchedIn')}</span>
         {sources.map((src, i) => (
-          <span key={i} className="inline-flex items-center gap-1 normal-case tracking-normal text-[10.5px] font-semibold bg-accent/10 text-accent rounded px-1.5 py-0.5">
+          <Surface kind="badge" as="span" key={i} className="inline-flex items-center gap-1 normal-case tracking-normal text-[10.5px] font-semibold bg-accent/10 text-accent rounded px-1.5 py-0.5">
             {t(src.labelKey)}
             {src.count != null && src.count > 1 && <span className="tabular-nums text-accent/70 font-normal">·{src.count}</span>}
-          </span>
+          </Surface>
         ))}
       </div>
       {row.snippet && (
@@ -1170,7 +1188,7 @@ function MatchBlock({ row, query, compact = false }: { row: ResultRowData; query
           …{highlight(cleanDisplayText(row.snippet), query)}…
         </p>
       )}
-    </div>
+    </Surface>
   );
 }
 

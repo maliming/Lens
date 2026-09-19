@@ -3,6 +3,58 @@
 @tailwind utilities;
 
 @layer base {
+  /* Type, radii, shadows and Tailwind's hue scales: everything a theme family
+     can swap besides the colour tokens below. These are Lens's own values —
+     the same ones tailwind.config.js used to hardcode — so the default look is
+     unchanged. The family selector lets a style preview reset to Lens inside a
+     page that is showing another family. */
+  :root,
+  [data-theme-family='lens'] {
+    --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', 'Segoe UI', sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, 'JetBrains Mono Variable', 'Cascadia Code', Consolas, monospace;
+    --font-reading: var(--font-ui);
+
+    --radius-sm: 0.125rem;
+    --radius: 0.25rem;
+    --radius-md: 0.375rem;
+    --radius-lg: 0.5rem;
+    --radius-xl: 14px;
+    --radius-2xl: 18px;
+    --radius-3xl: 1.5rem;
+
+    --shadow-soft: 0 1px 2px rgba(16,16,24,0.04), 0 1px 1px rgba(16,16,24,0.03);
+    --shadow-card: 0 1px 3px rgba(16,16,24,0.06), 0 1px 2px rgba(16,16,24,0.04);
+    --shadow-pop: 0 12px 32px rgba(16,16,24,0.12);
+
+    /* Text on an accent fill. RGB channels so `/opacity` modifiers work. */
+    --on-accent: 255 255 255;
+
+    /* Activity heatmap, empty to busiest. Whole colours rather than channels,
+       so a family can bring a ramp of its own instead of steps of its accent.
+       The empty cell takes the border colour so it stays visible on a surface,
+       and the first step starts at 35% so "barely any" never reads as "none". */
+    --heat-0: hsl(var(--border));
+    --heat-1: hsl(var(--accent) / 0.35);
+    --heat-2: hsl(var(--accent) / 0.55);
+    --heat-3: hsl(var(--accent) / 0.75);
+    --heat-4: hsl(var(--accent));
+
+    --amber-50: 255 251 235; --amber-100: 254 243 199; --amber-200: 253 230 138; --amber-300: 252 211 77; --amber-400: 251 191 36; --amber-500: 245 158 11; --amber-600: 217 119 6; --amber-700: 180 83 9; --amber-800: 146 64 14; --amber-900: 120 53 15; --amber-950: 69 26 3;
+    --emerald-50: 236 253 245; --emerald-100: 209 250 229; --emerald-200: 167 243 208; --emerald-300: 110 231 183; --emerald-400: 52 211 153; --emerald-500: 16 185 129; --emerald-600: 5 150 105; --emerald-700: 4 120 87; --emerald-800: 6 95 70; --emerald-900: 6 78 59; --emerald-950: 2 44 34;
+    --rose-50: 255 241 242; --rose-100: 255 228 230; --rose-200: 254 205 211; --rose-300: 253 164 175; --rose-400: 251 113 133; --rose-500: 244 63 94; --rose-600: 225 29 72; --rose-700: 190 18 60; --rose-800: 159 18 57; --rose-900: 136 19 55; --rose-950: 76 5 25;
+    --violet-50: 245 243 255; --violet-100: 237 233 254; --violet-200: 221 214 254; --violet-300: 196 181 253; --violet-400: 167 139 250; --violet-500: 139 92 246; --violet-600: 124 58 237; --violet-700: 109 40 217; --violet-800: 91 33 182; --violet-900: 76 29 149; --violet-950: 46 16 101;
+    --sky-50: 240 249 255; --sky-100: 224 242 254; --sky-200: 186 230 253; --sky-300: 125 211 252; --sky-400: 56 189 248; --sky-500: 14 165 233; --sky-600: 2 132 199; --sky-700: 3 105 161; --sky-800: 7 89 133; --sky-900: 12 74 110; --sky-950: 8 47 73;
+    --blue-50: 239 246 255; --blue-100: 219 234 254; --blue-200: 191 219 254; --blue-300: 147 197 253; --blue-400: 96 165 250; --blue-500: 59 130 246; --blue-600: 37 99 235; --blue-700: 29 78 216; --blue-800: 30 64 175; --blue-900: 30 58 138; --blue-950: 23 37 84;
+    --pink-50: 253 242 248; --pink-100: 252 231 243; --pink-200: 251 207 232; --pink-300: 249 168 212; --pink-400: 244 114 182; --pink-500: 236 72 153; --pink-600: 219 39 119; --pink-700: 190 24 93; --pink-800: 157 23 77; --pink-900: 131 24 67; --pink-950: 80 7 36;
+    --orange-50: 255 247 237; --orange-100: 255 237 213; --orange-200: 254 215 170; --orange-300: 253 186 116; --orange-400: 251 146 60; --orange-500: 249 115 22; --orange-600: 234 88 12; --orange-700: 194 65 12; --orange-800: 154 52 18; --orange-900: 124 45 18; --orange-950: 67 20 7;
+    --purple-50: 250 245 255; --purple-100: 243 232 255; --purple-200: 233 213 255; --purple-300: 216 180 254; --purple-400: 192 132 252; --purple-500: 168 85 247; --purple-600: 147 51 234; --purple-700: 126 34 206; --purple-800: 107 33 168; --purple-900: 88 28 135; --purple-950: 59 7 100;
+    --fuchsia-50: 253 244 255; --fuchsia-100: 250 232 255; --fuchsia-200: 245 208 254; --fuchsia-300: 240 171 252; --fuchsia-400: 232 121 249; --fuchsia-500: 217 70 239; --fuchsia-600: 192 38 211; --fuchsia-700: 162 28 175; --fuchsia-800: 134 25 143; --fuchsia-900: 112 26 117; --fuchsia-950: 74 4 78;
+    --teal-50: 240 253 250; --teal-100: 204 251 241; --teal-200: 153 246 228; --teal-300: 94 234 212; --teal-400: 45 212 191; --teal-500: 20 184 166; --teal-600: 13 148 136; --teal-700: 15 118 110; --teal-800: 17 94 89; --teal-900: 19 78 74; --teal-950: 4 47 46;
+    --cyan-50: 236 254 255; --cyan-100: 207 250 254; --cyan-200: 165 243 252; --cyan-300: 103 232 249; --cyan-400: 34 211 238; --cyan-500: 6 182 212; --cyan-600: 8 145 178; --cyan-700: 14 116 144; --cyan-800: 21 94 117; --cyan-900: 22 78 99; --cyan-950: 8 51 68;
+    --indigo-50: 238 242 255; --indigo-100: 224 231 255; --indigo-200: 199 210 254; --indigo-300: 165 180 252; --indigo-400: 129 140 248; --indigo-500: 99 102 241; --indigo-600: 79 70 229; --indigo-700: 67 56 202; --indigo-800: 55 48 163; --indigo-900: 49 46 129; --indigo-950: 30 27 75;
+    --slate-50: 248 250 252; --slate-100: 241 245 249; --slate-200: 226 232 240; --slate-300: 203 213 225; --slate-400: 148 163 184; --slate-500: 100 116 139; --slate-600: 71 85 105; --slate-700: 51 65 85; --slate-800: 30 41 59; --slate-900: 15 23 42; --slate-950: 2 6 23;
+  }
+
   :root,
   [data-theme='light'] {
     /* Tighter ladder: bg (sidebar canvas, the deepest) → muted (sidebar-ish accents)
@@ -25,6 +77,20 @@
     --success: 120 100% 29%;
     --warning: 41 96% 54%;
     --danger: 0 61% 52%;
+
+    /* Quota gauge scale: plenty left → running ahead of the window → spent.
+       Kept apart from the status text tokens because a ring stroke needs an
+       emphasis colour, and a family's warning text colour is often too dark to
+       read as one. Lens points them at its own status colours. */
+    --quota-ok: var(--accent);
+    --quota-warn: var(--warning);
+    --quota-danger: var(--danger);
+    /* Ring tracks per state. Lens draws one neutral track for all of them. */
+    --quota-ok-track: var(--border) / 0.7;
+    --quota-warn-track: var(--border) / 0.7;
+    --quota-danger-track: var(--border) / 0.7;
+    --quota-depleted: 350 89% 60% / 0.14;
+    --quota-depleted-stripe: 350 89% 55% / 0.55;
 
     --token-total: 262 83% 58%;
     --token-input: 217 91% 60%;
@@ -58,6 +124,15 @@
     --warning: 41 96% 58%;
     --danger: 0 73% 63%;
 
+    --quota-ok: var(--accent);
+    --quota-warn: var(--warning);
+    --quota-danger: var(--danger);
+    --quota-ok-track: var(--border) / 0.7;
+    --quota-warn-track: var(--border) / 0.7;
+    --quota-danger-track: var(--border) / 0.7;
+    --quota-depleted: 350 89% 60% / 0.18;
+    --quota-depleted-stripe: 350 89% 68% / 0.6;
+
     --token-total: 262 83% 70%;
     --token-input: 217 91% 70%;
     --token-output: 330 81% 70%;
@@ -78,7 +153,7 @@
     margin: 0;
     background: hsl(var(--bg));
     color: hsl(var(--text));
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', 'Segoe UI', sans-serif;
+    font-family: var(--font-ui);
     font-size: 14px;
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
@@ -141,22 +216,15 @@
      nothing to colour. The hatch carries the meaning on the track instead, and
      reads as "closed / unavailable" rather than merely "low", which is the
      distinction between a window at 3% and one that is spent.
-     Both themes use the same rose hue as the danger fill; the dark variant
-     lifts lightness and opacity because the stripes sit on a much darker
-     surface. Angle is -45deg to match the disabled-hatch convention. */
+     Colours come from --quota-depleted / --quota-depleted-stripe, set per mode
+     and per family next to the danger colour they echo; dark modes lift
+     lightness and opacity because the stripes sit on a much darker surface.
+     Angle is -45deg to match the disabled-hatch convention. */
   .quota-track-depleted {
-    background-color: hsl(350 89% 60% / 0.14);
+    background-color: hsl(var(--quota-depleted));
     background-image: repeating-linear-gradient(
       -45deg,
-      hsl(350 89% 55% / 0.55) 0 2px,
-      transparent 2px 5px
-    );
-  }
-  [data-theme='dark'] .quota-track-depleted {
-    background-color: hsl(350 89% 60% / 0.18);
-    background-image: repeating-linear-gradient(
-      -45deg,
-      hsl(350 89% 68% / 0.6) 0 2px,
+      hsl(var(--quota-depleted-stripe)) 0 2px,
       transparent 2px 5px
     );
   }
@@ -236,6 +304,9 @@ code, pre, kbd, samp, .font-mono {
 }
 .markdown-body a { color: hsl(var(--accent)); text-decoration: none; }
 .markdown-body a:hover { text-decoration: underline; }
+/* Assistant replies can take their own typeface (a serif in the Claude style).
+   Lens points it back at the UI font. */
+[data-msg-role='assistant'] .markdown-body { font-family: var(--font-reading); }
 
 /* Dark-mode overrides for highlight.js github theme. The light theme is imported
    globally in main.tsx; here we re-color the tokens for dark backgrounds. */

@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Activity, X } from 'lucide-react';
 import { useTranslation } from '../lib/I18nProvider';
 import type { CredentialsLocation } from '../types';
+import { Button, Surface, useSkinClass } from '../ui';
 
 type Props = {
   open: boolean;
@@ -23,6 +24,7 @@ function Bullet({ emoji, children }: { emoji: string; children: React.ReactNode 
 
 export function RateLimitsConsentModal({ open, onAccept, onDeny }: Props) {
   const { t } = useTranslation();
+  const skinClass = useSkinClass();
   const [loc, setLoc] = useState<CredentialsLocation | null>(null);
 
   useEffect(() => {
@@ -37,19 +39,19 @@ export function RateLimitsConsentModal({ open, onAccept, onDeny }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={(v) => { if (!v) onDeny(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 animate-fade-in" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] max-w-[92vw] bg-surface border border-border rounded-2xl shadow-pop z-50 overflow-hidden animate-modal-in">
-          <div className="px-5 py-4 border-b border-border-soft flex items-center gap-2.5">
+        <Dialog.Overlay data-ui="dialog-overlay" className={skinClass('dialog-overlay', 'fixed inset-0 bg-black/30 backdrop-blur-sm z-50 animate-fade-in')} />
+        <Dialog.Content data-ui="dialog" className={skinClass('dialog', 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] max-w-[92vw] bg-surface border border-border rounded-2xl shadow-pop z-50 overflow-hidden animate-modal-in')}>
+          <Surface kind="dialog-header" className="px-5 py-4 border-b border-border-soft flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-purple-500 flex items-center justify-center">
-              <Activity className="w-4 h-4 text-white" />
+              <Activity className="w-4 h-4 text-on-accent" />
             </div>
-            <Dialog.Title className="text-[14px] font-semibold text-text flex-1">
+            <Dialog.Title data-ui="dialog-title" className={skinClass('dialog-title', 'text-[14px] font-semibold text-text flex-1')}>
               {t('rlConsent.title')}
             </Dialog.Title>
-            <button onClick={onDeny} className="p-1 rounded hover:bg-muted text-text-muted">
+            <Button variant="icon" onClick={onDeny} className="p-1 rounded hover:bg-muted text-text-muted">
               <X className="w-4 h-4" />
-            </button>
-          </div>
+            </Button>
+          </Surface>
 
           <div className="px-5 py-4">
             <p className="text-[13px] text-text leading-relaxed">
@@ -70,18 +72,19 @@ export function RateLimitsConsentModal({ open, onAccept, onDeny }: Props) {
             </p>
           </div>
 
-          <div className="px-5 py-3 border-t border-border-soft flex justify-end gap-2 bg-muted/30">
-            <button onClick={onDeny} className="px-3 py-1.5 text-[12.5px] rounded-md text-text-dim hover:bg-muted">
+          <Surface kind="dialog-footer" className="px-5 py-3 border-t border-border-soft flex justify-end gap-2 bg-muted/30">
+            <Button variant="ghost" onClick={onDeny} className="px-3 py-1.5 text-[12.5px] rounded-md text-text-dim hover:bg-muted">
               {t('rlConsent.notNow')}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               onClick={onAccept}
               disabled={noCreds}
-              className="px-3 py-1.5 text-[12.5px] font-medium rounded-md bg-accent text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 text-[12.5px] font-medium rounded-md bg-accent text-on-accent hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {t('rlConsent.enable')}
-            </button>
-          </div>
+            </Button>
+          </Surface>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

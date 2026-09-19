@@ -1,0 +1,165 @@
+/* OpenAI style. Colours are the values ChatGPT’s web app resolves for light and
+   dark. OpenAI Sans is proprietary, so the system font stands in.
+   Tokens a family leaves out fall back to Lens's value for the same mode. */
+
+[data-theme-family='openai'] {
+  --font-ui: ui-sans-serif, -apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-reading: var(--font-ui);
+  /* In px: the product's radii are rem against a 16px root, and Lens's root
+     is 14px, so the same rem would come out an eighth smaller. */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 28px;
+  /* Tailwind's hue scales, taken from chatgpt.com's palette. It has no teal,
+     cyan, indigo or fuchsia: those take its green, blue, purple and pink. */
+  --amber-50: 254 251 238; --amber-100: 253 246 220; --amber-200: 252 239 190; --amber-300: 250 229 152; --amber-400: 248 212 93; --amber-500: 246 197 67; --amber-600: 217 163 55; --amber-700: 184 128 43; --amber-800: 149 97 31; --amber-900: 115 70 21; --amber-950: 81 48 12;
+  --emerald-50: 239 250 243; --emerald-100: 222 243 229; --emerald-200: 194 234 206; --emerald-300: 159 221 177; --emerald-400: 107 198 127; --emerald-500: 83 181 89; --emerald-600: 72 160 76; --emerald-700: 58 132 63; --emerald-800: 44 103 50; --emerald-900: 31 78 37; --emerald-950: 20 54 26;
+  --rose-50: 255 240 240; --rose-100: 255 225 224; --rose-200: 255 198 197; --rose-300: 255 164 162; --rose-400: 255 103 100; --rose-500: 250 66 62; --rose-600: 255 0 42; --rose-700: 186 38 35; --rose-800: 145 30 27; --rose-900: 110 22 21; --rose-950: 77 16 14;
+  --violet-50: 248 245 253; --violet-100: 237 229 252; --violet-200: 221 207 250; --violet-300: 201 177 246; --violet-400: 166 125 242; --violet-500: 137 82 238; --violet-600: 120 73 209; --violet-700: 100 60 174; --violet-800: 78 47 136; --violet-900: 59 35 102; --violet-950: 41 25 71;
+  --sky-50: 246 250 254; --sky-100: 232 243 254; --sky-200: 209 229 253; --sky-300: 164 205 251; --sky-400: 83 154 248; --sky-500: 58 131 247; --sky-600: 44 103 197; --sky-700: 31 78 148; --sky-800: 23 62 118; --sky-900: 19 52 99; --sky-950: 12 39 74;
+  --blue-50: 246 250 254; --blue-100: 232 243 254; --blue-200: 209 229 253; --blue-300: 164 205 251; --blue-400: 83 154 248; --blue-500: 58 131 247; --blue-600: 44 103 197; --blue-700: 31 78 148; --blue-800: 23 62 118; --blue-900: 19 52 99; --blue-950: 12 39 74;
+  --pink-50: 254 248 251; --pink-100: 253 237 244; --pink-200: 252 216 231; --pink-300: 251 191 215; --pink-400: 246 142 188; --pink-500: 240 119 175; --pink-600: 207 97 148; --pink-700: 171 79 122; --pink-800: 135 62 96; --pink-900: 102 48 73; --pink-950: 70 33 50;
+  --orange-50: 253 245 241; --orange-100: 251 232 219; --orange-200: 247 209 184; --orange-300: 244 186 150; --orange-400: 239 139 87; --orange-500: 238 124 55; --orange-600: 210 94 40; --orange-700: 172 79 35; --orange-800: 135 64 29; --orange-900: 101 50 24; --orange-950: 69 36 13;
+  --purple-50: 248 245 253; --purple-100: 237 229 252; --purple-200: 221 207 250; --purple-300: 201 177 246; --purple-400: 166 125 242; --purple-500: 137 82 238; --purple-600: 120 73 209; --purple-700: 100 60 174; --purple-800: 78 47 136; --purple-900: 59 35 102; --purple-950: 41 25 71;
+  --fuchsia-50: 254 248 251; --fuchsia-100: 253 237 244; --fuchsia-200: 252 216 231; --fuchsia-300: 251 191 215; --fuchsia-400: 246 142 188; --fuchsia-500: 240 119 175; --fuchsia-600: 207 97 148; --fuchsia-700: 171 79 122; --fuchsia-800: 135 62 96; --fuchsia-900: 102 48 73; --fuchsia-950: 70 33 50;
+  --teal-50: 239 250 243; --teal-100: 222 243 229; --teal-200: 194 234 206; --teal-300: 159 221 177; --teal-400: 107 198 127; --teal-500: 83 181 89; --teal-600: 72 160 76; --teal-700: 58 132 63; --teal-800: 44 103 50; --teal-900: 31 78 37; --teal-950: 20 54 26;
+  --cyan-50: 246 250 254; --cyan-100: 232 243 254; --cyan-200: 209 229 253; --cyan-300: 164 205 251; --cyan-400: 83 154 248; --cyan-500: 58 131 247; --cyan-600: 44 103 197; --cyan-700: 31 78 148; --cyan-800: 23 62 118; --cyan-900: 19 52 99; --cyan-950: 12 39 74;
+  --indigo-50: 248 245 253; --indigo-100: 237 229 252; --indigo-200: 221 207 250; --indigo-300: 201 177 246; --indigo-400: 166 125 242; --indigo-500: 137 82 238; --indigo-600: 120 73 209; --indigo-700: 100 60 174; --indigo-800: 78 47 136; --indigo-900: 59 35 102; --indigo-950: 41 25 71;
+  --slate-50: 249 249 249; --slate-100: 237 237 237; --slate-200: 205 205 205; --slate-300: 175 175 175; --slate-400: 143 143 143; --slate-500: 93 93 93; --slate-600: 65 65 65; --slate-700: 48 48 48; --slate-800: 33 33 33; --slate-900: 24 24 24; --slate-950: 19 19 19;
+}
+
+[data-theme-family='openai']:not([data-theme='dark']) {
+  --bg: 0 0% 98.8%;
+  --surface: 0 0% 100%;
+  --elevated: 0 0% 100%;
+  --muted: 0 0% 95.3%;
+  --border: 0 0% 85.1%;
+  --border-soft: 0 0% 89.8%;
+  --text: 0 0% 5.1%;
+  --text-dim: 0 0% 36.5%;
+  --text-muted: 0 0% 56.1%;
+  --accent: 0 0% 5.1%;
+  --accent-soft: 0 0% 92.5%;
+  --ring: 212.6 61.1% 41.4%;
+  --token-total: 0 0% 5.1%;
+  --role-assistant: 0 0% 5.1%;
+  --statusbar-bg: 0 0% 98.8%;
+  --on-accent: 255 255 255;
+  --shadow-soft: 0 1px 2px #0000000d;
+  --shadow-card: 0 2px 6px #0000000f;
+  --shadow-pop: 0 8px 24px #00000026;
+  --fx-hover: #0000000a;
+  --fx-selected: #0000000d;
+  --fx-outline: #00000033;
+  --fx-outline-soft: #0000001a;
+  --fx-knob: #ffffff;
+  --fx-code-block: #f9f9f9;
+  --quota-ok: 0 0% 5.1%;
+  --quota-warn: 32.1 94.6% 43.7%;
+  --quota-danger: 0 72.2% 50.6%;
+  --fx-badge-bg: var(--fx-selected);
+  --fx-badge-fg: hsl(var(--text));
+  --fx-avatar-bg: hsl(var(--accent));
+  --fx-avatar-fg: rgb(var(--on-accent));
+  --fx-user-msg: #f4f4f4;
+  --fx-link: #2964aa;
+  --fx-code-inline: #ececec;
+}
+
+[data-theme-family='openai'][data-theme='dark'] {
+  --bg: 0 0% 9%;
+  --surface: 0 0% 12.9%;
+  --elevated: 0 0% 18.4%;
+  --muted: 0 0% 18.8%;
+  --border: 0 0% 28.6%;
+  --border-soft: 0 0% 20.8%;
+  --text: 0 0% 100%;
+  --text-dim: 0 0% 80.4%;
+  --text-muted: 0 0% 68.6%;
+  --accent: 0 0% 100%;
+  --accent-soft: 0 0% 23.9%;
+  --ring: 212.5 100% 73.9%;
+  --token-total: 0 0% 100%;
+  --role-assistant: 0 0% 100%;
+  --statusbar-bg: 0 0% 9%;
+  --on-accent: 0 0 0;
+  --shadow-soft: 0 1px 2px #0000004d;
+  --shadow-card: 0 2px 6px #00000059;
+  --shadow-pop: 0 8px 24px #00000080;
+  --fx-hover: #ffffff12;
+  --fx-selected: #ffffff1f;
+  --fx-outline: #ffffff33;
+  --fx-outline-soft: #ffffff1f;
+  --fx-knob: #4d4d4d;
+  --fx-code-block: #1a1a1a;
+  --quota-ok: 0 0% 100%;
+  --quota-warn: 43.3 96.4% 56.3%;
+  --quota-danger: 0 90.6% 70.8%;
+  --fx-badge-bg: var(--fx-selected);
+  --fx-badge-fg: hsl(var(--text));
+  --fx-avatar-bg: hsl(var(--accent));
+  --fx-avatar-fg: rgb(var(--on-accent));
+  --fx-user-msg: #2f2f2f;
+  --fx-link: #7ab7ff;
+  --fx-code-inline: var(--fx-selected);
+}
+
+/* The current sidebar item is shown by its fill alone, without Lens's accent bar. */
+[data-theme-family='openai'] [data-variant='nav'][data-active] > .absolute { display: none; }
+[data-theme-family='openai'] [data-ui='avatar'] { background-image: none; background-color: var(--fx-avatar-bg); color: var(--fx-avatar-fg); box-shadow: var(--shadow-card); }
+[data-theme-family='openai'] [data-ui='badge'][data-plan] { background-color: var(--fx-badge-bg); color: var(--fx-badge-fg); }
+/* Markdown at the sizes chatgpt.com's conversation page computes: headings at
+   24, 20 and 18px over a 16px body, medium-weight inline code at 14px on a
+   light fill, flat rounded code blocks at 14px on a 24px line. */
+[data-theme-family='openai'] .markdown-body code { color: inherit; background: var(--fx-code-inline); border-radius: 4px; padding: 0.15em 0.3em; font-size: 0.875em; font-weight: 500; }
+[data-theme-family='openai'] .markdown-body pre { background: var(--fx-code-block); border: 0; border-radius: 1rem; padding: 16px; font-size: 0.875em; line-height: 1.715; }
+[data-theme-family='openai'] .markdown-body pre code { background: transparent; padding: 0; font-weight: 400; font-size: inherit; }
+[data-theme-family='openai'] .markdown-body p { margin: 8px 0 4px; }
+[data-theme-family='openai'] .markdown-body h1 { font-size: 1.5em; line-height: 1.333; font-weight: 600; margin: 0 0 8px; padding-bottom: 0; border-bottom: 0; }
+[data-theme-family='openai'] .markdown-body h2 { font-size: 1.25em; line-height: 1.4; font-weight: 600; margin: 16px 0 4px; }
+[data-theme-family='openai'] .markdown-body h3 { font-size: 1.125em; line-height: 1.556; font-weight: 600; margin: 16px 0 4px; }
+[data-theme-family='openai'] .markdown-body > :first-child { margin-top: 0; }
+[data-theme-family='openai'] .markdown-body > :last-child { margin-bottom: 0; }
+[data-theme-family='openai'] .markdown-body ul,
+[data-theme-family='openai'] .markdown-body ol { padding-left: 26px; }
+[data-theme-family='openai'] .markdown-body li { padding-left: 6px; }
+[data-theme-family='openai'] .markdown-body a { color: var(--fx-link); }
+[data-theme-family='openai'] .markdown-body blockquote { padding: 8px 0 8px 24px; }
+[data-theme-family='openai'] .markdown-body table { font-size: inherit; }
+
+/* The conversation in chatgpt.com's materials: the user's turn in a grey pill
+   bubble and tool output in the same flat rounded fill as a code block.
+   chatgpt.com sets the reply as plain text on the page, but a history of many
+   replies runs together that way, so each one sits on a card with a hairline
+   outline. Lens's role stripes have no place here. */
+[data-theme-family='openai'] [data-msg-stripe] { display: none; }
+[data-theme-family='openai'] [data-ui='card'][data-msg-role='user'] { background: var(--fx-user-msg); border-color: transparent; border-radius: 22px; padding: 10px 16px; max-width: 70%; }
+[data-theme-family='openai'] [data-ui='card'][data-msg-role='assistant'] { background: hsl(var(--elevated)); border: 1px solid var(--fx-outline-soft); border-radius: 16px; }
+/* chatgpt.com sets both turns at 16px: the user's on a 24px line, the reply's
+   on 26px. Its user bubble rounds to 22px. */
+[data-theme-family='openai'] [data-msg-role='user'] [data-msg-body] { font-size: 16px; line-height: 24px; }
+[data-theme-family='openai'] [data-msg-role='assistant'] [data-msg-body] { font-size: 16px; line-height: 26px; }
+[data-theme-family='openai'] [data-msg-body] .markdown-body { line-height: inherit; }
+[data-theme-family='openai'] [data-ui='card'][data-msg-role='tool'],
+[data-theme-family='openai'] [data-ui='card'][data-msg-role='prompt'] { background: var(--fx-code-block); border-color: transparent; border-radius: 16px; }
+[data-theme-family='openai'] [data-subagent] { background: hsl(var(--surface)); border: 1px solid var(--fx-outline-soft); border-radius: 12px; }
+[data-theme-family='openai'] [data-subagent-head],
+[data-theme-family='openai'] [data-subagent-rail] { border-color: var(--fx-outline-soft); }
+[data-theme-family='openai'] [data-subagent] [data-ui='button']:hover { background: var(--fx-hover); }
+[data-theme-family='openai'] [data-msg-role='tool'] [data-ui='eyebrow'],
+[data-theme-family='openai'] [data-msg-role='prompt'] [data-ui='eyebrow'],
+[data-theme-family='openai'] [data-subagent] [data-ui='eyebrow'],
+[data-theme-family='openai'] [data-subagent] svg { color: hsl(var(--text-dim)); }
+
+/* ChatGPT draws no gradients, so each of Lens's settles on its first stop.
+   Avatars keep the gradient the user picked. Zero specificity, so a rule above
+   that repaints the same element still wins. */
+[data-theme-family='openai'] :where(:is(.bg-gradient-to-t, .bg-gradient-to-b, .bg-gradient-to-r, .bg-gradient-to-br):not([data-ui='avatar'], [data-avatar-swatch])) { background-image: none; background-color: var(--tw-gradient-from); }
+/* Search hits in ChatGPT's translucent yellow, the current one solid. */
+[data-theme-family='openai'] mark { background: #ffc30045; color: inherit; }
+[data-theme-family='openai'] mark[data-current="true"] { background: #f6c543; color: #0d0d0d; box-shadow: 0 0 0 2px #ffc30045; }

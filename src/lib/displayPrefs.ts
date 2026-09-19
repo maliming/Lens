@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isThemeFamily, type ThemeFamily } from '../themes/families';
 
 export type TerminalApp = 'terminal' | 'iterm';
 
@@ -21,6 +22,8 @@ export type DisplayPrefs = {
   // when a JSONL came from someone else and might point at tracking URLs.
   loadRemoteImages: boolean;
   projectGrouping: ProjectGrouping;
+  // Visual style of the whole app, independent of light / dark.
+  themeFamily: ThemeFamily;
 };
 
 const DEFAULTS: DisplayPrefs = {
@@ -35,6 +38,7 @@ const DEFAULTS: DisplayPrefs = {
   // Folder-based by default: it's what existing users' numbers already mean,
   // and anyone who doesn't use worktrees sees the same list either way.
   projectGrouping: 'folder',
+  themeFamily: 'lens',
 };
 
 const STORAGE_KEY = 'display-prefs-v1';
@@ -57,6 +61,7 @@ function parsePrefs(raw: string | null): DisplayPrefs {
     if (typeof obj.loadRemoteImages === 'boolean') out.loadRemoteImages = obj.loadRemoteImages;
     if (obj.preferredTerminal === 'terminal' || obj.preferredTerminal === 'iterm') out.preferredTerminal = obj.preferredTerminal;
     if (obj.projectGrouping === 'folder' || obj.projectGrouping === 'repo') out.projectGrouping = obj.projectGrouping;
+    if (isThemeFamily(obj.themeFamily)) out.themeFamily = obj.themeFamily;
     return out;
   } catch { return DEFAULTS; }
 }
@@ -93,4 +98,14 @@ export function useDisplayPrefs(): [DisplayPrefs, (patch: Partial<DisplayPrefs>)
   }, []);
 
   return [_prefs, update];
+}
+
+// For code outside React that has to follow a pref as it changes.
+export function getDisplayPrefs(): DisplayPrefs {
+  return _prefs;
+}
+
+export function subscribeDisplayPrefs(fn: () => void): () => void {
+  _subs.add(fn);
+  return () => { _subs.delete(fn); };
 }

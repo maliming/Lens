@@ -6,6 +6,8 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { IS_MAC, cleanDisplayText } from './format';
 import { DEMO_TERMINAL_SCRIPT } from './demoData';
 import { SOURCES } from './sources';
+import { getDisplayPrefs, subscribeDisplayPrefs } from './displayPrefs';
+import type { ThemeFamily } from '../themes/families';
 import type { SessionMeta } from '../types';
 
 // Live terminals, owned above the component tree.
@@ -221,6 +223,70 @@ const LIGHT_THEME = {
 
 export type TerminalTheme = 'dark' | 'light';
 
+// What a style family changes on top of those palettes. Claude and OpenAI only
+// move the canvas, text and cursor onto their own surfaces: neither product
+// ships a terminal palette, and the ANSI sets above already read on those
+// backgrounds. GitHub does ship one — Primer's ANSI colours — so it takes the
+// whole set.
+const FAMILY_PALETTES: Partial<Record<ThemeFamily, Record<TerminalTheme, Partial<typeof DARK_THEME>>>> = {
+  claude: {
+    dark: { background: '#151515', foreground: '#f0efec', cursorAccent: '#151515' },
+    light: { background: '#fcfcfb', foreground: '#0b0b0b', cursorAccent: '#fcfcfb' },
+  },
+  openai: {
+    dark: { background: '#212121', foreground: '#ffffff', cursor: '#ffffff', cursorAccent: '#212121', selectionBackground: 'rgba(255, 255, 255, 0.2)' },
+    light: { background: '#ffffff', foreground: '#0d0d0d', cursor: '#0d0d0d', cursorAccent: '#ffffff', selectionBackground: 'rgba(13, 13, 13, 0.15)' },
+  },
+  github: {
+    dark: {
+      background: '#0d1117',
+      foreground: '#f0f6fc',
+      cursor: '#4493f8',
+      cursorAccent: '#0d1117',
+      selectionBackground: 'rgba(31, 111, 235, 0.7)',
+      black: '#2f3742',
+      red: '#ff7b72',
+      green: '#3fb950',
+      yellow: '#d29922',
+      blue: '#58a6ff',
+      magenta: '#be8fff',
+      cyan: '#39c5cf',
+      white: '#f0f6fc',
+      brightBlack: '#656c76',
+      brightRed: '#ffa198',
+      brightGreen: '#56d364',
+      brightYellow: '#e3b341',
+      brightBlue: '#79c0ff',
+      brightMagenta: '#d2a8ff',
+      brightCyan: '#56d4dd',
+      brightWhite: '#ffffff',
+    },
+    light: {
+      background: '#ffffff',
+      foreground: '#1f2328',
+      cursor: '#0969da',
+      cursorAccent: '#ffffff',
+      selectionBackground: 'rgba(9, 105, 218, 0.2)',
+      black: '#1f2328',
+      red: '#cf222e',
+      green: '#116329',
+      yellow: '#4d2d00',
+      blue: '#0969da',
+      magenta: '#8250df',
+      cyan: '#1b7c83',
+      white: '#59636e',
+      brightBlack: '#393f46',
+      brightRed: '#a40e26',
+      brightGreen: '#1a7f37',
+      brightYellow: '#633c01',
+      brightBlue: '#218bff',
+      brightMagenta: '#a475f9',
+      brightCyan: '#3192aa',
+      brightWhite: '#818b98',
+    },
+  },
+};
+
 // One validated record instead of a handful of loose keys, matching how
 // displayPrefs already stores renderer-local settings. Per-field validation
 // matters for the same reason it does there: a corrupted entry that puts a
@@ -357,8 +423,20 @@ function savePrefs() {
 export function getTerminalPrefs(): TerminalPrefs { return prefs; }
 
 function palette() {
-  return prefs.theme === 'light' ? LIGHT_THEME : DARK_THEME;
+  const base = prefs.theme === 'light' ? LIGHT_THEME : DARK_THEME;
+  return { ...base, ...FAMILY_PALETTES[getDisplayPrefs().themeFamily]?.[prefs.theme] };
 }
+
+// A style change only moves the canvas and text colours, never light against
+// dark, so unlike a theme flip it can be applied to running terminals as-is.
+let paletteFamily = getDisplayPrefs().themeFamily;
+subscribeDisplayPrefs(() => {
+  const family = getDisplayPrefs().themeFamily;
+  if (family === paletteFamily) return;
+  paletteFamily = family;
+  repaintTerminals();
+  notify();
+});
 
 export function getTerminalTheme(): TerminalTheme { return prefs.theme; }
 export function getTerminalBackground(): string { return palette().background; }
@@ -456,6 +534,11 @@ export function setTerminalTheme(next: TerminalTheme) {
   if (next === prefs.theme) return;
   prefs = { ...prefs, theme: next };
   savePrefs();
+  repaintTerminals();
+  notify();
+}
+
+function repaintTerminals() {
   for (const e of entries.values()) {
     e.term.options.theme = palette();
     // Two levels of staleness, and both need addressing:
@@ -468,7 +551,6 @@ export function setTerminalTheme(next: TerminalTheme) {
     //            never gets rewritten. Nudging the PTY size makes it redraw.
     try { e.term.refresh(0, e.term.rows - 1); } catch {}
   }
-  notify();
 }
 
 export function setTerminalFontSize(next: number) {

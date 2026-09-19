@@ -20,6 +20,7 @@ import { linkSubagents, linkedFor, messageHasLinkedSubagent, linkedMatchesQuery,
 import { useDisplayPrefs, type DisplayPrefs } from '../lib/displayPrefs';
 import { useAppPrefs } from '../lib/appPrefs';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
+import { Button, Surface, TextInput, useSkinClass } from '../ui';
 
 // Initial render is sized to comfortably fill a default-sized viewport in
 // one shot. The auto-fill loop below is still there as a safety net for
@@ -613,11 +614,11 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
 
   if (!session) {
     return (
-      <main data-pane="detail" className="flex-1 min-w-0 flex flex-col items-center justify-center text-text-muted bg-surface border border-border rounded-2xl">
+      <Surface kind="pane" as="main" data-pane="detail" className="flex-1 min-w-0 flex flex-col items-center justify-center text-text-muted bg-surface border border-border rounded-2xl">
         <FileText className="w-12 h-12 mb-3 opacity-30" />
         <h2 className="text-base font-medium text-text">{t('detail.emptyTitle')}</h2>
         <p className="text-xs mt-1">{t('detail.emptyHint')}</p>
-      </main>
+      </Surface>
     );
   }
 
@@ -664,7 +665,8 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
   const title = resolveSessionTitle(session, { fallback: t('list.noTitle') }).primary;
 
   return (
-    <div
+    <Surface
+      kind="pane"
       className="flex-1 min-h-0 bg-surface border border-border rounded-2xl overflow-hidden flex flex-col"
       // Pane needs a real minimum width so the header toolbar (Terminal, iTerm,
       // VS Code, Finder, Copy, Tools, Refresh, MD/Raw + in-session search) has
@@ -692,16 +694,16 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
             {title}
           </h1>
           {totalTok > 0 && (
-            <button onClick={onOpenInfo} className="text-[12px] tabular-nums text-accent font-semibold hover:bg-accent-soft px-2 py-0.5 rounded transition flex-shrink-0">
+            <Button variant="ghost" onClick={onOpenInfo} className="text-[12px] tabular-nums text-accent font-semibold hover:bg-accent-soft px-2 py-0.5 rounded transition flex-shrink-0">
               {fmtTokens(totalTok)} {t('units.tokens')}
-            </button>
+            </Button>
           )}
-          <button onClick={() => onToggleFavorite(session.id)} className="p-1 rounded hover:bg-muted flex-shrink-0">
+          <Button variant="icon" onClick={() => onToggleFavorite(session.id)} className="p-1 rounded hover:bg-muted flex-shrink-0">
             <Star className={cn('w-4 h-4', isFav ? 'fill-amber-400 text-amber-400' : 'text-text-muted')} />
-          </button>
-          <button onClick={onOpenInfo} title={t('detail.tip.sessionDetails')} className="p-1 rounded hover:bg-muted text-text-muted hover:text-accent flex-shrink-0">
+          </Button>
+          <Button variant="icon" onClick={onOpenInfo} title={t('detail.tip.sessionDetails')} className="p-1 rounded hover:bg-muted text-text-muted hover:text-accent flex-shrink-0">
             <Info className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
 
         {/* v8 P3 — two coherent groups: identity (where) and stats (how big / how recent).
@@ -739,35 +741,38 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
              solid accent fill rather than a separator. Opens the user's
              preferred terminal (iTerm on macOS if available, otherwise
              system Terminal). */}
-          <button
+          <Button
+            variant="primary"
             onClick={handleTerminal}
             title={effectivePreferred === 'iterm' ? t('detail.tip.openInIterm') : t('detail.tip.openInTerminal')}
             aria-label={t('detail.btn.resume')}
             className={cn(
-              'h-9 px-3 bg-accent text-white rounded-lg text-[12.5px] font-semibold hover:opacity-90 flex items-center justify-center gap-1.5 shadow-soft whitespace-nowrap flex-shrink-0',
+              'h-9 px-3 bg-accent text-on-accent rounded-lg text-[12.5px] font-semibold hover:opacity-90 flex items-center justify-center gap-1.5 shadow-soft whitespace-nowrap flex-shrink-0',
             )}
           >
             <Play className="w-3.5 h-3.5" />{t('detail.btn.resume')}
-          </button>
+          </Button>
           {/* Peer of Resume, not a toolbar icon: continuing the work inside
               Lens is the same order of action as continuing it outside. Same
               height and weight; outlined rather than filled so two solid accent
               buttons don't fight for the eye, and filled once a terminal is
               actually live so the running state is unmissable. */}
           {session && appPrefs.embeddedTerminal && getSource(session.source).terminal.supported && (
-            <button
+            <Button
+              variant="secondary"
+              active={!!getTerminal(sessionKeyOf(session))}
               onClick={requestTerminal}
               title={t('term.open')}
               aria-label={t('term.label')}
               className={cn(
                 'h-9 px-3 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0 transition',
                 getTerminal(sessionKeyOf(session))
-                  ? 'bg-accent text-white hover:opacity-90 shadow-soft'
+                  ? 'bg-accent text-on-accent hover:opacity-90 shadow-soft'
                   : 'border border-accent/50 text-accent hover:bg-accent-soft',
               )}
             >
               <TerminalSquare className="w-3.5 h-3.5" />{t('term.label')}
-            </button>
+            </Button>
           )}
           <ToolbarBtn
             onClick={handleCopy}
@@ -805,16 +810,16 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
               Narrow padding because the two labels are already as short as text
               gets — the width here is nearly all padding, and it is the last
               thing standing between a one-line and a two-line toolbar. */}
-          <div className="ml-auto inline-flex p-0.5 bg-muted rounded-lg flex-shrink-0">
-            <button onClick={() => setGlobalMode('markdown')} className={cn('px-2 h-8 rounded-md text-[12px] font-semibold', globalMode === 'markdown' ? 'bg-surface shadow-soft text-text' : 'text-text-muted')}>MD</button>
-            <button onClick={() => setGlobalMode('raw')} className={cn('px-2 h-8 rounded-md text-[12px] font-semibold', globalMode === 'raw' ? 'bg-surface shadow-soft text-text' : 'text-text-muted')}>{t('detail.modeRawBtn')}</button>
-          </div>
+          <Surface kind="segmented" className="ml-auto inline-flex p-0.5 bg-muted rounded-lg flex-shrink-0">
+            <Button variant="segment" active={globalMode === 'markdown'} onClick={() => setGlobalMode('markdown')} className={cn('px-2 h-8 rounded-md text-[12px] font-semibold', globalMode === 'markdown' ? 'bg-surface shadow-soft text-text' : 'text-text-muted')}>MD</Button>
+            <Button variant="segment" active={globalMode === 'raw'} onClick={() => setGlobalMode('raw')} className={cn('px-2 h-8 rounded-md text-[12px] font-semibold', globalMode === 'raw' ? 'bg-surface shadow-soft text-text' : 'text-text-muted')}>{t('detail.modeRawBtn')}</Button>
+          </Surface>
         </div>
 
         {/* In-session search */}
         <div className="mt-3 relative min-w-0">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" />
-          <input
+          <TextInput
             ref={searchInputRef}
             type="search"
             value={localSearch}
@@ -831,12 +836,13 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
           />
           {localSearch && (
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-              <span className="text-[11px] text-text-muted tabular-nums px-1 min-w-[3.5rem] text-right">
+              <Surface kind="counter" as="span" className="text-[11px] text-text-muted tabular-nums px-1 min-w-[3.5rem] text-right">
                 {matchTotal > 0
                   ? t('detail.search.matchCounter', { cur: matchIdx + 1, total: matchTotal })
                   : t('detail.search.noMatches')}
-              </span>
-              <button
+              </Surface>
+              <Button
+                variant="icon"
                 onClick={() => gotoMatch(-1)}
                 disabled={matchTotal === 0}
                 title={t('detail.search.prev')}
@@ -844,8 +850,9 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
                 className="p-1 rounded hover:bg-muted text-text-muted disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="icon"
                 onClick={() => gotoMatch(1)}
                 disabled={matchTotal === 0}
                 title={t('detail.search.next')}
@@ -853,15 +860,16 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
                 className="p-1 rounded hover:bg-muted text-text-muted disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="icon"
                 onClick={() => setLocalSearch('')}
                 title={t('detail.search.clear')}
                 aria-label={t('detail.search.clear')}
                 className="p-1 rounded hover:bg-muted text-text-muted"
               >
                 <X className="w-3 h-3" />
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -878,7 +886,7 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
           const sizeMb = (pendingLargeLoad.sizeBytes / 1024 / 1024).toFixed(1);
           const beyondCap = pendingLargeLoad.sizeBytes > DETAIL_HARD_CAP_BYTES;
           return (
-            <div className="max-w-md mx-auto bg-surface border border-border rounded-xl px-5 py-6 my-8 text-center">
+            <Surface kind="panel" className="max-w-md mx-auto bg-surface border border-border rounded-xl px-5 py-6 my-8 text-center">
               <div className="text-[13px] text-text mb-2 font-medium">
                 {beyondCap
                   ? t('detail.tooLarge.title', { size: sizeMb })
@@ -888,14 +896,15 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
                 {beyondCap ? t('detail.tooLarge.body') : t('detail.large.body')}
               </div>
               {!beyondCap && (
-                <button
+                <Button
+                  variant="primary"
                   onClick={pendingLargeLoad.onConfirm}
-                  className="px-4 py-2 rounded-lg bg-accent text-white text-[12px] font-medium hover:bg-accent/90 transition"
+                  className="px-4 py-2 rounded-lg bg-accent text-on-accent text-[12px] font-medium hover:bg-accent/90 transition"
                 >
                   {t('detail.large.load')}
-                </button>
+                </Button>
               )}
-            </div>
+            </Surface>
           );
         })()}
         {loading && <div className="text-center text-text-muted text-[12px] py-10">{t('detail.loadingMessages')}</div>}
@@ -905,20 +914,21 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
         {!loading && filteredMessages && visibleMessages && visibleMessages.length > 0 && (
           <>
             {messages?.some(m => m.imagesTruncated) && (
-              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300 text-[11.5px] rounded-lg px-3 py-2 mb-4">
+              <Surface kind="banner" className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300 text-[11.5px] rounded-lg px-3 py-2 mb-4">
                 {t('detail.imagesTruncated')}
-              </div>
+              </Surface>
             )}
             {searchOmitted > 0 && (
-              <div className="flex items-center justify-between gap-3 bg-accent/5 border border-accent/30 rounded-lg px-3 py-2 mb-4 text-[11.5px] text-text-muted">
+              <Surface kind="banner" className="flex items-center justify-between gap-3 bg-accent/5 border border-accent/30 rounded-lg px-3 py-2 mb-4 text-[11.5px] text-text-muted">
                 <span>{t('detail.search.omittedNotice', { n: searchOmitted })}</span>
-                <button
+                <Button
+                  variant="primary"
                   onClick={() => setSearchShowAll(true)}
-                  className="px-2 py-0.5 rounded bg-accent text-white text-[11px] font-medium hover:bg-accent/90 transition flex-shrink-0"
+                  className="px-2 py-0.5 rounded bg-accent text-on-accent text-[11px] font-medium hover:bg-accent/90 transition flex-shrink-0"
                 >
                   {t('detail.search.showAll')}
-                </button>
-              </div>
+                </Button>
+              </Surface>
             )}
             {/* Width stretches to fill the available pane on any monitor; on
                very wide screens the cap kicks in only at xl breakpoints so
@@ -980,43 +990,45 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
           onSyncMessages?.();
         }}
       />
-    </div>
+    </Surface>
   );
 }
 
 function TokenChip({ label, value, colorClass }: { label: string; value: number; colorClass: string }) {
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted border border-border-soft tabular-nums">
+    <Surface kind="badge" as="span" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted border border-border-soft tabular-nums">
       <span className="text-text-muted text-[10px] uppercase tracking-wide font-semibold">{label}</span>
       <span className={cn('font-semibold', colorClass)}>{fmtTokens(value)}</span>
-    </span>
+    </Surface>
   );
 }
 
 function DisplayMenu({ prefs, onChange }: { prefs: DisplayPrefs; onChange: (patch: Partial<DisplayPrefs>) => void }) {
   const { t } = useTranslation();
+  const skinClass = useSkinClass();
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button title={t('detail.tip.displayOptions')} className="w-9 h-9 bg-bg border border-border-soft rounded-lg hover:bg-muted text-text-dim flex items-center justify-center">
+        <Button variant="secondary" title={t('detail.tip.displayOptions')} className="w-9 h-9 bg-bg border border-border-soft rounded-lg hover:bg-muted text-text-dim flex items-center justify-center">
           <SlidersHorizontal className="w-4 h-4" />
-        </button>
+        </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           align="end"
           sideOffset={6}
-          className="min-w-[220px] bg-elevated border border-border rounded-lg shadow-pop py-1 z-50 animate-in"
+          data-ui="menu"
+          className={skinClass('menu', "min-w-[220px] bg-elevated border border-border rounded-lg shadow-pop py-1 z-50 animate-in")}
         >
           <CheckItem checked={prefs.showTimestamps} onChange={v => onChange({ showTimestamps: v })}>{t('display.showTimestamps')}</CheckItem>
           <CheckItem checked={prefs.showMsgTokens} onChange={v => onChange({ showMsgTokens: v })}>{t('display.showMsgTokens')}</CheckItem>
           <CheckItem checked={prefs.showAvatars} onChange={v => onChange({ showAvatars: v })}>{t('display.showAvatars')}</CheckItem>
-          <DropdownMenu.Separator className="my-1 h-px bg-border-soft" />
+          <DropdownMenu.Separator data-ui="menu-separator" className={skinClass('menu-separator', "my-1 h-px bg-border-soft")} />
           {/* Conversation-content toggles — what you see in the message
              stream. Off by default since tool blocks are usually noise
              when skimming a session. */}
           <CheckItem checked={prefs.showTools} onChange={v => onChange({ showTools: v })}>{t('display.showTools')}</CheckItem>
-          <DropdownMenu.Separator className="my-1 h-px bg-border-soft" />
+          <DropdownMenu.Separator data-ui="menu-separator" className={skinClass('menu-separator', "my-1 h-px bg-border-soft")} />
           <CheckItem checked={prefs.compact} onChange={v => onChange({ compact: v })}>{t('display.compact')}</CheckItem>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -1026,7 +1038,9 @@ function DisplayMenu({ prefs, onChange }: { prefs: DisplayPrefs; onChange: (patc
 
 function ToolbarBtn({ onClick, icon, label, showLabel, title, active }: { onClick: () => void; icon: React.ReactNode; label: string; showLabel: boolean; title: string; active?: boolean }) {
   return (
-    <button
+    <Button
+      variant="secondary"
+      active={active}
       onClick={onClick}
       title={title}
       className={cn(
@@ -1037,17 +1051,19 @@ function ToolbarBtn({ onClick, icon, label, showLabel, title, active }: { onClic
     >
       {icon}
       {showLabel && <span>{label}</span>}
-    </button>
+    </Button>
   );
 }
 
 function CheckItem({ checked, onChange, children }: { checked: boolean; onChange: (v: boolean) => void; children: React.ReactNode }) {
+  const skinClass = useSkinClass();
   return (
     <DropdownMenu.CheckboxItem
       checked={checked}
       onCheckedChange={onChange}
       onSelect={e => e.preventDefault()}
-      className="flex items-center gap-2 px-3 py-1.5 text-[12px] cursor-pointer outline-none data-[highlighted]:bg-accent data-[highlighted]:text-white"
+      data-ui="menu-item"
+      className={skinClass('menu-item', "flex items-center gap-2 px-3 py-1.5 text-[12px] cursor-pointer outline-none data-[highlighted]:bg-accent data-[highlighted]:text-on-accent")}
     >
       <span className="w-3.5 h-3.5 flex items-center justify-center">
         {checked && <Check className="w-3 h-3" />}

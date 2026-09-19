@@ -1,0 +1,287 @@
+/* GitHub style. Colours and shadows are @primer/primitives 11.10.0 (light and dark
+   themes); type is Mona Sans and Monaspace Neon, the typefaces GitHub itself ships.
+   Tokens a family leaves out fall back to Lens's value for the same mode. */
+
+[data-theme-family='github'] {
+  --font-ui: 'Mona Sans Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  --font-mono: 'Monaspace Neon', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-reading: var(--font-ui);
+  /* In px: the product's radii are rem against a 16px root, and Lens's root
+     is 14px, so the same rem would come out an eighth smaller. */
+  --radius-sm: 3px;
+  --radius: 6px;
+  --radius-md: 6px;
+  --radius-lg: 6px;
+  --radius-xl: 6px;
+  --radius-2xl: 12px;
+  --radius-3xl: 12px;
+  /* Tailwind's hue scales, taken from Primer's display scales, with each
+     hue's muted background as the lightest step. */
+  --amber-50: 255 248 197; --amber-100: 255 236 158; --amber-200: 255 214 66; --amber-300: 235 180 0; --amber-400: 209 157 0; --amber-500: 184 135 0; --amber-600: 148 106 0; --amber-700: 128 89 0; --amber-800: 112 77 0; --amber-900: 92 61 0; --amber-950: 66 43 0;
+  --emerald-50: 218 251 225; --emerald-100: 202 247 202; --emerald-200: 156 237 160; --emerald-300: 84 217 97; --emerald-400: 49 191 70; --emerald-500: 48 161 71; --emerald-600: 44 129 65; --emerald-700: 43 110 63; --emerald-800: 40 92 59; --emerald-900: 37 75 52; --emerald-950: 29 53 40;
+  --rose-50: 255 235 233; --rose-100: 255 226 224; --rose-200: 254 205 205; --rose-300: 253 165 167; --rose-400: 251 131 137; --rose-500: 248 84 97; --rose-600: 223 12 36; --rose-700: 197 13 40; --rose-800: 166 12 41; --rose-900: 136 12 39; --rose-950: 97 10 32;
+  --violet-50: 251 239 255; --violet-100: 241 229 255; --violet-200: 230 210 254; --violet-300: 209 177 252; --violet-400: 188 145 248; --violet-500: 166 114 243; --violet-600: 137 76 235; --violet-700: 120 58 228; --violet-800: 98 35 215; --violet-900: 79 33 171; --violet-950: 57 27 121;
+  --sky-50: 221 244 255; --sky-100: 209 240 255; --sky-200: 173 225 255; --sky-300: 117 200 255; --sky-400: 71 175 255; --sky-500: 15 143 255; --sky-600: 0 110 219; --sky-700: 0 95 204; --sky-800: 0 77 179; --sky-900: 0 61 153; --sky-950: 0 43 117;
+  --blue-50: 221 244 255; --blue-100: 209 240 255; --blue-200: 173 225 255; --blue-300: 117 200 255; --blue-400: 71 175 255; --blue-500: 15 143 255; --blue-600: 0 110 219; --blue-700: 0 95 204; --blue-800: 0 77 179; --blue-900: 0 61 153; --blue-950: 0 43 117;
+  --pink-50: 255 239 247; --pink-100: 255 229 241; --pink-200: 253 201 226; --pink-300: 248 165 207; --pink-400: 241 132 188; --pink-500: 229 93 165; --pink-600: 206 44 133; --pink-700: 177 47 121; --pink-800: 142 46 102; --pink-900: 110 43 83; --pink-950: 77 35 61;
+  --orange-50: 255 241 229; --orange-100: 255 231 209; --orange-200: 254 207 170; --orange-300: 251 175 116; --orange-400: 246 140 65; --orange-500: 235 103 15; --orange-600: 184 80 15; --orange-700: 162 70 16; --orange-800: 141 60 17; --orange-900: 112 48 15; --orange-950: 84 35 13;
+  --purple-50: 251 239 255; --purple-100: 241 229 255; --purple-200: 230 210 254; --purple-300: 209 177 252; --purple-400: 188 145 248; --purple-500: 166 114 243; --purple-600: 137 76 235; --purple-700: 120 58 228; --purple-800: 98 35 215; --purple-900: 79 33 171; --purple-950: 57 27 121;
+  --fuchsia-50: 252 242 255; --fuchsia-100: 248 229 255; --fuchsia-200: 240 205 254; --fuchsia-300: 226 167 251; --fuchsia-400: 212 135 247; --fuchsia-500: 194 100 242; --fuchsia-600: 168 48 232; --fuchsia-700: 150 30 220; --fuchsia-800: 125 30 184; --fuchsia-900: 101 29 150; --fuchsia-950: 71 23 105;
+  --teal-50: 228 250 247; --teal-100: 199 245 239; --teal-200: 137 235 225; --teal-300: 34 211 199; --teal-400: 29 185 180; --teal-500: 23 155 155; --teal-600: 18 126 129; --teal-700: 16 110 117; --teal-800: 13 91 99; --teal-900: 10 72 82; --teal-950: 7 55 64;
+  --cyan-50: 223 250 255; --cyan-100: 189 244 255; --cyan-200: 122 233 255; --cyan-300: 0 208 250; --cyan-400: 0 183 219; --cyan-500: 0 153 184; --cyan-600: 0 123 148; --cyan-700: 0 106 128; --cyan-800: 0 89 107; --cyan-900: 0 72 87; --cyan-950: 0 55 66;
+  --indigo-50: 242 244 255; --indigo-100: 229 233 255; --indigo-200: 210 215 254; --indigo-300: 177 185 251; --indigo-400: 151 159 247; --indigo-500: 122 130 240; --indigo-600: 90 97 231; --indigo-700: 73 78 223; --indigo-800: 57 60 213; --indigo-900: 45 45 180; --indigo-950: 37 36 123;
+  --slate-50: 246 248 250; --slate-100: 232 236 242; --slate-200: 210 218 228; --slate-300: 180 192 207; --slate-400: 155 169 187; --slate-500: 128 143 163; --slate-600: 100 113 130; --slate-700: 92 101 112; --slate-800: 78 83 90; --slate-900: 66 68 72; --slate-950: 48 48 49;
+}
+
+[data-theme-family='github']:not([data-theme='dark']) {
+  --bg: 0 0% 100%;
+  --surface: 0 0% 100%;
+  --elevated: 0 0% 100%;
+  --statusbar-bg: 0 0% 100%;
+  --border: 208 19.5% 84.9%;
+  --border-soft: 208 19.5% 89.4%;
+  --muted: 210 28.6% 97.3%;
+  --text: 213.3 12.7% 13.9%;
+  --text-dim: 211.4 10.6% 39%;
+  --text-muted: 213.9 10% 55.1%;
+  --accent: 212.4 92.1% 44.5%;
+  --accent-soft: 199.4 100% 93.3%;
+  --ring: 212.4 92.1% 44.5%;
+  --success: 137.2 66% 30%;
+  --warning: 40.1 100% 30.2%;
+  --danger: 356.2 70.6% 48%;
+  --token-total: 261 69.1% 59.4%;
+  --token-input: 212.4 92.1% 44.5%;
+  --token-output: 324.2 54% 48.6%;
+  --token-cacheread: 40.1 100% 30.2%;
+  --token-cachewrite: 24.3 100% 36.9%;
+  --role-user: 212.4 92.1% 44.5%;
+  --role-assistant: 261 69.1% 59.4%;
+  --role-tool: 137.2 66% 30%;
+  --role-summary: 40.1 100% 30.2%;
+  --on-accent: 255 255 255;
+  --shadow-soft: 0 1px 1px 0 #1f23280a, 0 1px 2px 0 #1f232808;
+  --shadow-card: 0 1px 1px 0 #1f23280a, 0 1px 2px 0 #1f232808;
+  --shadow-pop: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;
+  --gh-fg: #1f2328;
+  --gh-fg-muted: #59636e;
+  --gh-border: #d1d9e0;
+  --gh-border-muted: #d1d9e0b3;
+  --gh-accent: #0969da;
+  --gh-accent-emphasis: #0969da;
+  --gh-accent-muted: #ddf4ff;
+  --gh-btn-bg: #f6f8fa;
+  --gh-btn-bg-hover: #eff2f5;
+  --gh-btn-bg-active: #e6eaef;
+  --gh-btn-border: #d1d9e0;
+  --gh-btn-fg: #25292e;
+  --gh-btn-primary-bg: #1f883d;
+  --gh-btn-primary-bg-hover: #1c8139;
+  --gh-btn-primary-border: #1f232826;
+  --gh-btn-primary-fg: #ffffff;
+  --gh-btn-invisible-hover: #818b981a;
+  --gh-btn-invisible-active: #818b9826;
+  --gh-selected-bg: #818b9826;
+  --gh-btn-danger-fg: #d1242f;
+  --gh-btn-danger-bg-hover: #cf222e;
+  --gh-btn-danger-fg-hover: #ffffff;
+  --gh-track-bg: #e6eaef;
+  --gh-track-border: #d1d9e0;
+  --gh-knob-bg: #ffffff;
+  --gh-knob-border: #d1d9e0;
+  --gh-counter-bg: #818b981f;
+  --gh-underline-active: #fd8c73;
+  --gh-overlay-bg: #ffffff;
+  --gh-overlay-border: #d1d9e080;
+  --gh-backdrop: #c8d1da66;
+  --gh-tooltip-bg: #25292e;
+  --gh-tooltip-fg: #ffffff;
+  --gh-input-bg: #ffffff;
+  --gh-code-bg: #818b981f;
+  --gh-canvas-muted: #f6f8fa;
+  --heat-0: #eff2f5;
+  --heat-1: #aceebb;
+  --heat-2: #4ac26b;
+  --heat-3: #2da44e;
+  --heat-4: #116329;
+  --quota-ok: 212.4 92.1% 44.5%;
+  --quota-warn: 44 100% 36.1%;
+  --quota-danger: 355.8 71.8% 47.3%;
+  --quota-depleted: 355.8 71.8% 47.3% / 0.14;
+  --quota-depleted-stripe: 355.8 71.8% 47.3% / 0.55;
+  --fx-badge-bg: var(--gh-canvas-muted);
+  --fx-badge-fg: var(--gh-fg);
+  --fx-avatar-bg: var(--gh-accent-emphasis);
+  --fx-avatar-fg: #ffffff;
+  --gh-accent-border-muted: #54aeff66;
+  --gh-attention-muted: #fff8c5;
+  --gh-attention-border-muted: #d4a72c66;
+  --gh-avatar-border: #1f232826;
+}
+
+[data-theme-family='github'][data-theme='dark'] {
+  --bg: 216 27.8% 7.1%;
+  --surface: 216 27.8% 7.1%;
+  --elevated: 214.3 25% 11%;
+  --statusbar-bg: 216 27.8% 7.1%;
+  --border: 213.8 11.6% 27.1%;
+  --border-soft: 214.2 13.2% 21.1%;
+  --muted: 214.3 25% 11%;
+  --text: 210 66.7% 96.5%;
+  --text-dim: 213.8 7.8% 60%;
+  --text-muted: 215.3 7.8% 42.9%;
+  --accent: 213.7 92.8% 62%;
+  --accent-soft: 215.1 45.5% 12.5%;
+  --ring: 216.5 83.6% 52.2%;
+  --success: 128.4 49.2% 48.6%;
+  --warning: 40.6 72.1% 47.8%;
+  --danger: 2.7 92.6% 62.9%;
+  --token-total: 262.4 89.8% 73.1%;
+  --token-input: 213.7 92.8% 62%;
+  --token-output: 328 62.9% 62%;
+  --token-cacheread: 40.6 72.1% 47.8%;
+  --token-cachewrite: 23.1 71.3% 50.8%;
+  --role-user: 213.7 92.8% 62%;
+  --role-assistant: 262.4 89.8% 73.1%;
+  --role-tool: 128.4 49.2% 48.6%;
+  --role-summary: 40.6 72.1% 47.8%;
+  --on-accent: 255 255 255;
+  --shadow-soft: 0 1px 1px 0 #01040999, 0 1px 3px 0 #01040999;
+  --shadow-card: 0 1px 1px 0 #01040999, 0 1px 3px 0 #01040999;
+  --shadow-pop: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
+  --gh-fg: #f0f6fc;
+  --gh-fg-muted: #9198a1;
+  --gh-border: #3d444d;
+  --gh-border-muted: #3d444db3;
+  --gh-accent: #4493f8;
+  --gh-accent-emphasis: #1f6feb;
+  --gh-accent-muted: #388bfd1a;
+  --gh-btn-bg: #212830;
+  --gh-btn-bg-hover: #262c36;
+  --gh-btn-bg-active: #2a313c;
+  --gh-btn-border: #3d444d;
+  --gh-btn-fg: #f0f6fc;
+  --gh-btn-primary-bg: #238636;
+  --gh-btn-primary-bg-hover: #29903b;
+  --gh-btn-primary-border: #ffffff26;
+  --gh-btn-primary-fg: #ffffff;
+  --gh-btn-invisible-hover: #656c7633;
+  --gh-btn-invisible-active: #656c7640;
+  --gh-selected-bg: #656c7633;
+  --gh-btn-danger-fg: #fa5e55;
+  --gh-btn-danger-bg-hover: #b62324;
+  --gh-btn-danger-fg-hover: #ffffff;
+  --gh-track-bg: #010409;
+  --gh-track-border: #3d444d;
+  --gh-knob-bg: #262c36;
+  --gh-knob-border: #3d444d;
+  --gh-counter-bg: #656c7633;
+  --gh-underline-active: #f78166;
+  --gh-overlay-bg: #010409;
+  --gh-overlay-border: #3d444db3;
+  --gh-backdrop: #21283066;
+  --gh-tooltip-bg: #3d444d;
+  --gh-tooltip-fg: #ffffff;
+  --gh-input-bg: #0d1117;
+  --gh-code-bg: #656c7633;
+  --gh-canvas-muted: #151b23;
+  --heat-0: #151b23;
+  --heat-1: #033a16;
+  --heat-2: #196c2e;
+  --heat-3: #2ea043;
+  --heat-4: #56d364;
+  --quota-ok: 213.7 92.8% 62%;
+  --quota-warn: 40.6 72.1% 47.8%;
+  --quota-danger: 2.7 92.6% 62.9%;
+  --quota-depleted: 2.7 92.6% 62.9% / 0.18;
+  --quota-depleted-stripe: 2.7 92.6% 62.9% / 0.6;
+  --fx-badge-bg: var(--gh-canvas-muted);
+  --fx-badge-fg: var(--gh-fg);
+  --fx-avatar-bg: var(--gh-accent-emphasis);
+  --fx-avatar-fg: #ffffff;
+  --gh-accent-border-muted: #388bfd66;
+  --gh-attention-muted: #bb800926;
+  --gh-attention-border-muted: #bb800966;
+  --gh-avatar-border: #ffffff26;
+}
+
+/* Markdown the way GitHub renders it: neutral inline code, flat code blocks,
+   a heavier quote bar, ruled first- and second-level headings, striped tables. */
+[data-theme-family='github'] .markdown-body code { color: inherit; background: var(--gh-code-bg); padding: 0.2em 0.4em; border-radius: 6px; font-size: 85%; }
+[data-theme-family='github'] .markdown-body pre { background: var(--gh-canvas-muted); border: 0; border-radius: 6px; padding: 16px; font-size: 85%; line-height: 1.45; }
+[data-theme-family='github'] .markdown-body pre code { background: transparent; padding: 0; border-radius: 0; font-size: 100%; }
+[data-theme-family='github'] .markdown-body code,
+[data-theme-family='github'] .markdown-body pre { font-family: var(--font-mono); }
+[data-theme-family='github'] .markdown-body blockquote { padding: 0 1em; border-left: 0.25em solid var(--gh-border); color: var(--gh-fg-muted); }
+[data-theme-family='github'] .markdown-body h1,
+[data-theme-family='github'] .markdown-body h2 { padding-bottom: 0.3em; border-bottom: 1px solid var(--gh-border-muted); }
+/* Block rhythm and heading scale from GitHub's own markdown: a 16px gap under
+   every block, headings at 2, 1.5 and 1.25em on a 1.25 line. */
+[data-theme-family='github'] .markdown-body :is(p, ul, ol, blockquote, pre, table) { margin: 0 0 16px; }
+[data-theme-family='github'] .markdown-body :is(h1, h2, h3) { margin: 24px 0 16px; font-weight: 600; line-height: 1.25; }
+[data-theme-family='github'] .markdown-body h1 { font-size: 2em; }
+[data-theme-family='github'] .markdown-body h2 { font-size: 1.5em; }
+[data-theme-family='github'] .markdown-body h3 { font-size: 1.25em; }
+[data-theme-family='github'] .markdown-body > :first-child { margin-top: 0; }
+[data-theme-family='github'] .markdown-body > :last-child { margin-bottom: 0; }
+[data-theme-family='github'] .markdown-body ul,
+[data-theme-family='github'] .markdown-body ol { padding-left: 2em; }
+[data-theme-family='github'] .markdown-body table { font-size: inherit; }
+[data-theme-family='github'] .markdown-body th,
+[data-theme-family='github'] .markdown-body td { border-color: var(--gh-border); padding: 6px 13px; }
+[data-theme-family='github'] .markdown-body th { background: transparent; }
+[data-theme-family='github'] .markdown-body tr:nth-child(2n) { background: var(--gh-canvas-muted); }
+
+[data-theme-family='github'] [data-ui='avatar'] { background-image: none; background-color: var(--fx-avatar-bg); color: var(--fx-avatar-fg); box-shadow: var(--shadow-card); }
+[data-theme-family='github'] [data-ui='badge'][data-plan] { background-color: var(--fx-badge-bg); color: var(--fx-badge-fg); }
+/* The sidebar and its navigation as GitHub's NavList draws them: a white panel
+   (the darkest canvas in dark mode), every item in the default text colour
+   with its icon muted, and the current one on the selected fill with a 4×24
+   accent bar centred in the gutter to its left rather than a stripe along its
+   edge. */
+[data-theme-family='github'] [data-pane='sidebar'] { background-color: var(--gh-overlay-bg); }
+[data-theme-family='github'] [data-variant='nav'] { overflow: visible; }
+[data-theme-family='github'] [data-variant='nav'] > svg { color: var(--gh-fg-muted); }
+[data-theme-family='github'] [data-variant='nav'][data-active] > .absolute { top: calc(50% - 12px); bottom: auto; left: -8px; width: 4px; height: 24px; border-radius: 6px; background-color: var(--gh-accent-emphasis); }
+
+/* The conversation as a GitHub timeline: every turn is a bordered comment box
+   with a grey header bar, the user's own turns take the blue header GitHub
+   gives the viewer's comments, and a summary the yellow one it gives unread
+   items. Lens's role stripes have no place here. */
+[data-theme-family='github'] [data-msg-stripe] { display: none; }
+[data-theme-family='github'] [data-ui='card'][data-msg-role] { background: hsl(var(--surface)); border: 1px solid var(--gh-border); border-radius: 6px; padding: 0 16px 16px; }
+[data-theme-family='github'] [data-ui='card'][data-msg-role] > [data-msg-head] { margin: 0 -16px 16px; padding: 4px 8px; min-height: 38px; background: var(--gh-canvas-muted); border-bottom: 1px solid var(--gh-border-muted); border-radius: 5px 5px 0 0; }
+[data-theme-family='github'] [data-ui='card'][data-msg-role='tool'] { padding: 0 12px 12px; }
+[data-theme-family='github'] [data-ui='card'][data-msg-role='tool'] > [data-msg-head] { margin: 0 -12px 8px; }
+/* The header as an issue's comment header measures: 38px tall, a round 24px
+   avatar with a hairline ring 8px in from the edge, the role like the author's
+   login at 14px medium in sentence case rather than a shouted label, and
+   model, tokens and time at 14px in the muted colour. */
+[data-theme-family='github'] [data-msg-head] [data-ui='eyebrow'] { font-size: 14px; line-height: 21px; font-weight: 500; letter-spacing: normal; text-transform: lowercase; }
+[data-theme-family='github'] [data-msg-head] [data-ui='eyebrow']::first-letter { text-transform: uppercase; }
+[data-theme-family='github'] [data-msg-head] [data-msg-meta] { font-size: 14px; line-height: 21px; color: var(--gh-fg-muted); }
+[data-theme-family='github'] [data-msg-head] [data-msg-avatar] { width: 24px; height: 24px; border-radius: 9999px; box-shadow: 0 0 0 1px var(--gh-avatar-border); font-size: 11px; }
+[data-theme-family='github'] [data-msg-head] [data-msg-avatar] svg { width: 14px; height: 14px; }
+/* The comment body at a pull request's size: 14px on a 21px line. */
+[data-theme-family='github'] [data-msg-body] { font-size: 14px; line-height: 21px; }
+[data-theme-family='github'] [data-msg-body] .markdown-body { line-height: inherit; }
+[data-theme-family='github'] [data-ui='card'][data-msg-role='user'] { max-width: none; margin-left: 0; border-color: var(--gh-accent-border-muted); }
+[data-theme-family='github'] [data-ui='card'][data-msg-role='user'] > [data-msg-head] { background: var(--gh-accent-muted); border-bottom-color: var(--gh-accent-border-muted); }
+[data-theme-family='github'] [data-ui='card'][data-msg-role='summary'] { border-color: var(--gh-attention-border-muted); }
+[data-theme-family='github'] [data-ui='card'][data-msg-role='summary'] > [data-msg-head] { background: var(--gh-attention-muted); border-bottom-color: var(--gh-attention-border-muted); }
+[data-theme-family='github'] [data-subagent] { background: hsl(var(--surface)); border: 1px solid var(--gh-border); border-radius: 6px; }
+[data-theme-family='github'] [data-subagent-head] { background: var(--gh-canvas-muted); border-color: var(--gh-border); }
+[data-theme-family='github'] [data-subagent-rail] { border-color: var(--gh-border); }
+[data-theme-family='github'] [data-subagent] [data-ui='button']:hover { background: var(--gh-btn-invisible-hover); }
+[data-theme-family='github'] [data-msg-role='tool'] [data-ui='eyebrow'],
+[data-theme-family='github'] [data-msg-role='prompt'] [data-ui='eyebrow'],
+[data-theme-family='github'] [data-subagent] [data-ui='eyebrow'],
+[data-theme-family='github'] [data-subagent] svg { color: var(--gh-fg-muted); }
+
+/* Primer draws no gradients, so each of Lens's settles on its first stop.
+   Avatars keep the gradient the user picked. Zero specificity, so a rule above
+   that repaints the same element still wins. */
+[data-theme-family='github'] :where(:is(.bg-gradient-to-t, .bg-gradient-to-b, .bg-gradient-to-r, .bg-gradient-to-br):not([data-ui='avatar'], [data-avatar-swatch])) { background-image: none; background-color: var(--tw-gradient-from); }
+/* Search hits on attention yellow, the current one on its emphasis. */
+[data-theme-family='github'] mark { background: var(--gh-attention-muted); color: inherit; box-shadow: inset 0 0 0 1px var(--gh-attention-border-muted); }
+[data-theme-family='github'] mark[data-current="true"] { background: #bf8700; color: #ffffff; box-shadow: none; }

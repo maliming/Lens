@@ -3,6 +3,7 @@ import { cleanDisplayText, fmtBytes, sessionTimestamp } from '../lib/format';
 import { agoLabel } from '../lib/rateLimits';
 import { useTranslation } from '../lib/I18nProvider';
 import { useCurrentSource, getSource } from '../lib/sources';
+import { Button } from '../ui';
 import type { SessionMeta } from '../types';
 
 type Props = {
@@ -58,17 +59,24 @@ export function StatusBar({ sessions, message }: Props) {
 
       {/* Right: build provenance — single chip shows version + commit SHA,
          clicking opens the matching release page on GitHub. */}
-      <button
+      <Button
+        variant="link"
         type="button"
         onClick={() => openExt(RELEASE_URL)}
         title={`${buildTitle}\nOpen release v${__APP_VERSION__} on GitHub`}
         className="flex items-center gap-1.5 flex-shrink-0 hover:text-text transition-colors cursor-pointer"
       >
         <Tag className="w-3 h-3" />
-        <span className="tabular-nums">v{__APP_VERSION__}</span>
-        <span className="text-text-muted/50" aria-hidden>·</span>
-        <span className="font-mono">{__GIT_COMMIT__}</span>
-      </button>
+        {/* Baselines, not boxes: the SHA is in the mono face and the version in
+           the UI one, and centring each on its own line box leaves the two a
+           pixel apart in every family whose two faces differ in metrics. The
+           group still centres as a whole, so the icon keeps its position. */}
+        <span className="inline-flex items-baseline gap-1.5">
+          <span className="tabular-nums">v{__APP_VERSION__}</span>
+          <span className="text-text-muted/50" aria-hidden>·</span>
+          <span className="font-mono">{__GIT_COMMIT__}</span>
+        </span>
+      </Button>
     </footer>
   );
 }

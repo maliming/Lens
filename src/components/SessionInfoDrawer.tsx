@@ -4,6 +4,7 @@ import { fmtBytes, fmtModel, fmtTime, fmtTokens, shortCwd, isUsableModel, visibl
 import { meaningfulBranch } from '../lib/sessionTitle';
 import { getSource } from '../lib/sources';
 import { cn } from '../lib/utils';
+import { Button, Surface, useButtonClass, useSkinClass } from '../ui';
 import { useTranslation } from '../lib/I18nProvider';
 import type { SessionMeta } from '../types';
 
@@ -15,6 +16,8 @@ type Props = {
 
 export function SessionInfoDrawer({ open, onOpenChange, session }: Props) {
   const { t } = useTranslation();
+  const skinClass = useSkinClass();
+  const buttonClass = useButtonClass();
   if (!session) return null;
   const tIn = session.tokensIn || 0;
   const tOut = session.tokensOut || 0;
@@ -28,23 +31,25 @@ export function SessionInfoDrawer({ open, onOpenChange, session }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30 z-50 animate-fade-in" />
-        <Dialog.Content className="no-drag fixed top-11 right-1.5 bottom-8 w-[360px] max-w-[92vw] bg-surface border border-border-soft rounded-2xl z-50 animate-drawer-in shadow-pop flex flex-col overflow-hidden">
-          <div className="px-5 py-3 border-b border-border-soft flex items-center justify-between flex-shrink-0 relative z-10">
-            <Dialog.Title className="text-[14px] font-semibold text-text">{t('detail.tip.sessionDetails')}</Dialog.Title>
+        <Dialog.Overlay data-ui="dialog-overlay" className={skinClass('dialog-overlay', 'fixed inset-0 bg-black/30 z-50 animate-fade-in')} />
+        <Dialog.Content data-ui="drawer" className={skinClass('drawer', 'no-drag fixed top-11 right-1.5 bottom-8 w-[360px] max-w-[92vw] bg-surface border border-border-soft rounded-2xl z-50 animate-drawer-in shadow-pop flex flex-col overflow-hidden')}>
+          <Surface kind="dialog-header" className="px-5 py-3 border-b border-border-soft flex items-center justify-between flex-shrink-0 relative z-10">
+            <Dialog.Title data-ui="dialog-title" className={skinClass('dialog-title', 'text-[14px] font-semibold text-text')}>{t('detail.tip.sessionDetails')}</Dialog.Title>
             <Dialog.Close
               aria-label={t('detail.tip.sessionDetails')}
-              className="w-9 h-9 -mr-2 rounded-md hover:bg-muted text-text-muted hover:text-text flex items-center justify-center transition cursor-pointer"
+              data-ui="button"
+              data-variant="icon"
+              className={buttonClass('icon', 'w-9 h-9 -mr-2 rounded-md hover:bg-muted text-text-muted hover:text-text flex items-center justify-center transition cursor-pointer')}
             >
               <X className="w-4 h-4" />
             </Dialog.Close>
-          </div>
+          </Surface>
 
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
             {/* Tokens */}
             {total > 0 && (
               <section>
-                <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t('info.section.tokens')}</h3>
+                <Surface kind="eyebrow" as="h3" className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t('info.section.tokens')}</Surface>
                 <div className="text-[28px] font-bold tabular-nums leading-none text-text mb-1">{fmtTokens(total)}</div>
                 <div className="text-[11px] text-text-muted mb-3">{t('info.tokens.across', { n: totalVisible })}</div>
                 <div className="grid grid-cols-2 gap-2">
@@ -58,7 +63,7 @@ export function SessionInfoDrawer({ open, onOpenChange, session }: Props) {
 
             {/* Identity */}
             <section>
-              <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t('info.section.identity')}</h3>
+              <Surface kind="eyebrow" as="h3" className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t('info.section.identity')}</Surface>
               <dl className="space-y-1.5 text-[12.5px]">
                 <Row label={t('info.row.sessionId')} mono copyable={session.id}>{session.id.slice(0, 8)}</Row>
                 <Row label={t('info.row.project')} mono>{shortCwd(session.projectCwd || session.decodedCwd)}</Row>
@@ -80,7 +85,7 @@ export function SessionInfoDrawer({ open, onOpenChange, session }: Props) {
 
             {/* Activity */}
             <section>
-              <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t('info.section.activity')}</h3>
+              <Surface kind="eyebrow" as="h3" className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t('info.section.activity')}</Surface>
               <dl className="space-y-1.5 text-[12.5px]">
                 {session.firstTs && (
                   <Row label={<><Calendar className="w-3 h-3 inline mr-1 -mt-0.5" />{t('info.row.created')}</>}>{fmtTime(session.firstTs)}</Row>
@@ -98,7 +103,7 @@ export function SessionInfoDrawer({ open, onOpenChange, session }: Props) {
             {/* Model */}
             {(isUsableModel(session.model) || session.version || session.reasoningEffort) && (
               <section>
-                <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t('info.section.runtime')}</h3>
+                <Surface kind="eyebrow" as="h3" className="text-[10.5px] font-semibold uppercase tracking-wider text-text-muted mb-2">{t('info.section.runtime')}</Surface>
                 <dl className="space-y-1.5 text-[12.5px]">
                   {isUsableModel(session.model) && (
                     <Row label={<><Cpu className="w-3 h-3 inline mr-1 -mt-0.5" />{t('info.row.model')}</>}>{fmtModel(session.model)}</Row>
@@ -128,9 +133,9 @@ function Row({ label, children, mono, copyable }: { label: React.ReactNode; chil
       <dd className={cn('text-text min-w-0 truncate flex items-center gap-1.5', mono && 'font-mono text-[11.5px]')}>
         {children}
         {copyable && (
-          <button onClick={() => navigator.clipboard.writeText(copyable)} className="text-text-muted hover:text-accent flex-shrink-0" title={t('common.copy')}>
+          <Button variant="icon" onClick={() => navigator.clipboard.writeText(copyable)} className="text-text-muted hover:text-accent flex-shrink-0" title={t('common.copy')}>
             <Copy className="w-3 h-3" />
-          </button>
+          </Button>
         )}
       </dd>
     </div>
@@ -139,12 +144,12 @@ function Row({ label, children, mono, copyable }: { label: React.ReactNode; chil
 
 function TokenRow({ label, value, accent }: { label: string; value: number; accent: string }) {
   return (
-    <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md bg-bg border border-border-soft min-w-0">
+    <Surface kind="panel" className="flex items-center justify-between px-2.5 py-1.5 rounded-md bg-bg border border-border-soft min-w-0">
       <div className="flex items-center gap-1.5 min-w-0">
         <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', accent)} />
         <span className="text-text-muted text-[10.5px] truncate">{label}</span>
       </div>
       <span className="font-semibold text-text tabular-nums text-[12px] flex-shrink-0">{fmtTokens(value)}</span>
-    </div>
+    </Surface>
   );
 }

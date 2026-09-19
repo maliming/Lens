@@ -12,6 +12,7 @@ import { Resizer } from './Resizer';
 import { DEMO_CONFIGS } from '../lib/demoData';
 import { useCurrentSource, getSource, type SessionSource, type KindMeta, type ResourceKindKey } from '../lib/sources';
 import type { ConfigItem, ConfigPayload } from '../types';
+import { Button, Surface, TextInput } from '../ui';
 
 // Collapsed group state is per-source: Claude and Codex have different sets
 // of kinds (Skills vs Rules, Commands vs ...), so a user's collapse choices
@@ -184,11 +185,11 @@ export function ConfigView({ demoMode = false, onStatus, refreshTick = 0, isActi
 
   return (
     <>
-      <div data-pane="list" style={{ width: 'var(--workspace-list-width, 360px)' }} className="flex-shrink-0 border border-border rounded-2xl bg-surface flex flex-col overflow-hidden">
+      <Surface kind="pane" data-pane="list" style={{ width: 'var(--workspace-list-width, 360px)' }} className="flex-shrink-0 border border-border rounded-2xl bg-surface flex flex-col overflow-hidden">
         <div className="px-4 pt-4 pb-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
-            <input value={filter} onChange={e => setFilter(e.target.value)} placeholder={tConfigRoot('config.filterPlaceholder')} className="w-full pl-9 pr-3 py-2 bg-surface border border-border rounded-lg text-[13px] outline-none focus:border-accent" />
+            <TextInput value={filter} onChange={e => setFilter(e.target.value)} placeholder={tConfigRoot('config.filterPlaceholder')} className="w-full pl-9 pr-3 py-2 bg-surface border border-border rounded-lg text-[13px] outline-none focus:border-accent" />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1.5">
@@ -199,7 +200,8 @@ export function ConfigView({ demoMode = false, onStatus, refreshTick = 0, isActi
             const Icon = itemMeta?.icon;
             return (
               <div key={kind}>
-                <button
+                <Button
+                  variant="ghost"
                   onClick={() => toggleGroup(kind)}
                   className="w-full flex items-center gap-1.5 px-2 py-1.5 text-text-muted hover:text-text rounded-md transition text-left"
                 >
@@ -207,17 +209,17 @@ export function ConfigView({ demoMode = false, onStatus, refreshTick = 0, isActi
                   {Icon && <Icon className="w-3 h-3 flex-shrink-0" />}
                   <span className="text-[10px] uppercase tracking-wider font-semibold">{itemMeta?.pluralLabel || kind}</span>
                   <span className="text-[10px] text-text-muted tabular-nums">{arr.length}</span>
-                </button>
+                </Button>
                 {!isCollapsed && (
                   <div className="flex flex-col gap-1 mt-1 mb-2">
                     {arr.map(it => (
-                      <button key={it.key} onClick={() => setActive(it.key)} className={cn(
+                      <Button variant="chip" active={active === it.key} key={it.key} onClick={() => setActive(it.key)} className={cn(
                         'text-left px-3 py-2 rounded-lg transition border',
                         active === it.key ? 'bg-accent-soft border-accent/30 text-accent' : 'bg-surface border-border-soft hover:border-border'
                       )}>
                         <div className="text-[12px] font-medium truncate">{it.name}</div>
                         {it.description && <div className="text-[11px] text-text-muted mt-0.5 line-clamp-2">{it.description}</div>}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 )}
@@ -225,11 +227,11 @@ export function ConfigView({ demoMode = false, onStatus, refreshTick = 0, isActi
             );
           })}
         </div>
-      </div>
+      </Surface>
 
       <Resizer cssVar="--workspace-list-width" storageKey="workspace-list-width" min={260} max={520} side="left" />
 
-      <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto bg-surface border border-border rounded-2xl">
+      <Surface kind="pane" as="main" data-pane="detail" className="flex-1 min-w-0 overflow-y-auto bg-surface border border-border rounded-2xl">
         {!activeItem ? (
           <WorkspaceOverview
             totalCount={totalCount}
@@ -252,7 +254,7 @@ export function ConfigView({ demoMode = false, onStatus, refreshTick = 0, isActi
             onStatus={onStatus}
           />
         )}
-      </main>
+      </Surface>
     </>
   );
 }
@@ -274,7 +276,7 @@ function WorkspaceOverview({
   return (
     <div className="px-8 py-8 max-w-[2000px] mx-auto">
       <div className="mb-7">
-        <div className="text-[11px] uppercase tracking-wider font-semibold text-text-muted mb-1.5">{t('config.workspaceLabel')}</div>
+        <Surface kind="eyebrow" className="text-[11px] uppercase tracking-wider font-semibold text-text-muted mb-1.5">{t('config.workspaceLabel')}</Surface>
         <h1 className="text-[22px] font-bold text-text leading-tight mb-1">{sourceDef.workspaceRoot}</h1>
         <p className="text-[13px] text-text-muted">{sourceDef.workspaceBlurb}</p>
       </div>
@@ -301,7 +303,8 @@ function WorkspaceOverview({
           const n = countsByKind[kind] || 0;
           const empty = n === 0;
           return (
-            <button
+            <Button
+              variant="option"
               key={kind}
               onClick={() => !empty && onPick(kind)}
               disabled={empty}
@@ -325,7 +328,7 @@ function WorkspaceOverview({
                   Browse <ArrowRight className="w-3 h-3" />
                 </div>
               )}
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -358,9 +361,9 @@ function ResourceDetail({
   return (
     <div className="px-8 py-8 max-w-[2000px] mx-auto">
       {/* Breadcrumb back to overview */}
-      <button onClick={onBack} className="flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text transition mb-4">
+      <Button variant="link" onClick={onBack} className="flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text transition mb-4">
         <ChevronLeft className="w-3.5 h-3.5" /> {t('config.workspaceLabel')}
-      </button>
+      </Button>
 
       {/* Resource hero — icon + kind chip + name */}
       <div className="flex items-start gap-3 mb-5">
@@ -371,14 +374,14 @@ function ResourceDetail({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted">{itemMeta?.pluralLabel || item.kind}</span>
+            <Surface kind="eyebrow" as="span" className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted">{itemMeta?.pluralLabel || item.kind}</Surface>
           </div>
           <h1 className="selectable text-[19px] font-semibold text-text break-words leading-tight">{item.name}</h1>
         </div>
       </div>
 
       {/* Metadata grid — Description / Path / Last Modified / Type */}
-      <div className="rounded-xl border border-border-soft bg-muted/15 px-5 py-4 mb-4 space-y-3">
+      <Surface kind="panel" className="rounded-xl border border-border-soft bg-muted/15 px-5 py-4 mb-4 space-y-3">
         {(item.description || itemMeta?.short) && (
           <MetaRow label={t('config.description')}>
             <div className="text-[12.5px] text-text leading-snug">{item.description || itemMeta?.short}</div>
@@ -405,33 +408,35 @@ function ResourceDetail({
             <div className="text-[12px] text-text tabular-nums">{fmtTime(mtimeIso)}</div>
           </MetaRow>
         )}
-      </div>
+      </Surface>
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2 mb-5">
-        <button
+        <Button
+          variant="secondary"
           onClick={async () => {
             try { await window.api.openConfigFile(item.path); }
             catch (e: any) { if (onStatus) { onStatus('Open failed: ' + (e?.message || e)); setTimeout(() => onStatus(''), 3000); } }
           }}
           className="px-3 py-1.5 bg-surface border border-border rounded-lg text-[11.5px] hover:bg-muted flex items-center gap-1.5">
           <ExternalLink className="w-3 h-3" /> {t('config.openInApp')}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
           onClick={async () => {
             try { await window.api.revealInFinder(item.path); }
             catch (e: any) { if (onStatus) { onStatus('Reveal failed: ' + (e?.message || e)); setTimeout(() => onStatus(''), 3000); } }
           }}
           className="px-3 py-1.5 bg-surface border border-border rounded-lg text-[11.5px] hover:bg-muted flex items-center gap-1.5">
           <FolderOpen className="w-3 h-3" /> {t('config.reveal')}
-        </button>
+        </Button>
         {(hasContent || hasEntries) && (
-          <button onClick={onToggleSource} className={cn(
+          <Button variant="chip" active={showSource} onClick={onToggleSource} className={cn(
             'ml-auto px-3 py-1.5 rounded-lg text-[11.5px] flex items-center gap-1.5 border transition',
             showSource ? 'bg-accent-soft border-accent/30 text-accent' : 'bg-surface border-border hover:bg-muted'
           )}>
             <Code2 className="w-3 h-3" /> {showSource ? t('config.hideSource') : t('config.viewSource')}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -439,7 +444,7 @@ function ResourceDetail({
       {showSource && (hasContent || hasEntries) && (
         <div>
           {item.contentKind === 'md' && (
-            <div className="markdown-body bg-surface border border-border-soft rounded-xl p-5 shadow-soft" dangerouslySetInnerHTML={{ __html: renderMarkdown(cleanDisplayText(item.content)) }} />
+            <Surface kind="panel" className="markdown-body bg-surface border border-border-soft rounded-xl p-5 shadow-soft" dangerouslySetInnerHTML={{ __html: renderMarkdown(cleanDisplayText(item.content)) }} />
           )}
           {item.contentKind === 'json' && (
             <pre className="bg-muted border border-border-soft rounded-xl p-5 text-[12px] font-mono overflow-x-auto whitespace-pre">{cleanDisplayText(prettyJson(item.content))}</pre>
@@ -450,7 +455,7 @@ function ResourceDetail({
           {item.contentKind === 'dir' && (
             <div className="grid grid-cols-3 gap-2">
               {(item.entries || []).map(name => (
-                <div key={name} className="bg-muted border border-border-soft rounded-lg px-3 py-2 text-[12px] font-mono">{name}</div>
+                <Surface kind="panel" key={name} className="bg-muted border border-border-soft rounded-lg px-3 py-2 text-[12px] font-mono">{name}</Surface>
               ))}
             </div>
           )}
@@ -463,7 +468,7 @@ function ResourceDetail({
 function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[110px_1fr] gap-3">
-      <div className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted pt-0.5">{label}</div>
+      <Surface kind="eyebrow" className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted pt-0.5">{label}</Surface>
       <div className="min-w-0">{children}</div>
     </div>
   );

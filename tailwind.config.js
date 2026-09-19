@@ -30,19 +30,44 @@ export default {
         'role-assistant': 'hsl(var(--role-assistant))',
         'role-tool': 'hsl(var(--role-tool))',
         'role-summary': 'hsl(var(--role-summary))',
+        'on-accent': 'rgb(var(--on-accent) / <alpha-value>)',
+        'quota-ok': 'hsl(var(--quota-ok))',
+        'quota-warn': 'hsl(var(--quota-warn))',
+        'quota-danger': 'hsl(var(--quota-danger))',
+        'quota-ok-track': 'hsl(var(--quota-ok-track))',
+        'quota-warn-track': 'hsl(var(--quota-warn-track))',
+        'quota-danger-track': 'hsl(var(--quota-danger-track))',
+        // Tailwind's own hue scales, pointed at CSS variables so a theme family
+        // can swap them. Lens sets the stock Tailwind values (styles.css), so
+        // every existing `amber-50` / `emerald-500` class renders unchanged.
+        ...Object.fromEntries(
+          ['amber', 'emerald', 'rose', 'violet', 'sky', 'blue', 'pink', 'orange', 'purple', 'fuchsia', 'teal', 'cyan', 'indigo', 'slate'].map(hue => [
+            hue,
+            Object.fromEntries(
+              [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950].map(shade => [shade, `rgb(var(--${hue}-${shade}) / <alpha-value>)`]),
+            ),
+          ]),
+        ),
       },
+      // Type, radii and shadows are theme-family variables too (styles.css).
       fontFamily: {
-        sans: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'Inter Variable', 'Segoe UI', 'sans-serif'],
-        mono: ['ui-monospace', 'SFMono-Regular', 'JetBrains Mono Variable', 'Cascadia Code', 'Consolas', 'monospace'],
+        sans: 'var(--font-ui)',
+        mono: 'var(--font-mono)',
+        reading: 'var(--font-reading)',
       },
       borderRadius: {
-        xl: '14px',
-        '2xl': '18px',
+        sm: 'var(--radius-sm)',
+        DEFAULT: 'var(--radius)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        xl: 'var(--radius-xl)',
+        '2xl': 'var(--radius-2xl)',
+        '3xl': 'var(--radius-3xl)',
       },
       boxShadow: {
-        soft: '0 1px 2px rgba(16,16,24,0.04), 0 1px 1px rgba(16,16,24,0.03)',
-        card: '0 1px 3px rgba(16,16,24,0.06), 0 1px 2px rgba(16,16,24,0.04)',
-        pop: '0 12px 32px rgba(16,16,24,0.12)',
+        soft: 'var(--shadow-soft)',
+        card: 'var(--shadow-card)',
+        pop: 'var(--shadow-pop)',
       },
       keyframes: {
         in: { '0%': { opacity: '0', transform: 'translateY(2px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },

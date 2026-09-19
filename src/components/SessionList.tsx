@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '../lib/utils';
+import { Button, Label, Select, Surface, TextInput, useSkinClass } from '../ui';
 import { cleanDisplayText, fmtTime, fmtDate, fmtTokens, kbdShortcut, projectColor, projectInitial, projectTextColor, sessionTimestamp, visibleMessageCount } from '../lib/format';
 import { resolveSessionTitle, projectShortName, meaningfulBranch } from '../lib/sessionTitle';
 import { groupSessions, type GroupKey } from '../lib/timelineGroup';
@@ -143,7 +144,8 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
   );
 
   return (
-    <div
+    <Surface
+      kind="pane"
       data-pane="list"
       style={{ width: 'var(--list-width, 420px)' }}
       className="flex-shrink-0 border border-border rounded-2xl flex flex-col bg-surface min-w-0 min-h-0 overflow-hidden"
@@ -159,7 +161,7 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
       <div className="px-4 pt-3 pb-2">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" />
-          <input
+          <TextInput
             id="history-search-input"
             type="search"
             value={queryDraft}
@@ -171,15 +173,16 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
             className="w-full pl-9 pr-20 h-10 bg-surface border border-border-soft rounded-[11px] text-[13px] outline-none focus:border-accent focus:ring-1 focus:ring-accent placeholder:text-text-muted"
           />
           {queryDraft ? (
-            <button
+            <Button
+              variant="icon"
               onClick={() => setQuery('', true)}
               title={t('common.clear')}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md hover:bg-muted text-text-muted hover:text-text flex items-center justify-center"
             >
               <X className="w-3.5 h-3.5" />
-            </button>
+            </Button>
           ) : (
-            <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-muted border border-border-soft text-text-muted font-mono">{kbdShortcut('K')}</kbd>
+            <Surface kind="kbd" as="kbd" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-muted border border-border-soft text-text-muted font-mono">{kbdShortcut('K')}</Surface>
           )}
         </div>
 
@@ -190,7 +193,7 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
             - Narrow:                                  3 rows · project / time / sort
             Sort always lives on its own row thanks to basis-full. */}
         <div className="mt-3 flex flex-wrap gap-2 min-w-0">
-          <select
+          <Select
             value={filters.project}
             onChange={e => onFilters({ ...filters, project: e.target.value })}
             className="flex-1 basis-[140px] min-w-0 px-2.5 h-8 bg-surface border border-border-soft rounded-[9px] text-[12.5px] outline-none cursor-pointer hover:bg-muted text-text-dim"
@@ -199,12 +202,14 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
             {projects.map(([dir, info]) => (
               <option key={dir} value={dir}>{projectShortName(info.cwd) || cleanDisplayText(info.cwd)} ({info.count})</option>
             ))}
-          </select>
+          </Select>
 
-          <span className="flex flex-1 basis-[170px] rounded-[9px] overflow-hidden border border-border-soft text-[12.5px]">
+          <Surface kind="segmented" as="span" className="flex flex-1 basis-[170px] rounded-[9px] overflow-hidden border border-border-soft text-[12.5px]">
             {TIME_OPTIONS.map(opt => (
-              <button
+              <Button
                 key={opt.value}
+                variant="segment"
+                active={filters.time === opt.value}
                 onClick={() => onFilters({ ...filters, time: opt.value })}
                 title={t(opt.labelKey)}
                 className={cn(
@@ -213,14 +218,16 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
                 )}
               >
                 {t(opt.shortKey)}
-              </button>
+              </Button>
             ))}
-          </span>
+          </Surface>
 
-          <span className="flex basis-full rounded-[9px] overflow-hidden border border-border-soft text-[12.5px]">
+          <Surface kind="segmented" as="span" className="flex basis-full rounded-[9px] overflow-hidden border border-border-soft text-[12.5px]">
             {SORT_OPTIONS.map(opt => (
-              <button
+              <Button
                 key={opt.value}
+                variant="segment"
+                active={filters.sort === opt.value}
                 onClick={() => onFilters({ ...filters, sort: opt.value })}
                 title={t(opt.labelKey)}
                 className={cn(
@@ -229,9 +236,9 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
                 )}
               >
                 {t(opt.labelKey)}
-              </button>
+              </Button>
             ))}
-          </span>
+          </Surface>
         </div>
 
       </div>
@@ -270,7 +277,7 @@ export function SessionList({ items, projectChoices, sessions, favorites, exclud
           <span>{t('list.tokensAllTime', { tokens: fmtTokens(totalListTokens(items)) })}</span>
         </div>
       )}
-    </div>
+    </Surface>
   );
 }
 
@@ -435,9 +442,9 @@ function VirtualList({
               style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${v.start}px)` }}
             >
               {row.kind === 'header' ? (
-                <div className="px-1 pt-2 pb-2 text-[10.5px] uppercase tracking-wider font-semibold text-text-muted">
+                <Surface kind="eyebrow" className="px-1 pt-2 pb-2 text-[10.5px] uppercase tracking-wider font-semibold text-text-muted">
                   {groupHeaderLabel(row.key as GroupKey, t)}
-                </div>
+                </Surface>
               ) : (
                 <SessionListItem
                   s={row.session}
@@ -485,6 +492,7 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
   const { t } = useTranslation();
   const caps = useSystemCapabilities();
   const [prefs] = useDisplayPrefs();
+  const skinClass = useSkinClass();
   // Match SessionDetail's Resume button: one action that respects the user's
   // preferred terminal preference. iTerm is only the actual target when it's
   // both installed (caps) and chosen in settings; otherwise fall back to the
@@ -516,7 +524,8 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
-        <div
+        <Surface
+          kind="row"
           onClick={onSelect}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
           role="button"
@@ -545,9 +554,9 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
             {isFav && <Star className="w-4 h-4 fill-amber-400 text-amber-400 flex-shrink-0" />}
             {s.alias && <Pencil className={cn('w-3 h-3 flex-shrink-0', active ? 'text-accent/70' : 'text-text-muted')} />}
             {s.tooLarge && (
-              <span className="text-[9.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 flex-shrink-0" title={t('list.tooLarge.tooltip')}>
+              <Surface kind="badge" as="span" className="text-[9.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 flex-shrink-0" title={t('list.tooLarge.tooltip')}>
                 {t('list.tooLarge')}
-              </span>
+              </Surface>
             )}
             <h3 className={cn('text-[14px] font-semibold truncate leading-snug flex-1 min-w-0', active ? 'text-accent' : 'text-text')}>
               {highlight(title.primary, query)}
@@ -653,25 +662,26 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
                 <span>{msgs} {t('units.msgs')}</span>
               </span>
               {!isFav && (
-                <button
+                <Button
+                  variant="icon"
                   onClick={e => { e.stopPropagation(); onToggleFav(); }}
                   className="absolute right-0 top-1/2 -translate-y-1/2 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                   title={t('ctx.addFav')}
                 >
                   <Star className="w-4 h-4 text-text-muted hover:text-amber-400" />
-                </button>
+                </Button>
               )}
             </div>
           </div>
 
-        </div>
+        </Surface>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className="min-w-[220px] bg-elevated border border-border rounded-lg shadow-pop py-1 z-50 animate-in">
+        <ContextMenu.Content data-ui="menu" className={skinClass('menu', 'min-w-[220px] bg-elevated border border-border rounded-lg shadow-pop py-1 z-50 animate-in')}>
           <CtxItem onSelect={handleResume} icon={<Play className="w-3.5 h-3.5" />}>{t('detail.btn.resume')}</CtxItem>
           <CtxItem onSelect={handleCopy} icon={<Copy className="w-3.5 h-3.5" />}>{t('ctx.copyCmd')}</CtxItem>
           <CtxItem onSelect={() => window.api.revealInFinder(s.filePath)} icon={<FolderOpen className="w-3.5 h-3.5" />}>{t('ctx.reveal')}</CtxItem>
-          <ContextMenu.Separator className="my-1 h-px bg-border-soft" />
+          <ContextMenu.Separator data-ui="menu-separator" className={skinClass('menu-separator', 'my-1 h-px bg-border-soft')} />
           <CtxItem onSelect={() => setRenameOpen(true)} icon={<Pencil className="w-3.5 h-3.5" />}>
             {s.alias ? t('ctx.editAlias') : t('ctx.rename')}
           </CtxItem>
@@ -693,7 +703,8 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
           ) : (
             <ContextMenu.Item
               disabled
-              className="flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-text-muted cursor-not-allowed"
+              data-ui="menu-item"
+              className={skinClass('menu-item', 'flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-text-muted cursor-not-allowed')}
               title={t('ctx.hiddenByRule.tooltip')}
             >
               <Filter className="w-3.5 h-3.5" />
@@ -735,22 +746,23 @@ function EmptyState({ view, query, onPickSuggestion }: { view: 'sessions' | 'fav
       <div className="text-[15px] font-semibold text-text mb-1">{copy.title}</div>
       <div className="text-[12px] mb-5">{copy.sub}</div>
       {query && (
-        <button
+        <Button
+          variant="primary"
           onClick={() => goSearchWithQuery(query)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[12px] font-semibold hover:opacity-90 mb-4"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-on-accent text-[12px] font-semibold hover:opacity-90 mb-4"
         >
           <Search className="w-3 h-3" />
           {t('empty.search.toSearchView', { q: query })}
-        </button>
+        </Button>
       )}
       {showSuggestions && (
         <>
-          <div className="text-[10.5px] uppercase tracking-wider text-text-muted mb-2.5 font-semibold">{t('empty.try')}</div>
+          <Surface kind="eyebrow" className="text-[10.5px] uppercase tracking-wider text-text-muted mb-2.5 font-semibold">{t('empty.try')}</Surface>
           <div className="flex flex-wrap gap-1.5 justify-center max-w-[260px] mx-auto">
             {SUGGESTIONS.map(s => (
-              <button key={s} onClick={() => onPickSuggestion(s)} className="px-2.5 py-1 rounded-full text-[11.5px] bg-muted hover:bg-accent-soft hover:text-accent text-text-dim border border-border-soft transition">
+              <Button key={s} variant="chip" onClick={() => onPickSuggestion(s)} className="px-2.5 py-1 rounded-full text-[11.5px] bg-muted hover:bg-accent-soft hover:text-accent text-text-dim border border-border-soft transition">
                 {s}
-              </button>
+              </Button>
             ))}
           </div>
         </>
@@ -760,12 +772,14 @@ function EmptyState({ view, query, onPickSuggestion }: { view: 'sessions' | 'fav
 }
 
 function CtxItem({ children, icon, onSelect }: { children: React.ReactNode; icon?: React.ReactNode; onSelect: () => void }) {
+  const skinClass = useSkinClass();
   return (
     <ContextMenu.Item
       onSelect={onSelect}
-      className="flex items-center gap-2.5 px-3 py-1.5 text-[12px] cursor-pointer outline-none data-[highlighted]:bg-accent data-[highlighted]:text-white"
+      data-ui="menu-item"
+      className={skinClass('menu-item', 'flex items-center gap-2.5 px-3 py-1.5 text-[12px] cursor-pointer outline-none data-[highlighted]:bg-accent data-[highlighted]:text-on-accent')}
     >
-      {icon && <span className="text-text-muted group-data-[highlighted]:text-white">{icon}</span>}
+      {icon && <span className="text-text-muted group-data-[highlighted]:text-on-accent">{icon}</span>}
       <span className="flex-1">{children}</span>
     </ContextMenu.Item>
   );
@@ -803,13 +817,13 @@ function ExcludeRulesBar({ rules, onChange, allSessions }: { rules: string[]; on
   const remove = (r: string) => onChange(rules.filter(x => x !== r));
 
   return (
-    <div className="px-4 pt-3 pb-3 border-b border-border-soft/60 bg-muted/15 space-y-2">
+    <Surface kind="panel" className="px-4 pt-3 pb-3 border-b border-border-soft/60 bg-muted/15 space-y-2">
       <div>
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider font-semibold text-text-muted">
+          <Surface kind="eyebrow" className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider font-semibold text-text-muted">
             <Filter className="w-3 h-3" />
             <span>{t('search.filters')}</span>
-          </div>
+          </Surface>
           <span className="text-[10.5px] tabular-nums text-text-muted">
             {t('exclude.count', { rules: rules.length, hidden: totalExcluded })}
           </span>
@@ -819,13 +833,13 @@ function ExcludeRulesBar({ rules, onChange, allSessions }: { rules: string[]; on
       {rules.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {rules.map(r => (
-            <span key={r} className="inline-flex items-center gap-1.5 pl-2 pr-1 py-0.5 bg-surface border border-border-soft rounded-md text-[11px]" title={t('exclude.matchesSessions', { n: ruleCounts.get(r) || 0 })}>
+            <Surface key={r} kind="badge" as="span" className="inline-flex items-center gap-1.5 pl-2 pr-1 py-0.5 bg-surface border border-border-soft rounded-md text-[11px]" title={t('exclude.matchesSessions', { n: ruleCounts.get(r) || 0 })}>
               <span className="text-text font-mono">{r}</span>
               <span className="text-text-muted tabular-nums text-[10px]">{ruleCounts.get(r) || 0}</span>
-              <button onClick={() => remove(r)} className="text-text-muted hover:text-text rounded p-0.5" aria-label={t('common.remove')}>
+              <Button variant="icon" onClick={() => remove(r)} className="text-text-muted hover:text-text rounded p-0.5" aria-label={t('common.remove')}>
                 <X className="w-2.5 h-2.5" />
-              </button>
-            </span>
+              </Button>
+            </Surface>
           ))}
         </div>
       ) : (
@@ -835,7 +849,7 @@ function ExcludeRulesBar({ rules, onChange, allSessions }: { rules: string[]; on
       )}
 
       <div className="flex gap-1">
-        <input
+        <TextInput
           type="text"
           value={draft}
           onChange={e => setDraft(e.target.value)}
@@ -843,13 +857,14 @@ function ExcludeRulesBar({ rules, onChange, allSessions }: { rules: string[]; on
           placeholder={t('excluded.rules.placeholder')}
           className="flex-1 px-2 py-1 bg-surface border border-border-soft rounded-md text-[11.5px] outline-none focus:border-accent placeholder:text-text-muted"
         />
-        <button
+        <Button
+          variant="primary"
           onClick={() => add(draft)}
           disabled={!draft.trim()}
-          className="px-2 py-1 bg-accent text-white rounded-md text-[11.5px] font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+          className="px-2 py-1 bg-accent text-on-accent rounded-md text-[11.5px] font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
         >
           <Plus className="w-3 h-3" /> {t('excluded.rules.add')}
-        </button>
+        </Button>
       </div>
 
       {/* Live impact preview as user types */}
@@ -862,19 +877,20 @@ function ExcludeRulesBar({ rules, onChange, allSessions }: { rules: string[]; on
       {/* Example chips when there are no rules yet */}
       {rules.length === 0 && !draft.trim() && (
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">{t('search.suggestion.try')}</span>
+          <Surface kind="eyebrow" as="span" className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">{t('search.suggestion.try')}</Surface>
           {EXCLUDE_EXAMPLES.map(ex => (
-            <button
+            <Button
               key={ex}
+              variant="secondary"
               onClick={() => add(ex)}
               className="px-2 py-0.5 text-[11px] font-mono text-text-dim bg-surface border border-border-soft rounded-md hover:border-accent hover:text-accent transition"
             >
               {ex}
-            </button>
+            </Button>
           ))}
         </div>
       )}
-    </div>
+    </Surface>
   );
 }
 
@@ -924,6 +940,7 @@ function RenameAliasDialog({ open, onOpenChange, session, onSaved }: {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(session.alias || '');
   const [saving, setSaving] = useState(false);
+  const skinClass = useSkinClass();
 
   // Sync draft when dialog opens for a different session. Was useMemo (render-
   // phase side effect — React StrictMode warns) → useEffect runs after commit.
@@ -963,15 +980,15 @@ function RenameAliasDialog({ open, onOpenChange, session, onSaved }: {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30 z-50 animate-fade-in" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[440px] max-w-[92vw] bg-surface border border-border rounded-2xl shadow-pop z-50 overflow-hidden animate-modal-in">
-          <div className="px-5 py-4 border-b border-border-soft">
-            <Dialog.Title className="text-[14px] font-semibold text-text">{t('rename.title')}</Dialog.Title>
+        <Dialog.Overlay data-ui="dialog-overlay" className={skinClass('dialog-overlay', 'fixed inset-0 bg-black/30 z-50 animate-fade-in')} />
+        <Dialog.Content data-ui="dialog" className={skinClass('dialog', 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[440px] max-w-[92vw] bg-surface border border-border rounded-2xl shadow-pop z-50 overflow-hidden animate-modal-in')}>
+          <Surface kind="dialog-header" className="px-5 py-4 border-b border-border-soft">
+            <Dialog.Title data-ui="dialog-title" className={skinClass('dialog-title', 'text-[14px] font-semibold text-text')}>{t('rename.title')}</Dialog.Title>
             <div className="text-[11px] text-text-muted mt-0.5 truncate">{inferredTitle}</div>
-          </div>
+          </Surface>
           <div className="px-5 py-4">
-            <label className="text-[11px] uppercase tracking-wider font-semibold text-text-muted block mb-2">{t('rename.label')}</label>
-            <input
+            <Label className="text-[11px] uppercase tracking-wider font-semibold text-text-muted block mb-2">{t('rename.label')}</Label>
+            <TextInput
               autoFocus
               type="text"
               value={draft}
@@ -983,19 +1000,19 @@ function RenameAliasDialog({ open, onOpenChange, session, onSaved }: {
             />
             <div className="text-[10.5px] text-text-muted mt-1.5">{t('rename.hint')}</div>
           </div>
-          <div className="px-5 py-3 border-t border-border-soft flex items-center justify-between gap-2 bg-muted/30">
+          <Surface kind="dialog-footer" className="px-5 py-3 border-t border-border-soft flex items-center justify-between gap-2 bg-muted/30">
             {session.alias ? (
-              <button onClick={clear} disabled={saving} className="px-2.5 py-1.5 text-[12px] rounded-md text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-50">
+              <Button variant="danger" onClick={clear} disabled={saving} className="px-2.5 py-1.5 text-[12px] rounded-md text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-50">
                 {t('rename.clear')}
-              </button>
+              </Button>
             ) : <span />}
             <div className="flex gap-2">
-              <button onClick={() => onOpenChange(false)} className="px-3 py-1.5 text-[12.5px] rounded-md text-text-dim hover:bg-muted">{t('common.cancel')}</button>
-              <button onClick={save} disabled={saving} className="px-3 py-1.5 text-[12.5px] font-medium rounded-md bg-accent text-white hover:opacity-90 disabled:opacity-50">
+              <Button variant="ghost" onClick={() => onOpenChange(false)} className="px-3 py-1.5 text-[12.5px] rounded-md text-text-dim hover:bg-muted">{t('common.cancel')}</Button>
+              <Button variant="primary" onClick={save} disabled={saving} className="px-3 py-1.5 text-[12.5px] font-medium rounded-md bg-accent text-on-accent hover:opacity-90 disabled:opacity-50">
                 {saving ? t('common.saving') : t('common.save')}
-              </button>
+              </Button>
             </div>
-          </div>
+          </Surface>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

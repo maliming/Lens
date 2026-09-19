@@ -5,6 +5,7 @@ import { ClaudeIcon } from './ClaudeIcon';
 import type { View } from '../types';
 import { fmtTokens, kbdShortcut, cleanDisplayText } from '../lib/format';
 import { cn } from '../lib/utils';
+import { Button, Surface, useSkinClass } from '../ui';
 import type { Profile } from '../lib/profile';
 import { useSourceAuth, planLabel, planBadgeClass } from '../lib/sourceAuth';
 import { useTranslation } from '../lib/I18nProvider';
@@ -67,6 +68,7 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
   const [source] = useCurrentSource();
   const { auth: realAuth, loading: realLoading, refresh } = useSourceAuth(source);
   const { t } = useTranslation();
+  const skinClass = useSkinClass();
   // Demo mode: substitute a stable fake auth so the identity card shows a
   // realistic plan badge / email instead of "Free" / nothing.
   const auth = demoMode ? DEMO_AUTH : realAuth;
@@ -90,7 +92,7 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
   };
 
   return (
-    <aside data-pane="sidebar" style={{ width: 'var(--sidebar-width, 220px)' }} className="flex-shrink-0 bg-muted/60 border border-border rounded-2xl flex flex-col overflow-hidden">
+    <Surface kind="pane" as="aside" data-pane="sidebar" style={{ width: 'var(--sidebar-width, 220px)' }} className="flex-shrink-0 bg-muted/60 border border-border rounded-2xl flex flex-col overflow-hidden">
 
 
 
@@ -104,7 +106,7 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
           depend on how many windows a provider reports — Claude has three,
           Codex two, and the model list can grow. Stacked bars made the nav
           jump on every source switch; rings sharing one row cannot. */}
-      <div className="no-drag mx-2 mt-2 mb-5 rounded-2xl border border-border-soft bg-surface/60 transition-shadow duration-200 hover:shadow-soft">
+      <Surface kind="card" className="no-drag mx-2 mt-2 mb-5 rounded-2xl border border-border-soft bg-surface/60 transition-shadow duration-200 hover:shadow-soft">
       <SidebarSourceSlot demoMode={demoMode} />
       <ProfileQuotaCard
         profile={profile}
@@ -118,7 +120,7 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
         noNameLabel={t('profile.noName')}
         liveLabel={t('quota.liveBadge')}
       />
-      </div>
+      </Surface>
 
       {/* Primary nav with labels. Search is a real view now (v11 brief);
           ⌘K still opens the palette globally for quick jumping. */}
@@ -129,8 +131,10 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
           const active = view === item.id;
           const count = item.countKey ? counts[item.countKey] : null;
           return (
-            <button
+            <Button
               key={item.id}
+              variant="nav"
+              active={active}
               onClick={() => onViewChange(item.id as View)}
               className={cn(
                 'relative overflow-hidden flex items-center gap-3 px-3 h-[38px] rounded-[11px] text-[13.5px] font-medium transition-all duration-150 text-left active:scale-[0.97]',
@@ -141,17 +145,17 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
               <Icon className="w-4 h-4 flex-shrink-0" />
               <span className="flex-1">{t(item.labelKey)}</span>
               {isSearch && (
-                <kbd className="text-[10.5px] px-1.5 py-0.5 rounded-md bg-muted border border-border-soft text-text-muted font-mono">{kbdShortcut('K')}</kbd>
+                <Surface kind="kbd" as="kbd" className="text-[10.5px] px-1.5 py-0.5 rounded-md bg-muted border border-border-soft text-text-muted font-mono">{kbdShortcut('K')}</Surface>
               )}
               {count != null && count > 0 && (
-                <span className={cn(
+                <Surface kind="counter" as="span" className={cn(
                   'min-w-[26px] h-[22px] px-1.5 rounded-lg text-[11.5px] tabular-nums font-medium flex items-center justify-center',
                   active ? 'bg-accent/15 text-accent' : 'bg-muted text-text-muted'
                 )}>
                   {count}
-                </span>
+                </Surface>
               )}
-            </button>
+            </Button>
           );
         })}
       </nav>
@@ -160,8 +164,12 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
 
       {/* Filters (always visible — it's a config entry point, not a session count.
           Count badge only shows when there's something hidden.) */}
-      <div className="px-2 pb-1">
-        <button
+      {/* mt-1 matches the gap between the nav items above, so Filters never
+          sits flush against Settings when the flexible gap runs out. */}
+      <div className="px-2 pb-1 mt-1">
+        <Button
+          variant="nav"
+          active={view === 'excluded'}
           onClick={() => onViewChange('excluded')}
           className={cn(
             'relative overflow-hidden w-full flex items-center gap-3 px-3 h-[38px] rounded-[11px] text-[13px] font-medium transition-all duration-150 text-left active:scale-[0.97]',
@@ -172,21 +180,21 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
           <X className="w-4 h-4 flex-shrink-0" />
           <span className="flex-1">{t('nav.excluded')}</span>
           {counts.excluded > 0 && (
-            <span className={cn(
+            <Surface kind="counter" as="span" className={cn(
               'min-w-[26px] h-[22px] px-1.5 rounded-lg text-[11.5px] tabular-nums font-medium flex items-center justify-center',
               view === 'excluded' ? 'bg-accent/15 text-accent' : 'bg-muted text-text-muted'
             )}>
               {counts.excluded}
-            </span>
+            </Surface>
           )}
-        </button>
+        </Button>
       </div>
 
       {/* Footer — same card geometry as the profile card up top (rounded-2xl
           + hairline divider between stats and action) but a quieter, less
           tinted background so it reads as a supporting block, not a second
           identity card. */}
-      <div className="no-drag mx-2 mb-3 rounded-2xl border border-border bg-surface/35 overflow-hidden">
+      <Surface kind="card" className="no-drag mx-2 mb-3 rounded-2xl border border-border bg-surface/35 overflow-hidden">
         <div className="px-3 pt-3 pb-2.5 grid grid-cols-2 gap-2">
           <div className="min-w-0 text-center">
             <div className="text-[13.5px] font-semibold text-text tabular-nums leading-none">{counts.sessions}</div>
@@ -200,19 +208,20 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
         <div className="h-px bg-border-soft/70 mx-3" />
         <Tooltip.Root>
           <Tooltip.Trigger asChild>
-            <button onClick={rescanAll} disabled={loading || refreshState !== 'idle'} className="w-full h-8 px-3 text-text-muted hover:bg-muted/40 hover:text-accent disabled:hover:text-text-muted disabled:hover:bg-transparent flex items-center justify-center gap-1.5 text-[11.5px] transition">
+            <Button variant="ghost" onClick={rescanAll} disabled={loading || refreshState !== 'idle'} className="w-full h-8 px-3 text-text-muted hover:bg-muted/40 hover:text-accent disabled:hover:text-text-muted disabled:hover:bg-transparent flex items-center justify-center gap-1.5 text-[11.5px] transition">
               {refreshState === 'done'
                 ? <Check className="w-3 h-3 text-emerald-500" />
                 : <RefreshCw className={cn('w-3 h-3', (loading || refreshState === 'busy') && 'animate-spin')} />}
               <span>{refreshState === 'done' ? t('footer.refreshed') : t('footer.refresh')}</span>
-            </button>
+            </Button>
           </Tooltip.Trigger>
           <Tooltip.Portal>
             <Tooltip.Content
               side="top"
               sideOffset={8}
               align="center"
-              className="z-50 max-w-[260px] bg-elevated border border-border rounded-lg shadow-pop px-3 py-2 text-[11.5px] text-text leading-snug animate-in"
+              data-ui="tooltip"
+              className={skinClass('tooltip', 'z-50 max-w-[260px] bg-elevated border border-border rounded-lg shadow-pop px-3 py-2 text-[11.5px] text-text leading-snug animate-in')}
             >
               <div className="font-semibold mb-1">{t('sidebar.rescanTooltip')}</div>
               {/* Render the hint sentence via t() with a sentinel split-point
@@ -238,8 +247,8 @@ export function Sidebar({ view, onViewChange, theme, onThemeChange, counts, tota
             </Tooltip.Content>
           </Tooltip.Portal>
         </Tooltip.Root>
-      </div>
-    </aside>
+      </Surface>
+    </Surface>
   );
 }
 
@@ -272,6 +281,7 @@ const EXTRA_RING_MS = 260;
 
 function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label: string; window: { utilization: number | null; reset: number | null }; windowSeconds: number; notReported?: boolean; sweep?: number }) {
   const { t } = useTranslation();
+  const skinClass = useSkinClass();
   // Keeps the countdown honest between the five-minute polls.
   useNowTick();
   const p = pct(window);
@@ -293,13 +303,19 @@ function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label
   const spent = !unknown && used != null && used >= SPENT;
 
   const stroke = unknown ? 'stroke-border'
-    : spent ? 'stroke-danger'
-    : outpacing ? 'stroke-warning'
-    : 'stroke-accent';
+    : spent ? 'stroke-quota-danger'
+    : outpacing ? 'stroke-quota-warn'
+    : 'stroke-quota-ok';
   const text = unknown ? 'text-text-muted'
-    : spent ? 'text-danger'
-    : outpacing ? 'text-warning'
+    : spent ? 'text-quota-danger'
+    : outpacing ? 'text-quota-warn'
     : 'text-text';
+  // Families that tint the track with the state's colour set these; Lens keeps
+  // one neutral track whatever the state.
+  const track = unknown ? 'stroke-border/70'
+    : spent ? 'stroke-quota-danger-track'
+    : outpacing ? 'stroke-quota-warn-track'
+    : 'stroke-quota-ok-track';
 
   const R = 15.5;
   const CIRC = 2 * Math.PI * R;
@@ -372,14 +388,14 @@ function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label
     const rootStyle = getComputedStyle(document.documentElement);
     const hsl = (name: string) => `hsl(${rootStyle.getPropertyValue(name).trim()})`;
     const strokeAt = (pctLeft: number) =>
-      pctLeft <= 10 ? hsl('--danger') : pctLeft <= 30 ? hsl('--warning') : hsl('--accent');
+      pctLeft <= 10 ? hsl('--quota-danger') : pctLeft <= 30 ? hsl('--quota-warn') : hsl('--quota-ok');
     const textAt = (pctLeft: number) =>
-      pctLeft <= 10 ? hsl('--danger') : pctLeft <= 30 ? hsl('--warning') : hsl('--text');
+      pctLeft <= 10 ? hsl('--quota-danger') : pctLeft <= 30 ? hsl('--quota-warn') : hsl('--text');
     // The last stop uses the colour the ring actually settles on, which is not
     // always the one the marks predict: an outpacing window can be amber with
     // plenty left.
-    const endStroke = spent ? hsl('--danger') : outpacing ? hsl('--warning') : hsl('--accent');
-    const endText = spent ? hsl('--danger') : outpacing ? hsl('--warning') : hsl('--text');
+    const endStroke = spent ? hsl('--quota-danger') : outpacing ? hsl('--quota-warn') : hsl('--quota-ok');
+    const endText = spent ? hsl('--quota-danger') : outpacing ? hsl('--quota-warn') : hsl('--text');
     settledRef.current = { stroke: endStroke, text: endText };
 
     // A ring that already showed a figure moves from it, up or down, so a
@@ -446,7 +462,7 @@ function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label
     <div className="flex flex-col items-center gap-1 min-w-0 flex-1">
       <div className={cn('relative w-[42px] h-[42px] flex-shrink-0', notReported && 'opacity-45')}>
         <svg viewBox="0 0 40 40" className="w-full h-full -rotate-90" aria-hidden>
-          <circle cx="20" cy="20" r={R} fill="none" strokeWidth="3.5" className="stroke-border/70" />
+          <circle cx="20" cy="20" r={R} fill="none" strokeWidth="3.5" className={track} />
           <circle
             ref={arcRef}
             cx="20" cy="20" r={R} fill="none" strokeWidth="3.5" strokeLinecap="round"
@@ -467,7 +483,8 @@ function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label
           side="bottom"
           sideOffset={6}
           align="center"
-          className="z-50 max-w-[220px] bg-elevated border border-border rounded-lg shadow-pop px-2.5 py-1.5 text-[11.5px] text-text leading-snug animate-in"
+          data-ui="tooltip"
+          className={skinClass('tooltip', 'z-50 max-w-[220px] bg-elevated border border-border rounded-lg shadow-pop px-2.5 py-1.5 text-[11.5px] text-text leading-snug animate-in')}
         >
           {notReported ? (
             <div className="text-text-dim">{t('quota.notReported', { label })}</div>
@@ -570,6 +587,7 @@ function ProfileQuotaCard({
   const { t } = useTranslation();
   const [source] = useCurrentSource();
   const [sweep, setSweep] = useState(0);
+  const skinClass = useSkinClass();
   useNowTick();
   // What the rings draw: the active provider's numbers the moment they are in,
   // and until then whatever was already on screen. Both providers share the
@@ -620,16 +638,17 @@ function ProfileQuotaCard({
 
   return (
     <div className="no-drag border-t border-border-soft/60 rounded-b-2xl overflow-hidden">
-      <button onClick={onOpenProfile} className="w-full flex items-center gap-3 px-3 pt-3 pb-3 text-left hover:bg-muted/30 transition">
+      <Button variant="card-header" onClick={onOpenProfile} className="w-full flex items-center gap-3 px-3 pt-3 pb-3 text-left hover:bg-muted/30 transition">
         {profile.avatarImage ? (
           <img
             src={profile.avatarImage}
             alt=""
+            data-ui="avatar"
             referrerPolicy="no-referrer"
             className="w-[42px] h-[42px] rounded-[14px] object-cover shadow-[0_8px_18px_rgba(124,63,242,0.24)] flex-shrink-0"
           />
         ) : (
-          <div className={cn('w-[42px] h-[42px] rounded-[14px] bg-gradient-to-br flex items-center justify-center text-white font-bold text-[18px] shadow-[0_8px_18px_rgba(124,63,242,0.24)] flex-shrink-0', profile.avatarGradient)}>
+          <div data-ui="avatar" className={cn('w-[42px] h-[42px] rounded-[14px] bg-gradient-to-br flex items-center justify-center text-white font-bold text-[18px] shadow-[0_8px_18px_rgba(124,63,242,0.24)] flex-shrink-0', profile.avatarGradient)}>
             {profile.avatarInitial || '?'}
           </div>
         )}
@@ -637,9 +656,9 @@ function ProfileQuotaCard({
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-[13.5px] font-semibold text-text truncate leading-tight">{profile.name || noNameLabel}</span>
             {planName && (
-              <span className={cn('text-[9px] uppercase tracking-[0.06em] font-medium px-1.5 py-[1px] rounded whitespace-nowrap flex-shrink-0', planBadgeClass(planSubscriptionType))}>
+              <Surface kind="badge" as="span" data-plan={planSubscriptionType || 'free'} className={cn('text-[9px] uppercase tracking-[0.06em] font-medium px-1.5 py-[1px] rounded whitespace-nowrap flex-shrink-0', planBadgeClass(planSubscriptionType))}>
                 {planName}
-              </span>
+              </Surface>
             )}
           </div>
           {authEmail && (
@@ -648,7 +667,7 @@ function ProfileQuotaCard({
             </div>
           )}
         </div>
-      </button>
+      </Button>
 
       {showQuotaSection && (
         <>
@@ -658,7 +677,7 @@ function ProfileQuotaCard({
               className="flex items-center justify-between mb-1.5"
               title={live ? t('quota.updated', { when: agoLabel(rateLimits!.fetchedAt, t) }) : undefined}
             >
-              <span className="text-[9.5px] uppercase tracking-wider font-semibold text-text-muted flex items-center gap-1">
+              <Surface kind="eyebrow" as="span" className="text-[9.5px] uppercase tracking-wider font-semibold text-text-muted flex items-center gap-1">
                 {/* Pulse the live dot until data arrives so the loading
                    state is visible without an explicit spinner. */}
                 <span className={cn(
@@ -666,8 +685,9 @@ function ProfileQuotaCard({
                   hasQuota ? 'bg-emerald-500' : 'bg-text-muted/60 animate-pulse'
                 )} aria-hidden />
                 {liveLabel}
-              </span>
-              <button
+              </Surface>
+              <Button
+                variant="icon"
                 onClick={() => { setSweep(n => n + 1); onRefreshQuota?.(); }}
                 disabled={!onRefreshQuota || rateLimits?.loading}
                 title={t('footer.refresh')}
@@ -675,7 +695,7 @@ function ProfileQuotaCard({
                 className="p-1 -m-1 rounded text-text-muted hover:text-accent disabled:opacity-40 disabled:hover:text-text-muted transition"
               >
                 <RefreshCw className={cn('w-3 h-3', rateLimits?.loading && 'animate-spin')} />
-              </button>
+              </Button>
             </div>
             <div className="flex items-start gap-1">
               <QuotaRing label="5h" window={fiveHour} windowSeconds={5 * 3600} notReported={fiveHourMissing} sweep={sweep} />
@@ -721,7 +741,8 @@ function ProfileQuotaCard({
                   <Tooltip.Content
                     side="bottom"
                     sideOffset={6}
-                    className="z-50 max-w-[220px] bg-elevated border border-border rounded-lg shadow-pop px-2.5 py-1.5 text-[11.5px] text-text leading-snug animate-in"
+                    data-ui="tooltip"
+                    className={skinClass('tooltip', 'z-50 max-w-[220px] bg-elevated border border-border rounded-lg shadow-pop px-2.5 py-1.5 text-[11.5px] text-text leading-snug animate-in')}
                   >
                     <div className="font-semibold">{t('quota.windowElapsed', { label: headline.label, n: Math.round(headlineElapsed * 100) })}</div>
                     {headlineReset && (

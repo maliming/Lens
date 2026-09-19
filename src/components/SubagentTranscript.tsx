@@ -7,6 +7,7 @@ import { useTranslation } from '../lib/I18nProvider';
 import { Message } from './Message';
 import { useDemoMode } from '../lib/demoMode';
 import { DEMO_SUBAGENT_TRANSCRIPTS } from '../lib/demoData';
+import { Button, Surface } from '../ui';
 import type { MessageItem, SubagentTaskRef, WorkflowRunRef, WorkflowAgentRef } from '../types';
 import type { LinkedSubagents } from '../lib/subagents';
 import type { DisplayPrefs } from '../lib/displayPrefs';
@@ -60,9 +61,9 @@ function StatusPill({ state }: { state: string }) {
       ? 'text-rose-700 bg-rose-100 dark:text-rose-300 dark:bg-rose-900/40'
       : 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/40';
   return (
-    <span className={cn('rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide font-medium shrink-0', cls)}>
+    <Surface kind="badge" as="span" className={cn('rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide font-medium shrink-0', cls)}>
       {cleanDisplayText(state)}
-    </span>
+    </Surface>
   );
 }
 
@@ -130,8 +131,9 @@ function AgentDisclosure({ header, filePath, source, prefs, open, onToggle }: { 
   const isOpen = controlled ? !!open : localOpen;
   const toggle = () => { if (!filePath) return; if (controlled) onToggle?.(); else setLocalOpen(o => !o); };
   return (
-    <div className="rounded-md border border-emerald-200/60 dark:border-emerald-900/40 bg-emerald-50/40 dark:bg-emerald-950/20">
-      <button
+    <Surface kind="card" data-subagent="agent" className="rounded-md border border-emerald-200/60 dark:border-emerald-900/40 bg-emerald-50/40 dark:bg-emerald-950/20">
+      <Button
+        variant="ghost"
         type="button"
         onClick={toggle}
         disabled={!filePath}
@@ -145,14 +147,14 @@ function AgentDisclosure({ header, filePath, source, prefs, open, onToggle }: { 
           ? (isOpen ? <ChevronDown className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />)
           : <span className="w-3.5 shrink-0" />}
         <div className="min-w-0 flex-1">{header}</div>
-      </button>
+      </Button>
       {!filePath && <div className="px-3 pb-2 -mt-0.5 text-[11px] text-text-muted">{t('subagent.missing')}</div>}
       {isOpen && filePath && (
-        <div className="ml-3 border-l-2 border-emerald-300/60 dark:border-emerald-800/50 pl-3 pr-2 py-2">
+        <div data-subagent-rail className="ml-3 border-l-2 border-emerald-300/60 dark:border-emerald-800/50 pl-3 pr-2 py-2">
           <AgentBody filePath={filePath} source={source} prefs={prefs} />
         </div>
       )}
-    </div>
+    </Surface>
   );
 }
 
@@ -161,7 +163,7 @@ function TaskAgentRow({ agent, source, prefs, query }: { agent: SubagentTaskRef;
   const header = (
     <div className="flex items-center gap-2 min-w-0">
       <Bot className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-      <span className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">{t('subagent.badge')}</span>
+      <Surface kind="eyebrow" as="span" className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">{t('subagent.badge')}</Surface>
       {agent.agentType && <Hl text={cleanDisplayText(agent.agentType)} query={query} className="text-[11px] text-text-muted shrink-0" />}
       {agent.description && <Hl text={cleanDisplayText(agent.description)} query={query} className="text-[12px] text-text truncate" />}
       {agent.fileSize > 0 && <span className="ml-auto text-[10px] text-text-muted tabular-nums shrink-0">{fmtBytes(agent.fileSize)}</span>}
@@ -225,11 +227,11 @@ function WorkflowRunCard({ run, source, prefs, query }: { run: WorkflowRunRef; s
   const toggleAll = () => setOpenSet(allOpen ? new Set() : new Set(openableKeys));
 
   return (
-    <div className="rounded-lg border border-emerald-200/70 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20 overflow-hidden">
-      <div className="px-3 py-2 border-b border-emerald-200/60 dark:border-emerald-900/40">
+    <Surface kind="card" data-subagent="workflow" className="rounded-lg border border-emerald-200/70 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20 overflow-hidden">
+      <div data-subagent-head className="px-3 py-2 border-b border-emerald-200/60 dark:border-emerald-900/40">
         <div className="flex items-center gap-2">
           <Workflow className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <span className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">{t('workflow.badge')}</span>
+          <Surface kind="eyebrow" as="span" className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">{t('workflow.badge')}</Surface>
           {run.name && <Hl text={cleanDisplayText(run.name)} query={query} className="text-[12.5px] font-medium text-text truncate" />}
           {run.status && <StatusPill state={run.status} />}
           <span className="ml-auto flex items-center gap-2 text-[10.5px] text-text-muted tabular-nums shrink-0">
@@ -237,14 +239,15 @@ function WorkflowRunCard({ run, source, prefs, query }: { run: WorkflowRunRef; s
             {run.totalTokens > 0 && <span>{fmtTokens(run.totalTokens)}</span>}
             {run.durationMs > 0 && <span>{fmtDuration(run.durationMs)}</span>}
             {openableKeys.length > 1 && (
-              <button
+              <Button
+                variant="ghost"
                 type="button"
                 onClick={toggleAll}
                 className="flex items-center gap-1 rounded px-1.5 py-0.5 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30"
               >
                 {allOpen ? <ChevronsDownUp className="w-3 h-3" /> : <ChevronsUpDown className="w-3 h-3" />}
                 {allOpen ? t('workflow.collapseAll') : t('workflow.expandAll')}
-              </button>
+              </Button>
             )}
           </span>
         </div>
@@ -253,7 +256,7 @@ function WorkflowRunCard({ run, source, prefs, query }: { run: WorkflowRunRef; s
       <div className="p-2 flex flex-col gap-2">
         {groups.map((g, gi) => (
           <div key={gi} className="flex flex-col gap-1.5">
-            {g.title && <div className="px-1 text-[10.5px] uppercase tracking-wide text-text-muted">{t('workflow.phaseLabel', { title: cleanDisplayText(g.title) })}</div>}
+            {g.title && <Surface kind="eyebrow" className="px-1 text-[10.5px] uppercase tracking-wide text-text-muted">{t('workflow.phaseLabel', { title: cleanDisplayText(g.title) })}</Surface>}
             {g.agents.map(a => {
               const k = keyByAgent.get(a)!;
               return <WorkflowAgentRow key={k} agent={a} source={source} prefs={prefs} open={openSet.has(k)} onToggle={() => toggleOne(k)} query={query} />;
@@ -261,7 +264,7 @@ function WorkflowRunCard({ run, source, prefs, query }: { run: WorkflowRunRef; s
           </div>
         ))}
       </div>
-    </div>
+    </Surface>
   );
 }
 
@@ -285,7 +288,7 @@ export function UnlinkedSubagents({ taskAgents, runs, source, prefs, query = '' 
   const { t } = useTranslation();
   if (!taskAgents.length && !runs.length) return null;
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border-soft bg-surface/50 p-3">
+    <Surface kind="card" className="flex flex-col gap-2 rounded-lg border border-border-soft bg-surface/50 p-3">
       <div className="flex items-center gap-2">
         <Workflow className="w-4 h-4 text-text-muted shrink-0" />
         <span className="text-[12px] font-medium text-text">{t('workflow.unlinkedTitle')}</span>
@@ -293,6 +296,6 @@ export function UnlinkedSubagents({ taskAgents, runs, source, prefs, query = '' 
       </div>
       {taskAgents.map((a, i) => <TaskAgentRow key={'t:' + (a.agentId || i)} agent={a} source={source} prefs={prefs} query={query} />)}
       {runs.map((r, i) => <WorkflowRunCard key={'w:' + r.runId + ':' + i} run={r} source={source} prefs={prefs} query={query} />)}
-    </div>
+    </Surface>
   );
 }

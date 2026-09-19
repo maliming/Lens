@@ -3,6 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Sun, Moon, Monitor, Settings as Gear, Check, FolderOpen, FlaskConical, Activity, Terminal as TerminalIcon, ChevronDown, SlidersHorizontal, MessageSquare, BarChart3, Wrench } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useDisplayPrefs } from '../lib/displayPrefs';
+import { THEME_FAMILIES, type ThemeFamily } from '../themes';
 import type { ThemeMode } from '../App';
 import { useTranslation } from '../lib/I18nProvider';
 import {
@@ -15,6 +16,7 @@ import { IS_DEMO_BUILD, DEMO_AVAILABLE } from '../lib/demoMode';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
 import { useAppPrefs } from '../lib/appPrefs';
 import { useCurrentSource, getSource, SOURCE_ORDER } from '../lib/sources';
+import { Button, Select, Surface, TextInput, useSkinClass } from '../ui';
 
 // Icon per tab: at five tabs the labels are still readable, but a glyph is
 // what makes the strip scannable at a glance and gives the active tab a second
@@ -79,7 +81,7 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
   }, [tab]);
 
   return (
-    <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
+    <Surface kind="pane" as="main" data-pane="detail" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
       <div className="px-8 py-8 max-w-[2000px] mx-auto">
         {/* Same header shape as Usage and Workspace: tinted icon tile beside a
             title-and-subtitle block, so the three pages share a baseline. */}
@@ -95,9 +97,11 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
 
         {/* Wraps rather than scrolls: five short labels, and a horizontally
             scrolling strip hides the fact that more tabs exist. */}
-        <nav className="flex flex-wrap gap-1 mb-6 border-b border-border-soft pb-2">
+        <Surface kind="tablist" as="nav" className="flex flex-wrap gap-1 mb-6 border-b border-border-soft pb-2">
           {SETTINGS_TABS.map(({ id, icon: Icon }) => (
-            <button
+            <Button
+              variant="tab"
+              active={tab === id}
               key={id}
               onClick={() => setTab(id)}
               className={cn(
@@ -107,17 +111,24 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
             >
               <Icon className="w-3.5 h-3.5" />
               {t(`settings.section.${id}` as TKey)}
-            </button>
+            </Button>
           ))}
-        </nav>
+        </Surface>
 
         {/* Appearance — theme + compact + language */}
         <Section id="general" active={tab} title={t('settings.section.appearance')}>
           <Row label={t('settings.theme')} hint={themeMode === 'system' ? t('settings.theme.followingSystem', { theme: resolvedThemeLabel }) : t('settings.theme.pick')}>
-            <div className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
+            <Surface kind="segmented" className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
               <ThemeOption icon={<Sun className="w-3.5 h-3.5" />} label={t('settings.theme.light')} active={themeMode === 'light'} onClick={() => onThemeChange('light')} />
               <ThemeOption icon={<Moon className="w-3.5 h-3.5" />} label={t('settings.theme.dark')} active={themeMode === 'dark'} onClick={() => onThemeChange('dark')} />
               <ThemeOption icon={<Monitor className="w-3.5 h-3.5" />} label={t('settings.theme.system')} active={themeMode === 'system'} onClick={() => onThemeChange('system')} />
+            </Surface>
+          </Row>
+          <Row label={t('settings.themeFamily')} hint={t('settings.themeFamily.hint')} align="start">
+            <div className="flex flex-wrap justify-end gap-2">
+              {THEME_FAMILIES.map(f => (
+                <StyleOption key={f.id} family={f.id} label={f.label} theme={resolvedTheme} active={prefs.themeFamily === f.id} onClick={() => setPrefs({ themeFamily: f.id })} />
+              ))}
             </div>
           </Row>
           <Row label={t('settings.compact')} hint={t('settings.compact.hint')}>
@@ -186,7 +197,7 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
               rest keep their relative order. */}
           {isMac && appPrefs.showTrayIcon && appPrefs.menuBarQuota && quotaSources.length > 1 && (
             <Row label={t('settings.menuBarQuotaOrder')} hint={t('settings.menuBarQuotaOrder.hint')}>
-              <div className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
+              <Surface kind="segmented" className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
                 {quotaSources.map(id => {
                   // Mirrors the poller's own normalisation: the first provider
                   // the pref names that this host actually has, else the first
@@ -194,7 +205,9 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
                   // therefore highlights what the menu bar really draws first.
                   const first = appPrefs.menuBarQuotaOrder?.find(x => quotaSources.includes(x)) ?? quotaSources[0];
                   return (
-                    <button
+                    <Button
+                      variant="segment"
+                      active={first === id}
                       key={id}
                       onClick={() => setAppPrefs({ menuBarQuotaOrder: [id, ...SOURCE_ORDER.filter(x => x !== id)] })}
                       className={cn(
@@ -203,10 +216,10 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
                       )}
                     >
                       {getSource(id).label}
-                    </button>
+                    </Button>
                   );
                 })}
-              </div>
+              </Surface>
             </Row>
           )}
         </Section>
@@ -243,7 +256,7 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
             if (!src.terminal.supported) return null;
             return (
               <Row key={id} label={t(src.terminal.modeLabelKey)} hint={t(src.terminal.modeHintKey)}>
-                <select
+                <Select
                   value={getTerminalStartMode(id)}
                   onChange={e => { setTerminalStartMode(id, e.target.value); setTermTick((n: number) => n + 1); }}
                   className="px-2 py-1 rounded-lg border border-border bg-surface text-text text-[13px] outline-none focus:border-accent max-w-[15rem]"
@@ -252,13 +265,13 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
                   {src.terminal.modes.map(m => (
                     <option key={m.value} value={m.value}>{t(m.labelKey)} — {m.value}</option>
                   ))}
-                </select>
+                </Select>
               </Row>
             );
           })}
           {termPrefs.warnEnabled && (
             <Row label={t('settings.termWarnAt')} hint={t('settings.termWarnAt.hint')}>
-              <input
+              <TextInput
                 type="number"
                 min={MIN_WARN_THRESHOLD}
                 max={MAX_WARN_THRESHOLD}
@@ -274,8 +287,10 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
           </>)}
           {showTerminalChoice && (
             <Row label={t('settings.preferredTerminal')} hint={t('settings.preferredTerminal.hint')}>
-              <div className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
-                <button
+              <Surface kind="segmented" className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
+                <Button
+                  variant="segment"
+                  active={prefs.preferredTerminal === 'terminal'}
                   onClick={() => setPrefs({ preferredTerminal: 'terminal' })}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium transition',
@@ -284,8 +299,10 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
                 >
                   <TerminalIcon className="w-3.5 h-3.5" />
                   Terminal
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="segment"
+                  active={prefs.preferredTerminal === 'iterm'}
                   onClick={() => setPrefs({ preferredTerminal: 'iterm' })}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] font-medium transition',
@@ -294,8 +311,8 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
                 >
                   <TerminalIcon className="w-3.5 h-3.5" />
                   iTerm
-                </button>
-              </div>
+                </Button>
+              </Surface>
             </Row>
           )}
         </Section>
@@ -306,8 +323,10 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
             <Switch checked={appPrefs.showTrayIcon} onChange={v => setAppPrefs({ showTrayIcon: v })} />
           </Row>
           <Row label={t('settings.closeBehavior')} hint={isMac ? t('settings.closeBehavior.hint.mac') : t('settings.closeBehavior.hint.other')}>
-            <div className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
-              <button
+            <Surface kind="segmented" className="inline-flex p-0.5 bg-muted rounded-lg gap-0.5">
+              <Button
+                variant="segment"
+                active={appPrefs.closeBehavior === 'hide'}
                 onClick={() => setAppPrefs({ closeBehavior: 'hide' })}
                 disabled={!appPrefs.showTrayIcon}
                 className={cn(
@@ -317,8 +336,10 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
                 title={!appPrefs.showTrayIcon ? t('settings.closeBehavior.disabledTip') : ''}
               >
                 {t('settings.closeBehavior.hide')}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="segment"
+                active={appPrefs.closeBehavior === 'quit'}
                 onClick={() => setAppPrefs({ closeBehavior: 'quit' })}
                 className={cn(
                   'px-3 py-1 rounded-md text-[12px] font-medium transition',
@@ -326,8 +347,8 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
                 )}
               >
                 {t('settings.closeBehavior.quit')}
-              </button>
-            </div>
+              </Button>
+            </Surface>
           </Row>
           {supportsLaunchAtLogin && (
             <Row label={t('settings.launchAtLogin')} hint={t('settings.launchAtLogin.hint')}>
@@ -347,31 +368,34 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
             label={t('settings.openClaudeDir', { dir: sourceDir })}
             hint={t('settings.openClaudeDir.hint', { source: sourceDef.label })}
           >
-            <button
+            <Button
+              variant="secondary"
               onClick={() => window.api.revealSourceDir(source).catch(() => {})}
               className="px-3 py-1.5 bg-bg border border-border-soft rounded-md text-[12px] hover:bg-muted flex items-center gap-1.5"
             >
               <FolderOpen className="w-3 h-3" />
               {t('settings.openClaude.btn')}
-            </button>
+            </Button>
           </Row>
           <Row label={t('settings.appData')} hint={t('settings.appData.hint')}>
-            <button
+            <Button
+              variant="secondary"
               onClick={() => window.api.openUserDataFolder?.().catch(() => {})}
               className="px-3 py-1.5 bg-bg border border-border-soft rounded-md text-[12px] hover:bg-muted flex items-center gap-1.5"
             >
               <FolderOpen className="w-3 h-3" />
               {t('settings.appData.btn')}
-            </button>
+            </Button>
           </Row>
           <Row label={t('settings.logs')} hint={t('settings.logs.hint')}>
-            <button
+            <Button
+              variant="secondary"
               onClick={() => window.api.openLogsFolder?.().catch(() => {})}
               className="px-3 py-1.5 bg-bg border border-border-soft rounded-md text-[12px] hover:bg-muted flex items-center gap-1.5"
             >
               <FolderOpen className="w-3 h-3" />
               {t('settings.logs.btn')}
-            </button>
+            </Button>
           </Row>
           {/* Demo toggle only renders in dev (npm run dev) — packaged production
              builds never expose it so an end-user can't surface fake content.
@@ -386,7 +410,7 @@ export function SettingsView({ themeMode, resolvedTheme, onThemeChange, demoMode
           )}
         </Section>
       </div>
-    </main>
+    </Surface>
   );
 }
 
@@ -402,17 +426,20 @@ function Section({ id, active, title, children }: { id: string; active: string; 
           mistake — but General holds two, and there the headings are the only
           thing separating "how it looks" from "how it behaves". Cheap enough
           to always draw, and the duplication only shows on single-group tabs. */}
-      <h2 className="text-[11px] uppercase tracking-wider font-semibold text-text-muted mb-2">{title}</h2>
-      <div className="bg-surface border border-border-soft rounded-xl divide-y divide-border-soft/60">
+      <Surface kind="eyebrow" as="h2" className="text-[11px] uppercase tracking-wider font-semibold text-text-muted mb-2">{title}</Surface>
+      <Surface kind="card" className="bg-surface border border-border-soft rounded-xl divide-y divide-border-soft/60">
         {children}
-      </div>
+      </Surface>
     </section>
   );
 }
 
-function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+// `align`: a control that is itself two rows tall — the style thumbnails with
+// their captions — leaves a centred label floating between them, so those rows
+// line the label up with the top of the control instead.
+function Row({ label, hint, align = 'center', children }: { label: string; hint?: string; align?: 'center' | 'start'; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3">
+    <div className={cn('flex justify-between gap-4 px-4 py-3', align === 'start' ? 'items-start' : 'items-center')}>
       <div className="min-w-0 flex-1">
         {label && <div className="text-[13px] font-medium text-text">{label}</div>}
         {hint && <div className="text-[11px] text-text-muted mt-0.5 leading-snug">{hint}</div>}
@@ -422,9 +449,42 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
+// Thumbnail drawn with the family's own variables: the frame carries the family
+// and the resolved light/dark attribute, so the preview shows the real palette,
+// radii and shadow instead of a hand-kept swatch.
+function StyleOption({ family, label, theme, active, onClick }: { family: ThemeFamily; label: string; theme: 'light' | 'dark'; active: boolean; onClick: () => void }) {
+  return (
+    <Button
+      variant="option"
+      active={active}
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn('flex flex-col items-center gap-1.5 text-[11px] font-medium transition', active ? 'text-text' : 'text-text-muted hover:text-text')}
+    >
+      <span
+        data-theme-family={family}
+        data-theme={theme}
+        className={cn(
+          'relative block w-[72px] h-[48px] overflow-hidden rounded-lg border bg-bg',
+          active ? 'border-accent ring-2 ring-accent/30' : 'border-border',
+        )}
+      >
+        <span className="absolute left-1.5 top-1.5 bottom-1.5 w-3 rounded-sm bg-muted" />
+        <span className="absolute left-6 right-1.5 top-1.5 bottom-1.5 rounded-md border border-border-soft bg-surface shadow-soft" />
+        <span className="absolute left-8 top-3.5 h-1 w-7 rounded-full bg-text/70" />
+        <span className="absolute left-8 top-[22px] h-1 w-9 rounded-full bg-text-muted/50" />
+        <span className="absolute right-3 bottom-3 h-2 w-4 rounded-sm bg-accent" />
+      </span>
+      {label}
+    </Button>
+  );
+}
+
 function ThemeOption({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
   return (
-    <button
+    <Button
+      variant="segment"
+      active={active}
       onClick={onClick}
       className={cn(
         'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11.5px] font-medium transition',
@@ -433,7 +493,7 @@ function ThemeOption({ icon, label, active, onClick }: { icon: React.ReactNode; 
     >
       {icon}
       {label}
-    </button>
+    </Button>
   );
 }
 
@@ -471,23 +531,26 @@ function LocaleFlag({ code, className }: { code: Locale; className?: string }) {
 // + English name; selected row gets a check mark. Looks consistent with the
 // rest of the Lens dropdowns and is keyboard-navigable for free.
 function LanguagePicker({ locale, onChange }: { locale: Locale; onChange: (l: Locale) => void }) {
+  const skinClass = useSkinClass();
   const current = LOCALES.find(l => l.code === locale) || LOCALES[0];
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button
+        <Button
+          variant="secondary"
           className="inline-flex items-center gap-2 px-2.5 py-1.5 bg-bg border border-border-soft rounded-md hover:border-accent/40 transition outline-none focus:border-accent"
         >
           <LocaleFlag code={current.code} className="w-[18px] h-[13px]" />
           <span className="text-[12.5px] text-text">{current.native}</span>
           <ChevronDown className="w-3 h-3 text-text-muted" />
-        </button>
+        </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           align="end"
           sideOffset={6}
-          className="z-50 min-w-[200px] bg-elevated border border-border rounded-lg shadow-pop p-1 animate-in"
+          data-ui="menu"
+          className={skinClass('menu', 'z-50 min-w-[200px] bg-elevated border border-border rounded-lg shadow-pop p-1 animate-in')}
         >
           {LOCALES.map(l => {
             const active = l.code === locale;
@@ -495,10 +558,11 @@ function LanguagePicker({ locale, onChange }: { locale: Locale; onChange: (l: Lo
               <DropdownMenu.Item
                 key={l.code}
                 onSelect={() => onChange(l.code)}
-                className={cn(
+                data-ui="menu-item"
+                className={skinClass('menu-item', cn(
                   'flex items-center gap-2.5 px-2 py-1.5 rounded text-[12.5px] cursor-pointer outline-none',
                   active ? 'bg-accent/10 text-text' : 'text-text-dim hover:bg-muted hover:text-text',
-                )}
+                ))}
               >
                 <LocaleFlag code={l.code} className="w-[20px] h-[14px]" />
                 <span className="flex-1">{l.native}</span>
@@ -515,7 +579,9 @@ function LanguagePicker({ locale, onChange }: { locale: Locale; onChange: (l: Lo
 
 function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <button
+    <Button
+      variant="switch"
+      active={checked}
       onClick={() => onChange(!checked)}
       disabled={disabled}
       className={cn(
@@ -527,9 +593,9 @@ function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (
       aria-checked={checked}
     >
       <span className={cn(
-        'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-150',
-        checked && 'translate-x-4'
+        'absolute top-0.5 left-0.5 w-4 h-4 rounded-full shadow-sm transition-transform duration-150',
+        checked ? 'translate-x-4 bg-on-accent' : 'bg-white'
       )} />
-    </button>
+    </Button>
   );
 }

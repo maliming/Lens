@@ -1,0 +1,196 @@
+/* Claude style. Colours are the values Claude’s web app resolves for its light
+   and dark modes. Its typefaces are proprietary: the UI uses the system font and
+   assistant replies use Source Serif 4, the nearest open serif.
+   Tokens a family leaves out fall back to Lens's value for the same mode. */
+
+[data-theme-family='claude'] {
+  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-reading: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
+  /* In px: the product's radii are rem against a 16px root, and Lens's root
+     is 14px, so the same rem would come out an eighth smaller. */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+  /* Tailwind's hue scales, rebuilt from claude.ai's tint tokens (tint fill,
+     tint text on dark, tint text on light, dark tint fill), interpolated in
+     OKLab between them. Claude has no teal, pink or indigo of its own: those
+     take its aqua, magenta and violet, and orange-500/600 are the brand clay. */
+  --amber-50: 252 238 210; --amber-100: 249 220 164; --amber-200: 240 196 124; --amber-300: 230 172 80; --amber-400: 219 147 0; --amber-500: 183 120 0; --amber-600: 148 94 0; --amber-700: 115 69 0; --amber-800: 92 54 0; --amber-900: 70 40 0; --amber-950: 49 26 0;
+  --emerald-50: 229 245 227; --emerald-100: 202 234 199; --emerald-200: 166 220 161; --emerald-300: 128 206 122; --emerald-400: 85 191 80; --emerald-500: 60 159 56; --emerald-600: 34 129 31; --emerald-700: 0 99 0; --emerald-800: 13 78 11; --emerald-900: 18 57 15; --emerald-950: 17 38 15;
+  --rose-50: 253 234 234; --rose-100: 250 214 214; --rose-200: 247 185 184; --rose-300: 243 156 155; --rose-400: 236 126 126; --rose-500: 204 97 96; --rose-600: 173 68 67; --rose-700: 142 38 38; --rose-800: 113 30 30; --rose-900: 86 22 22; --rose-950: 60 14 14;
+  --violet-50: 239 237 254; --violet-100: 223 219 253; --violet-200: 201 196 248; --violet-300: 180 173 242; --violet-400: 160 150 235; --violet-500: 129 120 212; --violet-600: 100 89 190; --violet-700: 74 58 167; --violet-800: 58 45 134; --violet-900: 43 33 103; --violet-950: 29 22 73;
+  --sky-50: 230 241 253; --sky-100: 205 226 251; --sky-200: 173 207 247; --sky-300: 141 187 242; --sky-400: 109 167 236; --sky-500: 81 137 206; --sky-600: 53 108 177; --sky-700: 24 79 149; --sky-800: 16 63 120; --sky-900: 8 47 92; --sky-950: 3 32 66;
+  --blue-50: 230 241 253; --blue-100: 205 226 251; --blue-200: 173 207 247; --blue-300: 141 187 242; --blue-400: 109 167 236; --blue-500: 81 137 206; --blue-600: 53 108 177; --blue-700: 24 79 149; --blue-800: 16 63 120; --blue-900: 8 47 92; --blue-950: 3 32 66;
+  --pink-50: 252 233 240; --pink-100: 249 212 226; --pink-200: 245 183 205; --pink-300: 239 153 184; --pink-400: 232 123 164; --pink-500: 199 96 133; --pink-600: 166 69 104; --pink-700: 134 42 76; --pink-800: 107 33 60; --pink-900: 81 24 45; --pink-950: 57 15 31;
+  --orange-50: 251 235 229; --orange-100: 247 216 203; --orange-200: 245 188 166; --orange-300: 241 160 129; --orange-400: 236 131 90; --orange-500: 217 119 87; --orange-600: 198 97 63; --orange-700: 134 51 17; --orange-800: 106 40 14; --orange-900: 80 30 10; --orange-950: 55 20 7;
+  --purple-50: 239 237 254; --purple-100: 223 219 253; --purple-200: 201 196 248; --purple-300: 180 173 242; --purple-400: 160 150 235; --purple-500: 129 120 212; --purple-600: 100 89 190; --purple-700: 74 58 167; --purple-800: 58 45 134; --purple-900: 43 33 103; --purple-950: 29 22 73;
+  --fuchsia-50: 252 233 240; --fuchsia-100: 249 212 226; --fuchsia-200: 245 183 205; --fuchsia-300: 239 153 184; --fuchsia-400: 232 123 164; --fuchsia-500: 199 96 133; --fuchsia-600: 166 69 104; --fuchsia-700: 134 42 76; --fuchsia-800: 107 33 60; --fuchsia-900: 81 24 45; --fuchsia-950: 57 15 31;
+  --teal-50: 223 245 237; --teal-100: 191 235 219; --teal-200: 153 220 192; --teal-300: 112 205 166; --teal-400: 59 189 140; --teal-500: 42 156 117; --teal-600: 25 125 95; --teal-700: 6 95 73; --teal-800: 4 75 59; --teal-900: 3 57 45; --teal-950: 2 39 32;
+  --cyan-50: 223 245 237; --cyan-100: 191 235 219; --cyan-200: 153 220 192; --cyan-300: 112 205 166; --cyan-400: 59 189 140; --cyan-500: 42 156 117; --cyan-600: 25 125 95; --cyan-700: 6 95 73; --cyan-800: 4 75 59; --cyan-900: 3 57 45; --cyan-950: 2 39 32;
+  --indigo-50: 239 237 254; --indigo-100: 223 219 253; --indigo-200: 201 196 248; --indigo-300: 180 173 242; --indigo-400: 160 150 235; --indigo-500: 129 120 212; --indigo-600: 100 89 190; --indigo-700: 74 58 167; --indigo-800: 58 45 134; --indigo-900: 43 33 103; --indigo-950: 29 22 73;
+  --slate-50: 246 246 244; --slate-100: 237 236 232; --slate-200: 225 224 217; --slate-300: 210 209 199; --slate-400: 165 164 154; --slate-500: 123 121 116; --slate-600: 82 81 78; --slate-700: 56 56 53; --slate-800: 44 44 42; --slate-900: 32 32 31; --slate-950: 21 21 21;
+}
+
+[data-theme-family='claude']:not([data-theme='dark']) {
+  --bg: 60 11.1% 94.7%;
+  --surface: 60 14.3% 98.6%;
+  --elevated: 0 0% 100%;
+  --muted: 45 11.8% 93.3%;
+  --border: 60 1.4% 85.6%;
+  --border-soft: 60 2.4% 91.7%;
+  --text: 0 0% 7.5%;
+  --text-dim: 60 2.8% 21.4%;
+  --text-muted: 42.9 2.9% 46.9%;
+  --accent: 14.77 63.1% 59.6%;
+  --accent-soft: 16.8 54.7% 93.2%;
+  --ring: 210 70.9% 51.6%;
+  --success: 103 72.3% 26.9%;
+  --warning: 39 88.8% 28%;
+  --danger: 0 56.2% 45.4%;
+  --token-total: 14.77 63.1% 59.6%;
+  --token-input: 210 70.9% 51.6%;
+  --token-output: 251 40% 45.1%;
+  --role-user: 210 70.9% 51.6%;
+  --role-assistant: 14.77 63.1% 59.6%;
+  --role-tool: 103 72.3% 26.9%;
+  --statusbar-bg: 60 11.1% 94.7%;
+  --quota-ok: 210 70.9% 51.6%;
+  --quota-warn: 40 71% 50%;
+  --quota-danger: 0 61.3% 52.4%;
+  --quota-ok-track: 212.6 85.2% 89.4%;
+  --quota-warn-track: 40 71% 50% / 0.22;
+  --quota-danger-track: 0 78.3% 91%;
+  --quota-depleted: 0 61.3% 52.4% / 0.14;
+  --quota-depleted-stripe: 0 61.3% 52.4% / 0.55;
+  --on-accent: 255 255 255;
+  --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.05);
+  --shadow-card: 0 2px 8px hsl(0 0% 0% / 0.06);
+  --shadow-pop: 0 12px 32px hsl(0 0% 0% / 0.12);
+  --fx-hover: #0b0b0b0a;
+  --fx-selected: #edece8;
+  --fx-nav-fg: #52514e;
+  --fx-code-fg: hsl(0 57.8% 35.3%);
+  --fx-code-bg: hsl(60 2.8% 21.4% / 0.05);
+  --fx-badge-bg: hsl(var(--muted));
+  --fx-badge-fg: hsl(var(--accent));
+  --fx-avatar-bg: hsl(var(--accent));
+  --fx-avatar-fg: #ffffff;
+  --fx-user-msg: hsl(0 0% 4.3% / 0.05);
+  --fx-link: #184f95;
+  --fx-quote-fg: #52514e;
+  --fx-code-edge: hsl(0 0% 4.3% / 0.2);
+}
+
+[data-theme-family='claude'][data-theme='dark'] {
+  --bg: 0 0% 6.7%;
+  --surface: 0 0% 8.2%;
+  --elevated: 60 1.6% 12.4%;
+  --muted: 60 1.6% 12.4%;
+  --border: 0 0% 17.4%;
+  --border-soft: 0 0% 13.7%;
+  --text: 45 11.8% 93.3%;
+  --text-dim: 55 9.1% 74.1%;
+  --text-muted: 48 4.6% 57.3%;
+  --accent: 14.77 63.1% 59.6%;
+  --accent-soft: 14.8 27.5% 18.5%;
+  --ring: 210 65.5% 67.1%;
+  --success: 97 59.1% 46.1%;
+  --warning: 40 71% 50%;
+  --danger: 0 67% 59.6%;
+  --token-total: 14.77 63.1% 59.6%;
+  --token-input: 210 65.5% 67.1%;
+  --token-output: 251 61% 72.2%;
+  --role-user: 210 65.5% 67.1%;
+  --role-assistant: 14.77 63.1% 59.6%;
+  --role-tool: 97 59.1% 46.1%;
+  --statusbar-bg: 0 0% 6.7%;
+  --quota-ok: 210 70.9% 51.6%;
+  --quota-warn: 40 71% 50%;
+  --quota-danger: 0 67% 59.6%;
+  --quota-ok-track: 210 70.9% 51.6% / 0.25;
+  --quota-warn-track: 40 71% 50% / 0.25;
+  --quota-danger-track: 0 67% 59.6% / 0.25;
+  --quota-depleted: 0 67% 59.6% / 0.18;
+  --quota-depleted-stripe: 0 67% 59.6% / 0.6;
+  --on-accent: 255 255 255;
+  --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.3);
+  --shadow-card: 0 2px 8px hsl(0 0% 0% / 0.35);
+  --shadow-pop: 0 12px 32px hsl(0 0% 0% / 0.5);
+  --fx-hover: #ffffff0d;
+  --fx-selected: hsl(60 1.6% 15%);
+  --fx-nav-fg: hsl(55 9.1% 74.1%);
+  --fx-code-fg: hsl(0 67% 70%);
+  --fx-code-bg: hsl(0 0% 100% / 0.06);
+  --fx-badge-bg: hsl(var(--muted));
+  --fx-badge-fg: hsl(var(--accent));
+  --fx-avatar-bg: hsl(var(--accent));
+  --fx-avatar-fg: #ffffff;
+  --fx-user-msg: hsl(0 0% 100% / 0.05);
+  --fx-link: #6da7ec;
+  --fx-quote-fg: #c3c2b7;
+  --fx-code-edge: hsl(0 0% 100% / 0.2);
+}
+
+/* The current sidebar item is shown by its fill alone, without Lens's accent bar. */
+[data-theme-family='claude'] [data-variant='nav'][data-active] > .absolute { display: none; }
+[data-theme-family='claude'] [data-ui='avatar'] { background-image: none; background-color: var(--fx-avatar-bg); color: var(--fx-avatar-fg); box-shadow: var(--shadow-card); }
+[data-theme-family='claude'] [data-ui='badge'][data-plan] { background-color: var(--fx-badge-bg); color: var(--fx-badge-fg); }
+/* Markdown at the sizes claude.ai's conversation page computes: headings at
+   28, 22 and 18px over a 16px body, inline code at 0.9em as tinted text on a
+   faint fill with a hairline edge, and code blocks at 14px in a 12px-rounded
+   well. */
+[data-theme-family='claude'] .markdown-body code { color: var(--fx-code-fg); background: var(--fx-code-bg); border: 0.5px solid hsl(var(--border)); border-radius: 0.4em; padding: 0.0625em 0.25em; font-size: 0.9em; }
+[data-theme-family='claude'] .markdown-body pre { background: var(--fx-code-bg); border: 0.5px solid var(--fx-code-edge); border-radius: 12px; padding: 14px; font-size: 0.875em; line-height: 1.625; }
+[data-theme-family='claude'] .markdown-body pre code { color: hsl(var(--text)); background: transparent; border: 0; padding: 0; font-size: inherit; }
+[data-theme-family='claude'] .markdown-body h1 { font-size: 1.75em; line-height: 1.25; font-weight: 600; padding-bottom: 0; border-bottom: 0; }
+[data-theme-family='claude'] .markdown-body h2 { font-size: 1.375em; line-height: 1.25; font-weight: 600; }
+[data-theme-family='claude'] .markdown-body h3 { font-size: 1.125em; line-height: 1.3; font-weight: 600; }
+[data-theme-family='claude'] .markdown-body ul,
+[data-theme-family='claude'] .markdown-body ol { padding-left: 2em; }
+[data-theme-family='claude'] .markdown-body li { padding-left: 0.5em; }
+[data-theme-family='claude'] .markdown-body a { color: var(--fx-link); text-decoration: underline; }
+[data-theme-family='claude'] .markdown-body blockquote { margin-left: 8px; padding: 0 0 0 8px; border-left: 4px solid hsl(var(--border)); color: var(--fx-quote-fg); }
+[data-theme-family='claude'] .markdown-body table { font-size: inherit; }
+[data-theme-family='claude'] .markdown-body th,
+[data-theme-family='claude'] .markdown-body td { padding: 7px 12px; }
+[data-theme-family='claude'] .markdown-body th { font-weight: 500; background: var(--fx-code-bg); }
+[data-theme-family='claude'] .markdown-body hr { border-top-width: 0.5px; }
+
+/* The conversation in claude.ai's materials: the user's turn in a soft 12px
+   bubble and tool and agent traffic in hairline boxes. claude.ai sets Claude's
+   reply straight on the page, but a history of many replies runs together that
+   way, so each one sits on a raised card with a border. Lens's role stripes
+   have no place here. */
+[data-theme-family='claude'] [data-msg-stripe] { display: none; }
+[data-theme-family='claude'] [data-ui='card'][data-msg-role='user'] { background: var(--fx-user-msg); border-color: transparent; border-radius: 12px; padding: 12px 16px; max-width: 85%; }
+[data-theme-family='claude'] [data-ui='card'][data-msg-role='assistant'] { background: hsl(var(--elevated)); border: 1px solid hsl(var(--border)); border-radius: 12px; }
+/* claude.ai sets the user's turn at 15px on a 20px line and Claude's reply at
+   16px on 24px. */
+[data-theme-family='claude'] [data-msg-role='user'] [data-msg-body] { font-size: 15px; line-height: 20px; }
+[data-theme-family='claude'] [data-msg-role='assistant'] [data-msg-body] { font-size: 16px; line-height: 24px; }
+[data-theme-family='claude'] [data-msg-body] .markdown-body { line-height: inherit; }
+[data-theme-family='claude'] [data-ui='card'][data-msg-role='tool'],
+[data-theme-family='claude'] [data-ui='card'][data-msg-role='prompt'],
+[data-theme-family='claude'] [data-subagent] { background: transparent; border: 0.5px solid hsl(var(--border)); border-radius: 12px; }
+[data-theme-family='claude'] [data-subagent-head],
+[data-theme-family='claude'] [data-subagent-rail] { border-color: hsl(var(--border)); }
+[data-theme-family='claude'] [data-subagent] [data-ui='button']:hover { background: var(--fx-hover); }
+[data-theme-family='claude'] [data-msg-role='tool'] [data-ui='eyebrow'],
+[data-theme-family='claude'] [data-msg-role='prompt'] [data-ui='eyebrow'],
+[data-theme-family='claude'] [data-subagent] [data-ui='eyebrow'],
+[data-theme-family='claude'] [data-subagent] svg { color: hsl(var(--text-dim)); }
+
+/* Lens's gradients (stat stripes, chart bars, icon tiles) have no counterpart
+   in claude.ai, so each settles on its first stop. Avatars keep the gradient
+   the user picked. Zero specificity, so a rule above that repaints the same
+   element still wins. */
+[data-theme-family='claude'] :where(:is(.bg-gradient-to-t, .bg-gradient-to-b, .bg-gradient-to-r, .bg-gradient-to-br):not([data-ui='avatar'], [data-avatar-swatch])) { background-image: none; background-color: var(--tw-gradient-from); }
+/* Search hits in the highlighter yellow claude.ai uses for comments, and the
+   current one in clay. */
+[data-theme-family='claude'] mark { background: color-mix(in srgb, #fab219 33%, transparent); color: inherit; }
+[data-theme-family='claude'] mark[data-current="true"] { background: #d97757; color: #ffffff; box-shadow: 0 0 0 2px color-mix(in srgb, #d97757 35%, transparent); }

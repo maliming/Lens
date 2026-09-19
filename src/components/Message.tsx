@@ -12,6 +12,7 @@ import { useDemoMode } from '../lib/demoMode';
 import { DEMO_PROFILE } from '../lib/demoData';
 import { CodeBlock } from './CodeBlock';
 import { SubagentSection } from './SubagentTranscript';
+import { Button, Surface, useSkinClass, useButtonClass } from '../ui';
 import type { MessageItem } from '../types';
 import type { LinkedSubagents } from '../lib/subagents';
 import type { DisplayPrefs } from '../lib/displayPrefs';
@@ -87,16 +88,18 @@ function MessageTimestamp({ iso }: { iso: string }) {
   if (Number.isNaN(d.getTime())) return null;
   const label = long ? d.toLocaleString() : d.toLocaleTimeString();
   return (
-    <button
+    <Button
+      variant="ghost"
       type="button"
       onClick={(e) => { e.stopPropagation(); setLong(v => !v); }}
       title={long ? 'Show short time' : 'Show full date'}
       aria-label={`Message time ${label}. Click to ${long ? 'show short time' : 'show full date'}.`}
       aria-pressed={long}
+      data-msg-meta
       className="text-[10px] text-text-muted tabular-nums hover:text-text cursor-pointer"
     >
       {label}
-    </button>
+    </Button>
   );
 }
 
@@ -180,12 +183,12 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude',
     // match stays reachable.
     const showToolBody = prefs.showTools || !linked || queryHit;
     return (
-      <div ref={bodyRef} className={cn('group relative rounded-lg bg-emerald-50 dark:bg-emerald-950/30 overflow-hidden pl-3.5', prefs.compact ? 'p-2 pl-3.5' : 'p-3 pl-3.5')}>
-        <span className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald-400 to-teal-600" />
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-400">
+      <Surface kind="card" ref={bodyRef} data-msg-role="tool" className={cn('group relative rounded-lg bg-emerald-50 dark:bg-emerald-950/30 overflow-hidden pl-3.5', prefs.compact ? 'p-2 pl-3.5' : 'p-3 pl-3.5')}>
+        <span data-msg-stripe className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald-400 to-teal-600" />
+        <div data-msg-head className="flex items-center justify-between mb-2">
+          <Surface kind="eyebrow" as="span" className="text-[10px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-400">
             {message.isToolUse ? 'Tool use' : 'Tool result'}
-          </span>
+          </Surface>
           <div className="flex items-center gap-2">
             <CopyChip copied={copied} onClick={onCopy} />
             {prefs.showTimestamps && message.timestamp && <MessageTimestamp iso={message.timestamp} />}
@@ -202,14 +205,15 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude',
               if (!resolved) return null;
               if (resolved.remote && !prefs.loadRemoteImages && !loadedRemote.has(i)) {
                 return (
-                  <button
+                  <Button
+                    variant="secondary"
                     key={i}
                     onClick={() => setLoadedRemote(prev => { const n = new Set(prev); n.add(i); return n; })}
                     className="px-3 py-2 rounded-lg border border-border-soft text-[11.5px] text-text-muted hover:text-text hover:border-border bg-bg/30"
                     title={(() => { try { return new URL(resolved.src).hostname; } catch { return 'remote image'; } })()}
                   >
                     {t('msg.loadRemoteImage')}
-                  </button>
+                  </Button>
                 );
               }
               return (
@@ -222,12 +226,12 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude',
         )}
         <ImageLightbox src={viewerSrc} onClose={() => setViewerSrc(null)} />
         {showToolBody && tooLong && (
-          <button onClick={() => setExpanded(!expanded)} className="mt-2 text-[11px] text-accent flex items-center gap-1 hover:underline">
+          <Button variant="link" onClick={() => setExpanded(!expanded)} className="mt-2 text-[11px] text-accent flex items-center gap-1 hover:underline">
             {expanded ? <><ChevronUp className="w-3 h-3" /> Collapse</> : <><ChevronDown className="w-3 h-3" /> Show full ({text.length} chars)</>}
-          </button>
+          </Button>
         )}
         {linked && <SubagentSection linked={linked} source={source} prefs={prefs} query={query} />}
-      </div>
+      </Surface>
     );
   }
 
@@ -271,21 +275,21 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude',
   // Cards retain padding + rounding + overflow-hidden so code blocks and
   // long text are properly contained either way.
   return (
-    <div className={cn(
+    <Surface kind="card" data-msg-role={promptMode ? 'prompt' : isUser ? 'user' : isSummary ? 'summary' : 'assistant'} className={cn(
       'group relative rounded-xl overflow-hidden',
       isSummary && 'pl-4',
       cardClass,
       prefs.compact ? 'p-3' : 'p-4',
       isUser && !promptMode ? 'max-w-[78%] ml-auto' : 'w-full',
     )}>
-      <span className={cn('absolute left-0 top-0 bottom-0 w-1', stripeGradient)} />
+      <span data-msg-stripe className={cn('absolute left-0 top-0 bottom-0 w-1', stripeGradient)} />
       {/* msg-head: chrome only — name, model, token counts, timestamp, MD/Raw
           toggle. Marked select-none so ctrl+A doesn't sweep these badges along
           with the actual conversation body. */}
       {/* gap-6 forces a minimum 24px breathing space between the left identity
          group (USER / avatar / model) and the right action group (Copy / MD /
          RAW), even when the title row is short — looked cramped before. */}
-      <div className="flex items-center justify-between gap-6 mb-2.5 min-w-0 select-none">
+      <div data-msg-head className="flex items-center justify-between gap-6 mb-2.5 min-w-0 select-none">
         <div className="flex items-center gap-2 min-w-0">
           {prefs.showAvatars && (() => {
             // Registry-driven so a new AI provider plugs in via lib/sources.ts.
@@ -300,43 +304,47 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude',
                   src={profile.avatarImage}
                   alt=""
                   referrerPolicy="no-referrer"
+                  data-msg-avatar
                   className="w-5 h-5 rounded-md object-cover flex-shrink-0"
                 />
               );
             }
-            const bg = promptMode ? '#10b981' : isUser ? '#7c5cff' : isSummary ? '#f59e0b' : def.accent;
+            // The user's chip is an avatar too, so a theme family repaints it
+            // with the one in the sidebar; Lens keeps the violet.
+            const bg = promptMode ? '#10b981' : isUser ? 'var(--fx-avatar-bg, #7c5cff)' : isSummary ? '#f59e0b' : def.accent;
             const initial = (profile.avatarInitial || 'M').slice(0, 2).toUpperCase();
             return (
               <div
+                data-msg-avatar
                 className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 text-white text-[10px] font-bold"
-                style={{ background: bg }}
+                style={{ background: bg, color: isUser ? 'var(--fx-avatar-fg, #ffffff)' : undefined }}
               >
                 {promptMode ? <CornerDownRight color="#ffffff" className="w-3 h-3" /> : isUser ? initial : isSummary ? 'S' : <Glyph color="#ffffff" className="w-3 h-3" />}
               </div>
             );
           })()}
-          <span className="text-[10.5px] uppercase tracking-[0.08em] font-bold text-text-muted truncate">
+          <Surface kind="eyebrow" as="span" className="text-[10.5px] uppercase tracking-[0.08em] font-bold text-text-muted truncate">
             {promptMode ? t('subagent.promptLabel') : isUser ? t('msg.role.user') : isSummary ? t('msg.role.summary') : t('msg.role.assistant')}
-          </span>
+          </Surface>
           {(() => {
             const m = fmtModel(message.model);
-            return m ? <span className="text-[10.5px] text-text-muted/70 truncate">{m}</span> : null;
+            return m ? <span data-msg-meta className="text-[10.5px] text-text-muted/70 truncate">{m}</span> : null;
           })()}
           {prefs.showMsgTokens && usageTotal > 0 && (
-            <span className="text-[10px] text-text-muted tabular-nums flex-shrink-0">{fmtTokens(usageTotal)} → {fmtTokens(message.usage?.output_tokens || 0)}</span>
+            <span data-msg-meta className="text-[10px] text-text-muted tabular-nums flex-shrink-0">{fmtTokens(usageTotal)} → {fmtTokens(message.usage?.output_tokens || 0)}</span>
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <CopyChip copied={copied} onClick={onCopy} />
-          <div className="inline-flex p-0.5 bg-white/60 dark:bg-black/30 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={() => setMode('markdown')} className={cn('px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase', effective === 'markdown' ? 'bg-accent text-white' : 'text-text-muted hover:text-text')}>MD</button>
-            <button onClick={() => setMode('raw')} className={cn('px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase', effective === 'raw' ? 'bg-accent text-white' : 'text-text-muted hover:text-text')}>RAW</button>
-          </div>
+          <Surface kind="segmented" className="inline-flex p-0.5 bg-white/60 dark:bg-black/30 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button variant="segment" active={effective === 'markdown'} onClick={() => setMode('markdown')} className={cn('px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase', effective === 'markdown' ? 'bg-accent text-on-accent' : 'text-text-muted hover:text-text')}>MD</Button>
+            <Button variant="segment" active={effective === 'raw'} onClick={() => setMode('raw')} className={cn('px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase', effective === 'raw' ? 'bg-accent text-on-accent' : 'text-text-muted hover:text-text')}>RAW</Button>
+          </Surface>
           {prefs.showTimestamps && message.timestamp && <MessageTimestamp iso={message.timestamp} />}
         </div>
       </div>
 
-      <div className={cn('text-[13px] text-text', showTrunc && 'max-h-[260px] overflow-hidden')}>
+      <div data-msg-body className={cn('text-[13px] text-text', showTrunc && 'max-h-[260px] overflow-hidden')}>
         {text.trim() && (effective === 'markdown' ? (
           <div ref={bodyRef} className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
         ) : (
@@ -352,14 +360,15 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude',
               if (!resolved) return null;
               if (resolved.remote && !prefs.loadRemoteImages && !loadedRemote.has(i)) {
                 return (
-                  <button
+                  <Button
+                    variant="secondary"
                     key={i}
                     onClick={() => setLoadedRemote(prev => { const n = new Set(prev); n.add(i); return n; })}
                     className="px-3 py-2 rounded-lg border border-border-soft text-[11.5px] text-text-muted hover:text-text hover:border-border bg-bg/30"
                     title={(() => { try { return new URL(resolved.src).hostname; } catch { return 'remote image'; } })()}
                   >
                     {t('msg.loadRemoteImage')}
-                  </button>
+                  </Button>
                 );
               }
               return (
@@ -373,11 +382,11 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude',
         <ImageLightbox src={viewerSrc} onClose={() => setViewerSrc(null)} />
       </div>
       {tooLong && (
-        <button onClick={() => setExpanded(!expanded)} className="mt-3 text-[11.5px] text-accent flex items-center gap-1 hover:underline font-medium">
+        <Button variant="link" onClick={() => setExpanded(!expanded)} className="mt-3 text-[11.5px] text-accent flex items-center gap-1 hover:underline font-medium">
           {expanded ? <><ChevronUp className="w-3.5 h-3.5" /> Collapse</> : <><ChevronDown className="w-3.5 h-3.5" /> Show full message ({text.length.toLocaleString()} chars)</>}
-        </button>
+        </Button>
       )}
-    </div>
+    </Surface>
   );
 }
 
@@ -387,7 +396,8 @@ export function Message({ message, defaultMode, query, prefs, source = 'claude',
 function CopyChip({ copied, onClick }: { copied: boolean; onClick: () => void }) {
   const { t } = useTranslation();
   return (
-    <button
+    <Button
+      variant="ghost"
       onClick={onClick}
       title={copied ? t('common.copied') : t('msg.copyTooltip')}
       className={cn(
@@ -399,7 +409,7 @@ function CopyChip({ copied, onClick }: { copied: boolean; onClick: () => void })
     >
       {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
       <span className="hidden sm:inline">{copied ? t('common.copied') : t('common.copy')}</span>
-    </button>
+    </Button>
   );
 }
 
@@ -408,13 +418,15 @@ function CopyChip({ copied, onClick }: { copied: boolean; onClick: () => void })
 // Electron's blank-popup behavior when target=_blank fires on a data: URL.
 function ImageLightbox({ src, onClose }: { src: string | null; onClose: () => void }) {
   const { t } = useTranslation();
+  const skinClass = useSkinClass();
+  const buttonClass = useButtonClass();
   if (!src) return null;
   return (
     <Dialog.Root open onOpenChange={open => { if (!open) onClose(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[100] animate-fade-in" />
-        <Dialog.Content className="fixed inset-0 z-[100] flex items-center justify-center p-8 outline-none" onClick={onClose}>
-          <Dialog.Title className="sr-only">{t('image.previewSr')}</Dialog.Title>
+        <Dialog.Overlay data-ui="dialog-overlay" className={skinClass('dialog-overlay', "fixed inset-0 bg-black/85 backdrop-blur-sm z-[100] animate-fade-in")} />
+        <Dialog.Content data-ui="dialog" className={skinClass('dialog', "fixed inset-0 z-[100] flex items-center justify-center p-8 outline-none")} onClick={onClose}>
+          <Dialog.Title data-ui="dialog-title" className={skinClass('dialog-title', "sr-only")}>{t('image.previewSr')}</Dialog.Title>
           <img
             src={src}
             alt="Full-size preview"
@@ -422,7 +434,7 @@ function ImageLightbox({ src, onClose }: { src: string | null; onClose: () => vo
             onClick={e => e.stopPropagation()}
             referrerPolicy="no-referrer"
           />
-          <Dialog.Close className="fixed top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white outline-none">
+          <Dialog.Close data-ui="button" data-variant="icon" className={buttonClass('icon', "fixed top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white outline-none")}>
             <X className="w-5 h-5" />
           </Dialog.Close>
         </Dialog.Content>

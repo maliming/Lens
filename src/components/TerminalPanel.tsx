@@ -12,6 +12,7 @@ import {
 } from '../lib/terminals';
 import type { TerminalFontId } from '../lib/terminals';
 import type { SessionMeta } from '../types';
+import { Button, Select, Surface } from '../ui';
 
 // A real `claude --resume` in a PTY, pinned under the transcript.
 //
@@ -224,24 +225,26 @@ export function TerminalPanel({ session, onActivity, maximized, onToggleMaximize
             {t('term.exited', { code: String(entry.exitCode) })}
           </span>
         )}
-        <button
+        <Button
+          variant="icon"
           onClick={() => stepTerminalFontSize(-1)}
           title={t('term.zoomOut')}
           className="ml-auto p-1 rounded text-text-muted hover:text-text-dim hover:bg-muted transition"
         >
           <ZoomOut size={12} />
-        </button>
+        </Button>
         <span className="text-[11px] text-text-muted tabular-nums w-5 text-center">
           {getTerminalFontSize()}
         </span>
-        <button
+        <Button
+          variant="icon"
           onClick={() => stepTerminalFontSize(1)}
           title={t('term.zoomIn')}
           className="p-1 rounded text-text-muted hover:text-text-dim hover:bg-muted transition"
         >
           <ZoomIn size={12} />
-        </button>
-        <select
+        </Button>
+        <Select
           value={getTerminalFontId()}
           onChange={(e) => setTerminalFont(e.target.value as TerminalFontId)}
           title={t('term.font')}
@@ -250,35 +253,39 @@ export function TerminalPanel({ session, onActivity, maximized, onToggleMaximize
           {TERMINAL_FONTS.map(f => (
             <option key={f.id} value={f.id}>{f.label}</option>
           ))}
-        </select>
-        <button
+        </Select>
+        <Button
+          variant="icon"
           onClick={() => setTerminalTheme(getTerminalTheme() === 'dark' ? 'light' : 'dark')}
           title={getTerminalTheme() === 'dark' ? t('term.themeLight') : t('term.themeDark')}
           className="p-1 rounded text-text-muted hover:text-text-dim hover:bg-muted transition"
         >
           {getTerminalTheme() === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="icon"
           onClick={onToggleMaximize}
           title={maximized ? t('term.restore') : t('term.maximize')}
           className="p-1 rounded text-text-muted hover:text-text-dim hover:bg-muted transition"
         >
           {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="icon"
           onClick={() => void restartTerminal(session, { demo: demoMode })}
           title={t('term.restart')}
           className="p-1 rounded text-text-muted hover:text-text-dim hover:bg-muted transition"
         >
           <RotateCw size={12} />
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="icon"
           onClick={() => void closeTerminal(sessionKey!)}
           title={t('term.close')}
           className="p-1 rounded text-text-muted hover:text-text-dim hover:bg-muted transition"
         >
           <X size={13} />
-        </button>
+        </Button>
       </div>
       {entry.spawnTheme !== getTerminalTheme() && (
         // The CLI paints its own chrome with colours fixed at launch, so the
@@ -286,17 +293,18 @@ export function TerminalPanel({ session, onActivity, maximized, onToggleMaximize
         // to be a small chip in the header and went unnoticed — people just saw
         // a broken-looking terminal. A full-width bar states the cause and puts
         // the fix next to it.
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-soft border-b border-accent/30 flex-shrink-0">
+        <Surface kind="banner" className="flex items-center gap-2 px-3 py-1.5 bg-accent-soft border-b border-accent/30 flex-shrink-0">
           <span className="text-[11.5px] text-accent flex-1 truncate">
             {t('term.themeMismatch')}
           </span>
-          <button
+          <Button
+            variant="primary"
             onClick={() => void restartTerminal(session, { demo: demoMode })}
-            className="text-[11.5px] px-2 py-0.5 rounded bg-accent text-white hover:opacity-90 transition whitespace-nowrap flex-shrink-0"
+            className="text-[11.5px] px-2 py-0.5 rounded bg-accent text-on-accent hover:opacity-90 transition whitespace-nowrap flex-shrink-0"
           >
             {t('term.restart')}
-          </button>
-        </div>
+          </Button>
+        </Surface>
       )}
       {/* Breathing room around the grid. The background matches xterm's own so
           the padding reads as part of the terminal rather than a seam, and the

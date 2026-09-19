@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { AVATAR_GRADIENTS, type Profile } from '../lib/profile';
 import { useTranslation } from '../lib/I18nProvider';
 import { useCurrentSource } from '../lib/sources';
+import { Button, Label, Surface, TextInput, useButtonClass, useSkinClass } from '../ui';
 
 type Props = {
   open: boolean;
@@ -61,6 +62,8 @@ async function fileToAvatarDataUrl(file: File): Promise<string> {
 
 export function AccountModal({ open, onOpenChange, profile, onChange }: Props) {
   const [source] = useCurrentSource();
+  const skinClass = useSkinClass();
+  const buttonClass = useButtonClass();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const markCustomized = () => {
@@ -99,27 +102,28 @@ export function AccountModal({ open, onOpenChange, profile, onChange }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 animate-fade-in" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[440px] max-w-[92vw] max-h-[88vh] overflow-y-auto bg-surface border border-border rounded-2xl shadow-pop z-50 animate-modal-in">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border-soft">
-            <Dialog.Title className="text-[15px] font-semibold text-text">{t('profile.editProfile')}</Dialog.Title>
-            <Dialog.Close className="p-1.5 rounded hover:bg-muted text-text-muted">
+        <Dialog.Overlay data-ui="dialog-overlay" className={skinClass('dialog-overlay', 'fixed inset-0 bg-black/40 backdrop-blur-sm z-50 animate-fade-in')} />
+        <Dialog.Content data-ui="dialog" className={skinClass('dialog', 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[440px] max-w-[92vw] max-h-[88vh] overflow-y-auto bg-surface border border-border rounded-2xl shadow-pop z-50 animate-modal-in')}>
+          <Surface kind="dialog-header" className="flex items-center justify-between px-5 py-4 border-b border-border-soft">
+            <Dialog.Title data-ui="dialog-title" className={skinClass('dialog-title', 'text-[15px] font-semibold text-text')}>{t('profile.editProfile')}</Dialog.Title>
+            <Dialog.Close data-ui="button" data-variant="icon" className={buttonClass('icon', 'p-1.5 rounded hover:bg-muted text-text-muted')}>
               <X className="w-4 h-4" />
             </Dialog.Close>
-          </div>
+          </Surface>
 
           <div className="p-5 space-y-4">
             {/* Live preview */}
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-bg border border-border-soft">
+            <Surface kind="card" className="flex items-center gap-3 p-3 rounded-xl bg-bg border border-border-soft">
               {profile.avatarImage ? (
                 <img
                   src={profile.avatarImage}
                   alt=""
+                  data-ui="avatar"
                   referrerPolicy="no-referrer"
                   className="w-12 h-12 rounded-full object-cover shadow-soft"
                 />
               ) : (
-                <div className={cn('w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-[18px] shadow-soft bg-gradient-to-br', profile.avatarGradient)}>
+                <div data-ui="avatar" className={cn('w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-[18px] shadow-soft bg-gradient-to-br', profile.avatarGradient)}>
                   {profile.avatarInitial || '?'}
                 </div>
               )}
@@ -127,10 +131,10 @@ export function AccountModal({ open, onOpenChange, profile, onChange }: Props) {
                 <div className="text-[14px] font-semibold text-text truncate">{profile.name || t('profile.noName')}</div>
                 <div className="text-[11px] text-text-muted">{t('profile.preview')}</div>
               </div>
-            </div>
+            </Surface>
 
             <Field label={t('account.displayName')}>
-              <input
+              <TextInput
                 type="text"
                 value={profile.name}
                 onChange={e => { onChange({ name: e.target.value }); markCustomized(); }}
@@ -151,21 +155,23 @@ export function AccountModal({ open, onOpenChange, profile, onChange }: Props) {
                   onChange={onPickImage}
                   className="hidden"
                 />
-                <button
+                <Button
+                  variant="secondary"
                   onClick={() => fileInputRef.current?.click()}
                   className="px-3 py-1.5 bg-bg border border-border-soft rounded-md text-[12px] hover:bg-muted flex items-center gap-1.5"
                 >
                   <Upload className="w-3 h-3" />
                   {profile.avatarImage ? t('account.replaceImage') : t('account.uploadImage')}
-                </button>
+                </Button>
                 {profile.avatarImage && (
-                  <button
+                  <Button
+                    variant="secondary"
                     onClick={onClearImage}
                     className="px-3 py-1.5 bg-bg border border-border-soft rounded-md text-[12px] hover:bg-muted flex items-center gap-1.5 text-text-muted"
                   >
                     <Trash2 className="w-3 h-3" />
                     {t('account.removeImage')}
-                  </button>
+                  </Button>
                 )}
               </div>
               {uploadError && (
@@ -177,7 +183,7 @@ export function AccountModal({ open, onOpenChange, profile, onChange }: Props) {
             {!profile.avatarImage && (
               <div className="grid grid-cols-[80px_1fr] gap-4">
                 <Field label={t('account.initial')}>
-                  <input
+                  <TextInput
                     type="text"
                     maxLength={2}
                     value={profile.avatarInitial}
@@ -188,8 +194,11 @@ export function AccountModal({ open, onOpenChange, profile, onChange }: Props) {
                 <Field label={t('account.avatarColor')}>
                   <div className="flex flex-wrap gap-1.5">
                     {AVATAR_GRADIENTS.map(g => (
-                      <button
+                      <Button
+                        variant="chip"
+                        active={profile.avatarGradient === g}
                         key={g}
+                        data-avatar-swatch
                         onClick={() => { onChange({ avatarGradient: g }); markCustomized(); }}
                         className={cn(
                           'w-8 h-8 rounded-full bg-gradient-to-br shadow-sm border-2 transition',
@@ -204,14 +213,15 @@ export function AccountModal({ open, onOpenChange, profile, onChange }: Props) {
             )}
           </div>
 
-          <div className="px-5 py-3 border-t border-border-soft flex justify-end">
-            <button
+          <Surface kind="dialog-footer" className="px-5 py-3 border-t border-border-soft flex justify-end">
+            <Button
+              variant="primary"
               onClick={() => onOpenChange(false)}
-              className="px-4 py-2 bg-accent text-white rounded-lg text-[13px] font-medium hover:opacity-90"
+              className="px-4 py-2 bg-accent text-on-accent rounded-lg text-[13px] font-medium hover:opacity-90"
             >
               {t('common.done')}
-            </button>
-          </div>
+            </Button>
+          </Surface>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
@@ -221,7 +231,7 @@ export function AccountModal({ open, onOpenChange, profile, onChange }: Props) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[11px] font-semibold text-text uppercase tracking-wider mb-1.5">{label}</label>
+      <Label className="block text-[11px] font-semibold text-text uppercase tracking-wider mb-1.5">{label}</Label>
       {children}
     </div>
   );

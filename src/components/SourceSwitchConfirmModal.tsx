@@ -3,6 +3,7 @@ import { Search, X } from 'lucide-react';
 import { useTranslation } from '../lib/I18nProvider';
 import { cleanDisplayText } from '../lib/format';
 import { getSource, type SessionSource } from '../lib/sources';
+import { Button, Surface, useSkinClass } from '../ui';
 
 // Asked when the user flips providers while a deep search is still walking
 // the corpus. The flip wipes the Search page, so without this the scan they
@@ -18,42 +19,45 @@ type Props = {
 
 export function SourceSwitchConfirmModal({ open, target, query, onKeep, onSwitch }: Props) {
   const { t } = useTranslation();
+  const skinClass = useSkinClass();
   const targetLabel = target ? getSource(target).label : '';
   return (
     <Dialog.Root open={open} onOpenChange={(v) => { if (!v) onKeep(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 animate-fade-in" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[420px] max-w-[92vw] bg-surface border border-border rounded-2xl shadow-pop z-50 overflow-hidden animate-modal-in">
-          <div className="px-5 py-4 border-b border-border-soft flex items-center gap-2.5">
+        <Dialog.Overlay data-ui="dialog-overlay" className={skinClass('dialog-overlay', 'fixed inset-0 bg-black/30 backdrop-blur-sm z-50 animate-fade-in')} />
+        <Dialog.Content data-ui="dialog" className={skinClass('dialog', 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[420px] max-w-[92vw] bg-surface border border-border rounded-2xl shadow-pop z-50 overflow-hidden animate-modal-in')}>
+          <Surface kind="dialog-header" className="px-5 py-4 border-b border-border-soft flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-              <Search className="w-4 h-4 text-white" />
+              <Search className="w-4 h-4 text-on-accent" />
             </div>
-            <Dialog.Title className="text-[14px] font-semibold text-text flex-1">
+            <Dialog.Title data-ui="dialog-title" className={skinClass('dialog-title', 'text-[14px] font-semibold text-text flex-1')}>
               {t('search.switchConfirm.title')}
             </Dialog.Title>
-            <button onClick={onKeep} className="p-1 rounded hover:bg-muted text-text-muted">
+            <Button variant="icon" onClick={onKeep} className="p-1 rounded hover:bg-muted text-text-muted">
               <X className="w-4 h-4" />
-            </button>
-          </div>
+            </Button>
+          </Surface>
           <div className="px-5 py-4">
             <Dialog.Description className="text-[12.5px] text-text-dim leading-relaxed">
               {t('search.switchConfirm.body', { source: targetLabel, q: cleanDisplayText(query) })}
             </Dialog.Description>
           </div>
-          <div className="px-5 py-3 border-t border-border-soft flex items-center justify-end gap-2">
-            <button
+          <Surface kind="dialog-footer" className="px-5 py-3 border-t border-border-soft flex items-center justify-end gap-2">
+            <Button
+              variant="secondary"
               onClick={onKeep}
               className="px-3 py-1.5 rounded-lg border border-border text-[12.5px] text-text hover:bg-muted transition"
             >
               {t('search.switchConfirm.keep')}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               onClick={onSwitch}
-              className="px-3 py-1.5 rounded-lg bg-accent text-white text-[12.5px] font-medium hover:opacity-90 transition"
+              className="px-3 py-1.5 rounded-lg bg-accent text-on-accent text-[12.5px] font-medium hover:opacity-90 transition"
             >
               {t('search.switchConfirm.switch')}
-            </button>
-          </div>
+            </Button>
+          </Surface>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

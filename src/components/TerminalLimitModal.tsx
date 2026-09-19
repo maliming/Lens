@@ -6,6 +6,7 @@ import { resolveSessionTitle } from '../lib/sessionTitle';
 import { shortCwd } from '../lib/format';
 import { atHardLimit, liveTerminals } from '../lib/terminals';
 import type { SessionMeta } from '../types';
+import { Button, Surface, useSkinClass } from '../ui';
 
 // Shown when opening one more terminal would pass the user's own threshold.
 //
@@ -32,6 +33,7 @@ type Props = {
 
 export function TerminalLimitModal({ open, onCancel, onConfirm, onGoToSession }: Props) {
   const { t } = useTranslation();
+  const skinClass = useSkinClass();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const terminals = open ? liveTerminals() : [];
 
@@ -51,19 +53,19 @@ export function TerminalLimitModal({ open, onCancel, onConfirm, onGoToSession }:
   return (
     <Dialog.Root open={open} onOpenChange={(v) => { if (!v) onCancel(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 animate-fade-in" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] max-w-[92vw] bg-surface border border-border rounded-2xl shadow-pop z-50 overflow-hidden animate-modal-in">
-          <div className="px-5 py-4 border-b border-border-soft flex items-center gap-2.5">
+        <Dialog.Overlay data-ui="dialog-overlay" className={skinClass('dialog-overlay', 'fixed inset-0 bg-black/30 backdrop-blur-sm z-50 animate-fade-in')} />
+        <Dialog.Content data-ui="dialog" className={skinClass('dialog', 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] max-w-[92vw] bg-surface border border-border rounded-2xl shadow-pop z-50 overflow-hidden animate-modal-in')}>
+          <Surface kind="dialog-header" className="px-5 py-4 border-b border-border-soft flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-              <TerminalSquare className="w-4 h-4 text-white" />
+              <TerminalSquare className="w-4 h-4 text-on-accent" />
             </div>
-            <Dialog.Title className="text-[14px] font-semibold text-text flex-1">
+            <Dialog.Title data-ui="dialog-title" className={skinClass('dialog-title', 'text-[14px] font-semibold text-text flex-1')}>
               {t('termLimit.title', { n: String(terminals.length) })}
             </Dialog.Title>
-            <button onClick={onCancel} className="p-1 rounded hover:bg-muted text-text-muted">
+            <Button variant="icon" onClick={onCancel} className="p-1 rounded hover:bg-muted text-text-muted">
               <X className="w-4 h-4" />
-            </button>
-          </div>
+            </Button>
+          </Surface>
 
           <div className="px-5 py-3">
             <p className="text-[12.5px] text-text-dim leading-relaxed mb-3">
@@ -103,13 +105,14 @@ export function TerminalLimitModal({ open, onCancel, onConfirm, onGoToSession }:
                     {/* Recovered terminals have no session object to navigate
                         to — only the file they belong to. */}
                     {session && onGoToSession && (
-                      <button
+                      <Button
+                        variant="icon"
                         onClick={() => onGoToSession(session)}
                         title={t('termLimit.goTo')}
                         className="p-1 rounded text-text-muted hover:text-accent hover:bg-surface transition flex-shrink-0"
                       >
                         <ArrowRight size={14} />
-                      </button>
+                      </Button>
                     )}
                   </div>
                 );
@@ -117,44 +120,48 @@ export function TerminalLimitModal({ open, onCancel, onConfirm, onGoToSession }:
             </div>
 
             <div className="flex items-center gap-2">
-              <button
+              <Button
+                variant="link"
                 onClick={() => setSelected(new Set(terminals.map(x => x.key)))}
                 className="text-[11.5px] text-text-muted hover:text-text-dim underline underline-offset-2"
               >
                 {t('termLimit.selectAll')}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="link"
                 onClick={() => setSelected(new Set())}
                 className="text-[11.5px] text-text-muted hover:text-text-dim underline underline-offset-2"
               >
                 {t('termLimit.selectNone')}
-              </button>
+              </Button>
             </div>
           </div>
 
-          <div className="px-5 py-3 border-t border-border-soft flex items-center gap-2">
+          <Surface kind="dialog-footer" className="px-5 py-3 border-t border-border-soft flex items-center gap-2">
             <span className="text-[11.5px] text-text-muted flex-1">
               {t('termLimit.configurable')}
             </span>
-            <button
+            <Button
+              variant="secondary"
               onClick={onCancel}
               className="px-3 py-1.5 rounded-lg border border-border text-[12.5px] text-text hover:bg-muted transition"
             >
               {t('common.cancel')}
-            </button>
+            </Button>
             {/* At main's hard ceiling, opening without closing something is
                 guaranteed to be refused — offering it would just produce an
                 empty, failed terminal panel. */}
-            <button
+            <Button
+              variant="primary"
               onClick={() => onConfirm([...selected])}
               disabled={selected.size === 0 && atHardLimit()}
-              className="px-3 py-1.5 rounded-lg bg-accent text-white text-[12.5px] font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              className="px-3 py-1.5 rounded-lg bg-accent text-on-accent text-[12.5px] font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition"
             >
               {selected.size > 0
                 ? t('termLimit.closeAndOpen', { n: String(selected.size) })
                 : t('termLimit.openAnyway')}
-            </button>
-          </div>
+            </Button>
+          </Surface>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

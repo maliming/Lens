@@ -4,6 +4,7 @@
 // output, file contents, anything that isn't JSON.
 
 import React from 'react';
+import { Surface } from '../ui';
 
 type Props = {
   text: string;
@@ -17,9 +18,9 @@ export function CodeBlock({ text, maxHeight }: Props) {
   return (
     <div style={maxHeight ? { maxHeight, overflowY: 'auto' } : undefined}>
       {header && (
-        <div className="text-[10.5px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-300 mb-1.5">
+        <Surface kind="eyebrow" className="text-[10.5px] uppercase tracking-wider font-semibold text-emerald-700 dark:text-emerald-300 mb-1.5">
           {header}
-        </div>
+        </Surface>
       )}
       {parsed != null ? (
         <pre className="whitespace-pre overflow-x-auto text-[11px] leading-[1.55] font-mono">

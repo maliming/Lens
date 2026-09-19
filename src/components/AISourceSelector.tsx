@@ -4,6 +4,7 @@ import { cn } from '../lib/utils';
 import { SOURCES, SOURCE_ORDER, getSource, type SessionSource, type SourceDef } from '../lib/sources';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
 import { useTranslation } from '../lib/I18nProvider';
+import { Button, Surface } from '../ui';
 
 type Props = {
   value: SessionSource;
@@ -20,15 +21,19 @@ function SourceBadge({ source, size }: { source: SourceDef; size: number }) {
   const Glyph = source.Glyph;
   return (
     <div
+      data-ui="source-badge"
       className="flex-shrink-0 flex items-center justify-center border border-border-soft"
       style={{
         width: size,
         height: size,
         borderRadius: radius,
-        background: source.accentSoft,
+        // A theme family can tint the badge from its own palette so the switcher
+        // belongs to the identity card it sits in; Lens keeps the brand colours.
+        background: `var(--fx-badge-bg, ${source.accentSoft})`,
+        color: `var(--fx-badge-fg, ${source.accent})`,
       }}
     >
-      <Glyph color={source.accent} className="w-[58%] h-[58%]" />
+      <Glyph className="w-[58%] h-[58%]" />
     </div>
   );
 }
@@ -67,7 +72,7 @@ export function AISourceSelector({ value, onChange, demoMode = false }: Props) {
   // Empty state — no AI CLI detected anywhere. Surface a single guidance card.
   if (enabledDefs.length === 0 && caps) {
     return (
-      <div className="no-drag rounded-2xl bg-amber-50/70 dark:bg-amber-900/15 px-3 py-2.5">
+      <Surface kind="banner" className="no-drag rounded-2xl bg-amber-50/70 dark:bg-amber-900/15 px-3 py-2.5">
         <div className="flex items-start gap-2 text-amber-800 dark:text-amber-300">
           <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
           <div className="text-[11.5px] leading-snug">
@@ -75,29 +80,32 @@ export function AISourceSelector({ value, onChange, demoMode = false }: Props) {
             <div className="text-amber-700/80 dark:text-amber-300/80 mt-0.5">{t('aitool.noneHint')}</div>
           </div>
         </div>
-      </div>
+      </Surface>
     );
   }
 
   return (
     <div className="no-drag relative" ref={wrapRef}>
-      <button
+      <Button
+        variant="card-header"
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-t-2xl hover:bg-muted/30 transition text-left"
       >
         <SourceBadge source={current} size={24} />
         <span className="text-[13px] font-semibold text-text flex-1 truncate">{current.label}</span>
         <ChevronDown className={cn('w-3.5 h-3.5 text-text-muted transition-transform', open && 'rotate-180')} />
-      </button>
+      </Button>
 
       {open && (
-        <div className="absolute left-1 right-1 top-full mt-1 z-30 rounded-xl border border-border bg-elevated shadow-pop p-1 animate-in">
+        <Surface kind="popover" className="absolute left-1 right-1 top-full mt-1 z-30 rounded-xl border border-border bg-elevated shadow-pop p-1 animate-in">
           {allDefs.map(def => {
             const installed = isInstalled(def.id);
             const active = def.id === effectiveId;
             return (
-              <button
+              <Button
                 key={def.id}
+                variant="option"
+                active={active && installed}
                 onClick={() => { if (!installed) return; onChange(def.id); setOpen(false); }}
                 disabled={!installed}
                 className={cn(
@@ -110,15 +118,15 @@ export function AISourceSelector({ value, onChange, demoMode = false }: Props) {
                 <SourceBadge source={def} size={26} />
                 <span className="text-[13.5px] font-semibold text-text flex-1 truncate">{def.label}</span>
                 {!installed && (
-                  <span className="text-[9.5px] uppercase tracking-wider font-semibold text-text-muted">
+                  <Surface kind="eyebrow" as="span" className="text-[9.5px] uppercase tracking-wider font-semibold text-text-muted">
                     {t('aitool.notInstalled')}
-                  </span>
+                  </Surface>
                 )}
                 {active && installed && <Check className="w-3.5 h-3.5 text-accent" />}
-              </button>
+              </Button>
             );
           })}
-        </div>
+        </Surface>
       )}
     </div>
   );

@@ -7,6 +7,7 @@ import { cn } from '../lib/utils';
 import { useTranslation } from '../lib/I18nProvider';
 import { pct } from '../lib/rateLimits';
 import { useDisplayPrefs, type ProjectGrouping } from '../lib/displayPrefs';
+import { Button, Surface } from '../ui';
 
 type Props = {
   usage: UsageSummary | null;
@@ -43,16 +44,16 @@ export function UsageView({ usage, error, demoMode, isActive = true, onRetry }: 
   if (!hasBeenActive.current) return null;
   if (!usage && error) {
     return (
-      <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto bg-surface border border-border rounded-2xl">
+      <Surface kind="pane" as="main" data-pane="detail" className="flex-1 min-w-0 overflow-y-auto bg-surface border border-border rounded-2xl">
         <div className="h-full min-h-[320px] flex flex-col items-center justify-center gap-3 px-8 text-center">
           <AlertCircle className="w-7 h-7 text-rose-500" />
           <div className="text-[14px] font-semibold text-text">{t('status.error', { error })}</div>
-          <button onClick={onRetry} className="px-3 py-1.5 rounded-md border border-border-soft hover:bg-muted text-[12px] flex items-center gap-1.5">
+          <Button variant="secondary" onClick={onRetry} className="px-3 py-1.5 rounded-md border border-border-soft hover:bg-muted text-[12px] flex items-center gap-1.5">
             <RefreshCw className="w-3.5 h-3.5" />
             {t('common.retry')}
-          </button>
+          </Button>
         </div>
-      </main>
+      </Surface>
     );
   }
   if (!usage) {
@@ -70,7 +71,7 @@ export function UsageView({ usage, error, demoMode, isActive = true, onRetry }: 
     : 0;
 
   return (
-    <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
+    <Surface kind="pane" as="main" data-pane="detail" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-surface border border-border rounded-2xl">
       {/* AI-designed layout: cap the inner content at 2000px and centre it.
           Above that, ultra-wide monitors would otherwise stretch every
           chart across the entire pane and read as sparse. The cap is
@@ -181,9 +182,9 @@ export function UsageView({ usage, error, demoMode, isActive = true, onRetry }: 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6 items-stretch">
           <div className="flex flex-col h-full">
             <SectionHeading icon={Zap}>By model</SectionHeading>
-            <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex-1">
+            <Surface kind="card" className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex-1">
               <ModelList models={usage.byModel} showCacheWrite={showCacheWrite} />
-            </div>
+            </Surface>
           </div>
           <div className="flex flex-col h-full">
             <SectionHeading
@@ -194,13 +195,13 @@ export function UsageView({ usage, error, demoMode, isActive = true, onRetry }: 
             >
               {t('usage.topProjects')}
             </SectionHeading>
-            <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex-1">
+            <Surface kind="card" className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex-1">
               <ProjectList
                 projects={projectGrouping === 'repo'
                   ? usage.byRepo.slice(0, 10).map(r => ({ ...r, key: r.repo }))
                   : usage.byProject.slice(0, 10).map(p => ({ ...p, key: p.project, dirCount: 1 }))}
               />
-            </div>
+            </Surface>
           </div>
         </div>
 
@@ -221,17 +222,17 @@ export function UsageView({ usage, error, demoMode, isActive = true, onRetry }: 
           </span>
         </div>
       </div>
-    </main>
+    </Surface>
   );
 }
 
 function SectionHeading({ icon: Icon, children, action }: { icon: any; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <h2 className="text-[12.5px] font-semibold text-text mb-3 flex items-center gap-2 uppercase tracking-wider text-text-muted">
+    <Surface kind="eyebrow" as="h2" className="text-[12.5px] font-semibold text-text mb-3 flex items-center gap-2 uppercase tracking-wider text-text-muted">
       <Icon className="w-3.5 h-3.5 text-accent" />
       {children}
       {action && <span className="ml-auto">{action}</span>}
-    </h2>
+    </Surface>
   );
 }
 
@@ -246,7 +247,7 @@ function RollingWindow({ label, sub, bucket, highlight, compact, showCacheWrite 
   const tokens = billed(bucket);
   const oldestAgo = bucket.oldestTs ? humanAgo(Date.now() - bucket.oldestTs) : null;
   return (
-    <div className={cn(
+    <Surface kind="card" className={cn(
       'border rounded-xl shadow-soft min-w-0',
       compact ? 'p-3' : 'p-4',
       highlight
@@ -254,7 +255,7 @@ function RollingWindow({ label, sub, bucket, highlight, compact, showCacheWrite 
         : 'bg-surface border-border-soft',
     )}>
       <div className="flex items-baseline justify-between mb-1">
-        <span className={cn('uppercase tracking-wider font-semibold', compact ? 'text-[10px]' : 'text-[10.5px]', highlight ? 'text-accent' : 'text-text-muted')}>{label}</span>
+        <Surface kind="eyebrow" as="span" className={cn('uppercase tracking-wider font-semibold', compact ? 'text-[10px]' : 'text-[10.5px]', highlight ? 'text-accent' : 'text-text-muted')}>{label}</Surface>
         <span className="text-[10px] text-text-muted">{sub}</span>
       </div>
       <div className={cn('font-bold tabular-nums text-text leading-tight', compact ? 'text-[22px]' : 'text-[28px]')}>{fmtTokens(tokens)}</div>
@@ -278,7 +279,7 @@ function RollingWindow({ label, sub, bucket, highlight, compact, showCacheWrite 
           {showCacheWrite && <MiniStat label="c·w" value={bucket.cacheCreate} color="text-orange-600 dark:text-orange-400" />}
         </div>
       )}
-    </div>
+    </Surface>
   );
 }
 
@@ -310,7 +311,7 @@ function DailyChart({ byDay }: { byDay: UsageSummary['byDay'] }) {
     // heatmap — the parent grid handles spacing via its own `mb-8`. Card
     // also needs to stretch vertically (`h-full flex-col`) so it lines
     // up with the heatmap's full height in the same row.
-    <div className="bg-surface border border-border-soft rounded-xl p-5 shadow-soft h-full flex flex-col">
+    <Surface kind="card" className="bg-surface border border-border-soft rounded-xl p-5 shadow-soft h-full flex flex-col">
       <div className="flex items-stretch justify-between gap-1 flex-1 min-h-[8rem] mb-3">
         {days.map(d => {
           const t = billed(d);
@@ -346,7 +347,7 @@ function DailyChart({ byDay }: { byDay: UsageSummary['byDay'] }) {
         {peakDay && <span className="text-accent">peak: {fmtTokens(peakTotal)} on {peakDay.day}</span>}
         <span>{days[days.length - 1]?.day}</span>
       </div>
-    </div>
+    </Surface>
   );
 }
 
@@ -440,9 +441,11 @@ function GroupingToggle({ value, onChange }: { value: ProjectGrouping; onChange:
     { value: 'repo', label: t('usage.groupByRepo') },
   ];
   return (
-    <span className="flex rounded-md overflow-hidden border border-border-soft normal-case tracking-normal">
+    <Surface kind="segmented" as="span" className="flex rounded-md overflow-hidden border border-border-soft normal-case tracking-normal">
       {options.map(opt => (
-        <button
+        <Button
+          variant="segment"
+          active={value === opt.value}
           key={opt.value}
           onClick={() => onChange(opt.value)}
           aria-pressed={value === opt.value}
@@ -452,9 +455,9 @@ function GroupingToggle({ value, onChange }: { value: ProjectGrouping; onChange:
           )}
         >
           {opt.label}
-        </button>
+        </Button>
       ))}
-    </span>
+    </Surface>
   );
 }
 
@@ -494,22 +497,9 @@ function ActivityHeatmap({ byDay }: { byDay: UsageSummary['byDay'] }) {
   const q3 = nonZero[Math.floor(nonZero.length * 0.75)] || 1;
   const level = (v: number) => v === 0 ? 0 : v <= q1 ? 1 : v <= q2 ? 2 : v <= q3 ? 3 : 4;
 
-  const colors = [
-    // Zero-day color was bg-muted/40 — invisible on bg-surface. Use the
-    // semantic border token so the heatmap cell is always discernible from
-    // empty space.
-    'bg-border',
-    // The lowest activity level used to be bg-accent/20, which read as
-    // "almost the same as the zero cell" on light themes — the user
-    // couldn't tell at a glance whether a faint cell meant "no activity"
-    // or "barely any activity". Lift the floor to /35 (still clearly less
-    // than /55) and widen the rest of the ramp evenly so all four
-    // non-zero levels are visually distinct.
-    'bg-accent/35',
-    'bg-accent/55',
-    'bg-accent/75',
-    'bg-accent',
-  ];
+  // The ramp itself is a theme token (`--heat-*` in styles.css): Lens steps its
+  // accent, and a family with a contribution graph of its own swaps it in.
+  const colors = ['bg-[var(--heat-0)]', 'bg-[var(--heat-1)]', 'bg-[var(--heat-2)]', 'bg-[var(--heat-3)]', 'bg-[var(--heat-4)]'];
   const dayLabels = ['Mon', '', 'Wed', '', 'Fri', '', ''];
 
   // Month labels: place a label above the week whose first day is in a new month.
@@ -528,7 +518,7 @@ function ActivityHeatmap({ byDay }: { byDay: UsageSummary['byDay'] }) {
   // the available width — wide screens no longer leave blank space on the right.
   // Aspect-square keeps cells from going rectangular as they grow.
   return (
-    <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft min-w-0 h-full flex flex-col justify-between">
+    <Surface kind="card" className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft min-w-0 h-full flex flex-col justify-between">
       {/* Month strip — labels positioned as % so they track cell stretch. */}
       <div className="flex pl-7 mb-1 text-[10px] text-text-muted relative h-3">
         <div className="relative flex-1">
@@ -581,14 +571,14 @@ function ActivityHeatmap({ byDay }: { byDay: UsageSummary['byDay'] }) {
         ))}
         <span>{t('usage.more')}</span>
       </div>
-    </div>
+    </Surface>
   );
 }
 
 function ActivityStats({ stats, sessions }: { stats: UsageSummary['stats']; sessions: number }) {
   const { t } = useTranslation();
   return (
-    <div className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex flex-col gap-2.5 h-full min-w-0">
+    <Surface kind="card" className="bg-surface border border-border-soft rounded-xl p-4 shadow-soft flex flex-col gap-2.5 h-full min-w-0">
       <StatLine icon={<Trophy className="w-3.5 h-3.5 text-amber-500" />} label={t('usage.favoriteModel')} value={stats.favoriteModel ? fmtModel(stats.favoriteModel) : '—'} />
       <StatLine icon={<Database className="w-3.5 h-3.5 text-accent" />} label={t('usage.sessions')} value={sessions.toLocaleString()} />
       <StatLine icon={<CalendarIcon className="w-3.5 h-3.5 text-emerald-500" />} label={t('usage.activeDays')} value={`${stats.activeDays} / ${stats.totalDays}`} />
@@ -596,7 +586,7 @@ function ActivityStats({ stats, sessions }: { stats: UsageSummary['stats']; sess
       <StatLine icon={<Flame className="w-3.5 h-3.5 text-rose-500" />} label={t('usage.longestStreak')} value={t('usage.daysCount', { n: stats.longestStreak })} />
       <StatLine icon={<Hourglass className="w-3.5 h-3.5 text-purple-500" />} label={t('usage.longestSession')} value={fmtDuration(stats.longestSessionMs)} />
       <StatLine icon={<CalendarIcon className="w-3.5 h-3.5 text-sky-500" />} label={t('usage.mostActiveDay')} value={stats.mostActiveDay || '—'} />
-    </div>
+    </Surface>
   );
 }
 
@@ -628,7 +618,7 @@ function fmtDuration(ms: number): string {
 // Hero metrics — 3 oversized headline numbers per v4 brief. Account understandable in 3s.
 function UsageSkeleton() {
   return (
-    <main data-pane="detail" className="flex-1 min-w-0 overflow-y-auto bg-surface border border-border rounded-2xl animate-fade-in">
+    <Surface kind="pane" as="main" data-pane="detail" className="flex-1 min-w-0 overflow-y-auto bg-surface border border-border rounded-2xl animate-fade-in">
       <div className="px-8 py-8 space-y-6">
         <div className="flex items-center gap-3 mb-1">
           <div className="w-9 h-9 rounded-xl bg-muted/60 animate-pulse-soft" />
@@ -665,7 +655,7 @@ function UsageSkeleton() {
           <div className="h-24 rounded bg-muted/40 animate-pulse-soft" />
         </div>
       </div>
-    </main>
+    </Surface>
   );
 }
 
@@ -683,11 +673,11 @@ function HeroMetrics({ usage }: { usage: UsageSummary }) {
 
 function HeroMetric({ eyebrow, value, sub }: { eyebrow: string; value: string; sub: string }) {
   return (
-    <div className="bg-surface border border-border-soft rounded-xl p-5">
-      <div className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mb-2">{eyebrow}</div>
+    <Surface kind="card" className="bg-surface border border-border-soft rounded-xl p-5">
+      <Surface kind="eyebrow" className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mb-2">{eyebrow}</Surface>
       <div className="text-[36px] font-bold tabular-nums leading-none text-text">{value}</div>
       <div className="text-[11px] text-text-muted mt-2">{sub}</div>
-    </div>
+    </Surface>
   );
 }
 
@@ -749,14 +739,14 @@ function InsightCards({ usage, projectGrouping }: { usage: UsageSummary; project
 
 function InsightCard({ eyebrow, title, metric, sub, tint }: { eyebrow: string; title: string; metric: string; sub: string; tint: string }) {
   return (
-    <div className="relative bg-surface border border-border-soft rounded-xl p-4 overflow-hidden">
+    <Surface kind="card" className="relative bg-surface border border-border-soft rounded-xl p-4 overflow-hidden">
       <span className={cn('absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b', tint)} />
       <div className="ml-2">
-        <div className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mb-1.5">{eyebrow}</div>
+        <Surface kind="eyebrow" className="text-[10.5px] uppercase tracking-wider font-semibold text-text-muted mb-1.5">{eyebrow}</Surface>
         <div className="text-[14.5px] font-bold text-text truncate" title={title}>{title}</div>
         <div className="text-[12px] text-text mt-1 tabular-nums">{metric}</div>
         <div className="text-[10.5px] text-text-muted mt-0.5">{sub}</div>
       </div>
-    </div>
+    </Surface>
   );
 }
