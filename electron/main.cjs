@@ -518,7 +518,7 @@ function createWindow({ startHidden = false } = {}) {
   const saved = !isDev ? appPrefs.windowBounds : null;
   const onScreen = saved
     && Number.isFinite(saved.width) && Number.isFinite(saved.height)
-    && saved.width >= 1380 && saved.height >= 720
+    && saved.width >= 1380 && saved.height >= 760
     && Number.isFinite(saved.x) && Number.isFinite(saved.y)
     && saved.x >= wa.x - 50 && saved.y >= wa.y - 50
     && saved.x + saved.width <= wa.x + wa.width + 50
@@ -530,10 +530,12 @@ function createWindow({ startHidden = false } = {}) {
     title: app.getName(),
     ...initialBounds,
     // 1380 covers sidebar (default 220) + list (default ~360) + detail-min
-    // (~640) + chrome gaps + breathing room. The constructor floor needs to
-    // match `setMinimumSize` below — earlier these drifted (1280 here,
-    // 1380 below), so the constructor floor was effectively dead.
-    minWidth: 1380, minHeight: 720,
+    // (~640) + chrome gaps + breathing room. 760 keeps the sidebar's flexible
+    // gap above Filters open once the nav carries every entry (terminals
+    // included); at 720 that gap closed and Filters sat against Settings. The
+    // constructor floor needs to match `setMinimumSize` below — earlier these
+    // drifted (1280 here, 1380 below), so the constructor floor was dead.
+    minWidth: 1380, minHeight: 760,
     // Unified hidden-titlebar across both platforms — macOS keeps the traffic
     // lights inset; Windows uses the system overlay so we still get native
     // min/max/close behavior without the chunky default title bar.
@@ -560,7 +562,7 @@ function createWindow({ startHidden = false } = {}) {
   // `minHeight` are occasionally ignored when the user drags fast or after a
   // window restore. setMinimumSize re-applies the constraint and survives
   // those edge cases.
-  try { mainWindow.setMinimumSize(1380, 720); } catch {}
+  try { mainWindow.setMinimumSize(1380, 760); } catch {}
 
   // CSP injected as a response header — covers both dev (vite served HTML)
   // and prod (file:// loaded HTML) without needing a meta tag. Dev policy
