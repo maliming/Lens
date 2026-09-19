@@ -187,7 +187,8 @@
 
   /* Overlay-style scrollbar — thin, transparent thumb by default so the
      gutter blends with the card; only firms up on hover. */
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  :root { --scrollbar-w: 8px; }
+  ::-webkit-scrollbar { width: var(--scrollbar-w); height: var(--scrollbar-w); }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
     background: transparent;
@@ -205,6 +206,19 @@
   ::-webkit-scrollbar-thumb:active {
     background: hsl(var(--text-muted)) !important;
     background-clip: padding-box;
+  }
+
+  /* Equal-looking horizontal padding in a scroll container. Styling
+     ::-webkit-scrollbar opts out of the macOS overlay scrollbar, so the bar
+     takes layout width at the right edge, outside the padding box: a
+     symmetric `px-3` leaves the rows a scrollbar-width further from the right
+     edge than from the left. `stable` keeps the gutter reserved even while
+     the list is too short to scroll, so the right padding can pay for it once
+     instead of the gap jumping around as the list grows. */
+  .scroll-px-3 {
+    scrollbar-gutter: stable;
+    padding-left: 0.75rem;
+    padding-right: calc(0.75rem - var(--scrollbar-w));
   }
 
   /* SessionDetail rounded card: paint the scrollbar track / corner with the

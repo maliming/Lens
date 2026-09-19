@@ -192,7 +192,7 @@ export function ConfigView({ demoMode = false, onStatus, refreshTick = 0, isActi
             <TextInput value={filter} onChange={e => setFilter(e.target.value)} placeholder={tConfigRoot('config.filterPlaceholder')} className="w-full pl-9 pr-3 py-2 bg-surface border border-border rounded-lg text-[13px] outline-none focus:border-accent" />
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1.5">
+        <div className="flex-1 overflow-y-auto scroll-px-3 pb-3 space-y-1.5">
           {[...grouped.entries()].map(([kind, arr]) => {
             if (arr.length === 0 && !filter.trim()) return null;
             const isCollapsed = collapsed.has(kind) && !filter.trim();

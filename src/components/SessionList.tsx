@@ -399,7 +399,7 @@ function VirtualList({
       : !inventoryReady && sessions.length === 0;
     if (waitingOnScan) {
       return (
-        <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 px-3 pt-2 pb-2 animate-fade-in">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 scroll-px-3 pt-2 pb-2 animate-fade-in">
           <div className="flex flex-col gap-2">
             {Array.from({ length: 8 }).map((_, i) => (
               <div
@@ -423,14 +423,14 @@ function VirtualList({
       );
     }
     return (
-      <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 px-3 pt-2 pb-2 animate-fade-in">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 scroll-px-3 pt-2 pb-2 animate-fade-in">
         <EmptyState view={view} query={query} onPickSuggestion={onPickSuggestion} />
       </div>
     );
   }
 
   return (
-    <div ref={parentRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden min-w-0 px-3 pt-2 pb-2">
+    <div ref={parentRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden min-w-0 scroll-px-3 pt-2 pb-2">
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
         {virtualizer.getVirtualItems().map(v => {
           const row = rows[v.index];
