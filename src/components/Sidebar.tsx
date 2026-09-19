@@ -308,7 +308,7 @@ function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label
     : 'stroke-quota-ok';
   const text = unknown ? 'text-text-muted'
     : spent ? 'text-quota-danger'
-    : outpacing ? 'text-quota-warn'
+    : outpacing ? 'text-[hsl(var(--warn-text))]'
     : 'text-text';
   // Families that tint the track with the state's colour set these; Lens keeps
   // one neutral track whatever the state.
@@ -390,12 +390,12 @@ function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label
     const strokeAt = (pctLeft: number) =>
       pctLeft <= 10 ? hsl('--quota-danger') : pctLeft <= 30 ? hsl('--quota-warn') : hsl('--quota-ok');
     const textAt = (pctLeft: number) =>
-      pctLeft <= 10 ? hsl('--quota-danger') : pctLeft <= 30 ? hsl('--quota-warn') : hsl('--text');
+      pctLeft <= 10 ? hsl('--quota-danger') : pctLeft <= 30 ? hsl('--warn-text') : hsl('--text');
     // The last stop uses the colour the ring actually settles on, which is not
     // always the one the marks predict: an outpacing window can be amber with
     // plenty left.
     const endStroke = spent ? hsl('--quota-danger') : outpacing ? hsl('--quota-warn') : hsl('--quota-ok');
-    const endText = spent ? hsl('--quota-danger') : outpacing ? hsl('--quota-warn') : hsl('--text');
+    const endText = spent ? hsl('--quota-danger') : outpacing ? hsl('--warn-text') : hsl('--text');
     settledRef.current = { stroke: endStroke, text: endText };
 
     // A ring that already showed a figure moves from it, up or down, so a
@@ -499,7 +499,7 @@ function QuotaRing({ label, window, windowSeconds, notReported, sweep }: { label
               {/* Only when the pace is the reason for the colour. Once a window
                   is simply spent, the number says it and this would be noise. */}
               {outpacing && !spent && (
-                <div className="text-warning mt-1">{t('quota.outpacing')}</div>
+                <div className="text-[hsl(var(--warn-text))] mt-1">{t('quota.outpacing')}</div>
               )}
             </>
           )}

@@ -213,7 +213,7 @@ export function ConfigView({ demoMode = false, onStatus, refreshTick = 0, isActi
                 {!isCollapsed && (
                   <div className="flex flex-col gap-1 mt-1 mb-2">
                     {arr.map(it => (
-                      <Button variant="chip" active={active === it.key} key={it.key} onClick={() => setActive(it.key)} className={cn(
+                      <Button variant="option" active={active === it.key} key={it.key} onClick={() => setActive(it.key)} className={cn(
                         'text-left px-3 py-2 rounded-lg transition border',
                         active === it.key ? 'bg-accent-soft border-accent/30 text-accent' : 'bg-surface border-border-soft hover:border-border'
                       )}>

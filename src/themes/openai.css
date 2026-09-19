@@ -62,10 +62,9 @@
   --quota-ok: 0 0% 5.1%;
   --quota-warn: 32.1 94.6% 43.7%;
   --quota-danger: 0 72.2% 50.6%;
-  --fx-badge-bg: var(--fx-selected);
-  --fx-badge-fg: hsl(var(--text));
-  --fx-avatar-bg: hsl(var(--accent));
-  --fx-avatar-fg: rgb(var(--on-accent));
+  --fx-track: #0000000d;
+  --fx-plan-bg: var(--fx-selected);
+  --fx-plan-fg: hsl(var(--text));
   --fx-user-msg: #f4f4f4;
   --fx-link: #2964aa;
   --fx-code-inline: #ececec;
@@ -100,10 +99,9 @@
   --quota-ok: 0 0% 100%;
   --quota-warn: 43.3 96.4% 56.3%;
   --quota-danger: 0 90.6% 70.8%;
-  --fx-badge-bg: var(--fx-selected);
-  --fx-badge-fg: hsl(var(--text));
-  --fx-avatar-bg: hsl(var(--accent));
-  --fx-avatar-fg: rgb(var(--on-accent));
+  --fx-track: #ffffff14;
+  --fx-plan-bg: var(--fx-selected);
+  --fx-plan-fg: hsl(var(--text));
   --fx-user-msg: #2f2f2f;
   --fx-link: #7ab7ff;
   --fx-code-inline: var(--fx-selected);
@@ -111,8 +109,8 @@
 
 /* The current sidebar item is shown by its fill alone, without Lens's accent bar. */
 [data-theme-family='openai'] [data-variant='nav'][data-active] > .absolute { display: none; }
-[data-theme-family='openai'] [data-ui='avatar'] { background-image: none; background-color: var(--fx-avatar-bg); color: var(--fx-avatar-fg); box-shadow: var(--shadow-card); }
-[data-theme-family='openai'] [data-ui='badge'][data-plan] { background-color: var(--fx-badge-bg); color: var(--fx-badge-fg); }
+[data-theme-family='openai'] [data-ui='badge'][data-plan] { background-color: var(--fx-plan-bg, var(--fx-badge-bg)); color: var(--fx-plan-fg, var(--fx-badge-fg)); }
+[data-theme-family='openai'] [role='switch'] > span { box-shadow: 0 0 0 1px hsl(var(--border)), 0 1px 2px rgb(0 0 0 / 0.18); }
 /* Markdown at the sizes chatgpt.com's conversation page computes: headings at
    24, 20 and 18px over a 16px body, medium-weight inline code at 14px on a
    light fill, flat rounded code blocks at 14px on a 24px line. */

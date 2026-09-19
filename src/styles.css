@@ -77,6 +77,9 @@
     --success: 120 100% 29%;
     --warning: 41 96% 54%;
     --danger: 0 61% 52%;
+    /* Warning as text — the figure in an outpacing quota ring and its tooltip
+       line. The warning fill above reads as a ring but not as type on white. */
+    --warn-text: 33 93% 37%;
 
     /* Quota gauge scale: plenty left → running ahead of the window → spent.
        Kept apart from the status text tokens because a ring stroke needs an
@@ -123,6 +126,7 @@
     --success: 120 55% 46%;
     --warning: 41 96% 58%;
     --danger: 0 73% 63%;
+    --warn-text: var(--warning);
 
     --quota-ok: var(--accent);
     --quota-warn: var(--warning);

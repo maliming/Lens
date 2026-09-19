@@ -526,6 +526,7 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
       <ContextMenu.Trigger asChild>
         <Surface
           kind="row"
+          data-active={active ? '' : undefined}
           onClick={onSelect}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
           role="button"

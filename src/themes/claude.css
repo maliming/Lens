@@ -46,7 +46,7 @@
   --text: 0 0% 7.5%;
   --text-dim: 60 2.8% 21.4%;
   --text-muted: 42.9 2.9% 46.9%;
-  --accent: 14.77 63.1% 59.6%;
+  --accent: 15.1 54.2% 51.2%;
   --accent-soft: 16.8 54.7% 93.2%;
   --ring: 210 70.9% 51.6%;
   --success: 103 72.3% 26.9%;
@@ -73,6 +73,11 @@
   --shadow-pop: 0 12px 32px hsl(0 0% 0% / 0.12);
   --fx-hover: #0b0b0b0a;
   --fx-selected: #edece8;
+  --fx-sidebar: #fafaf9;
+  --fx-menu-hl: #0b0b0b0d;
+  --warn-text: 39 88.8% 28%;
+  --fx-track: #edece8;
+  --fx-knob: #ffffff;
   --fx-nav-fg: #52514e;
   --fx-code-fg: hsl(0 57.8% 35.3%);
   --fx-code-bg: hsl(60 2.8% 21.4% / 0.05);
@@ -117,12 +122,16 @@
   --quota-danger-track: 0 67% 59.6% / 0.25;
   --quota-depleted: 0 67% 59.6% / 0.18;
   --quota-depleted-stripe: 0 67% 59.6% / 0.6;
-  --on-accent: 255 255 255;
+  --on-accent: 21 21 21;
   --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.3);
   --shadow-card: 0 2px 8px hsl(0 0% 0% / 0.35);
   --shadow-pop: 0 12px 32px hsl(0 0% 0% / 0.5);
-  --fx-hover: #ffffff0d;
-  --fx-selected: hsl(60 1.6% 15%);
+  --fx-hover: #f9f9f70d;
+  --fx-selected: #f9f9f71a;
+  --fx-sidebar: #151515;
+  --fx-menu-hl: #f9f9f70d;
+  --fx-track: #262625;
+  --fx-knob: #3a3a38;
   --fx-nav-fg: hsl(55 9.1% 74.1%);
   --fx-code-fg: hsl(0 67% 70%);
   --fx-code-bg: hsl(0 0% 100% / 0.06);
@@ -139,7 +148,13 @@
 /* The current sidebar item is shown by its fill alone, without Lens's accent bar. */
 [data-theme-family='claude'] [data-variant='nav'][data-active] > .absolute { display: none; }
 [data-theme-family='claude'] [data-ui='avatar'] { background-image: none; background-color: var(--fx-avatar-bg); color: var(--fx-avatar-fg); box-shadow: var(--shadow-card); }
-[data-theme-family='claude'] [data-ui='badge'][data-plan] { background-color: var(--fx-badge-bg); color: var(--fx-badge-fg); }
+[data-theme-family='claude'] [data-ui='badge'][data-plan] { background-color: var(--fx-plan-bg, var(--fx-badge-bg)); color: var(--fx-plan-fg, var(--fx-badge-fg)); }
+[data-theme-family='claude'] [role='switch'] > span { box-shadow: 0 0 0 1px hsl(var(--border)), 0 1px 2px rgb(0 0 0 / 0.18); }
+[data-theme-family='claude'] [data-ui='row'][data-active] { background-color: var(--fx-selected); border-color: transparent; --accent: var(--text); }
+[data-theme-family='claude'] [data-ui='row'][data-active] > .absolute.left-0.top-0.bottom-0 { display: none; }
+/* Accent as text on an accent tint (search match panels, highlighted terms): a deeper clay there, so it stays the brand hue and still reads. */
+[data-theme-family='claude']:not([data-theme='dark']) [data-ui='panel'], [data-theme-family='claude']:not([data-theme='dark']) mark { --accent: 15 55% 38%; }
+[data-theme-family='claude'] [data-pane='sidebar'] { background-color: var(--fx-sidebar); }
 /* Markdown at the sizes claude.ai's conversation page computes: headings at
    28, 22 and 18px over a 16px body, inline code at 0.9em as tinted text on a
    faint fill with a hairline edge, and code blocks at 14px in a 12px-rounded
