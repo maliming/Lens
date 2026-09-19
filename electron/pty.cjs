@@ -24,7 +24,7 @@ const fs = require('fs');
 
 const { decodeProjectDir } = require('./parsers/claude.cjs');
 const { PROJECTS_DIR, CODEX_SESSIONS_DIR } = require('./lib/paths.cjs');
-const { resolveSessionCwd } = require('./lib/session-cwd.cjs');
+const { sessionCwdCandidates } = require('./lib/session-cwd.cjs');
 const { ensureInside } = require('./lib/fs-safety.cjs');
 const { isValidSessionId } = require('./lib/shell.cjs');
 const { detectAiTools } = require('./lib/system-caps.cjs');
@@ -113,7 +113,7 @@ const SOURCE_ADAPTERS = {
     root: PROJECTS_DIR,
     readMeta: (parsers, filePath) => parsers.claude.readSessionMetadata(filePath),
     resumeId: (meta, real) => path.basename(real, '.jsonl'),
-    cwdOf: (meta, real) => resolveSessionCwd(
+    cwdCandidates: (meta, real) => sessionCwdCandidates(
       meta, path.basename(path.dirname(real)), decodeProjectDir,
     ),
     // The CLI paints its own chrome with truecolor fills chosen by its `theme`
@@ -152,7 +152,7 @@ const SOURCE_ADAPTERS = {
     // The rollout filename is a timestamp, not the conversation id — resuming
     // by it would fail. The id the CLI wants is recorded in the file.
     resumeId: (meta) => meta?.codexId || null,
-    cwdOf: (meta) => (typeof meta?.cwd === 'string' && meta.cwd.trim() ? meta.cwd : null),
+    cwdCandidates: (meta) => (typeof meta?.cwd === 'string' && meta.cwd.trim() ? [meta.cwd] : []),
     // Codex exposes no theme setting in config.toml and no CLI flag for one.
     //
     // Its approval policy is the counterpart of Claude's permission mode: when
@@ -332,13 +332,12 @@ function createPtyManager({ getMainWindow, claude, codex }) {
     const sessionId = adapter.resumeId(meta, real);
     if (!isValidSessionId(sessionId)) return { ok: false, error: 'bad-session-id' };
 
-    const cwd = adapter.cwdOf(meta, real);
-    if (!cwd) return { ok: false, error: 'no-cwd' };
-    try {
-      if (!fs.lstatSync(cwd).isDirectory()) return { ok: false, error: 'cwd-missing' };
-    } catch {
-      return { ok: false, error: 'cwd-missing' };
-    }
+    const candidates = adapter.cwdCandidates(meta, real);
+    if (candidates.length === 0) return { ok: false, error: 'no-cwd' };
+    const cwd = candidates.find((dir) => {
+      try { return fs.lstatSync(dir).isDirectory(); } catch { return false; }
+    });
+    if (!cwd) return { ok: false, error: 'cwd-missing' };
 
     const cols = Math.min(Math.max(Number(payload?.cols) || 80, 20), MAX_COLS);
     const rows = Math.min(Math.max(Number(payload?.rows) || 24, 5), MAX_ROWS);
