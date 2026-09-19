@@ -717,9 +717,14 @@ function createWindow({ startHidden = false } = {}) {
     if (canHide) {
       e.preventDefault();
       mainWindow.hide();
-      if (process.platform === 'darwin' && app.dock) {
-        try { app.dock.hide(); } catch {}
-      }
+      // No `app.dock.hide()` here. On macOS that is setActivationPolicy(.accessory),
+      // and an app that is currently frontmost cannot be an accessory — the system
+      // hands the foreground to the next app in its MRU order within milliseconds.
+      // If that app parks its own window offscreen when closed (Telegram, and every
+      // other hide-on-close app), being activated drags its window back onto the
+      // screen, so closing Lens appears to randomly summon an unrelated app.
+      // `mainWindow.hide()` alone has no such effect: Lens stays frontmost with no
+      // window, exactly like any normal macOS app that closed its last window.
       return;
     }
     // closeBehavior='quit' on macOS: without help, Electron's default macOS
