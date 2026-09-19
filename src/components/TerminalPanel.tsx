@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { Maximize2, Minimize2, Moon, RotateCw, Sun, TerminalSquare, X, ZoomIn, ZoomOut } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import { useTranslation } from '../lib/I18nProvider';
 import { getSource } from '../lib/sources';
+import { cleanDisplayText } from '../lib/format';
 import {
   MAX_TERMINAL_HEIGHT, MIN_TERMINAL_HEIGHT, TERMINAL_FONTS,
   closeTerminal, getTerminal, getTerminalBackground, getTerminalFontId, hasOrphanFor, openTerminal,
@@ -12,7 +14,7 @@ import {
 } from '../lib/terminals';
 import type { TerminalFontId } from '../lib/terminals';
 import type { SessionMeta } from '../types';
-import { Button, Select, Surface } from '../ui';
+import { Button, Label, Select, Surface, TextInput, useSkinClass } from '../ui';
 
 // A real `claude --resume` in a PTY, pinned under the transcript.
 //
@@ -36,6 +38,27 @@ type Props = {
   demoMode?: boolean;
 };
 
+// Names given to a terminal from its title's rename dialog, keyed by session so
+// they outlive a restart of the terminal and of the app. No entry means the
+// header shows whatever the CLI reports.
+const TITLE_STORAGE = 'terminal-titles-v1';
+const MAX_TITLE = 80;
+function readTitle(key: string): string {
+  try {
+    const all = JSON.parse(localStorage.getItem(TITLE_STORAGE) || '{}');
+    const v = all && typeof all === 'object' ? all[key] : undefined;
+    return typeof v === 'string' ? cleanDisplayText(v).slice(0, MAX_TITLE) : '';
+  } catch { return ''; }
+}
+function saveTitle(key: string, title: string) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TITLE_STORAGE) || '{}');
+    const all: Record<string, string> = parsed && typeof parsed === 'object' ? parsed : {};
+    if (title) all[key] = title; else delete all[key];
+    localStorage.setItem(TITLE_STORAGE, JSON.stringify(all));
+  } catch { /* not worth failing over */ }
+}
+
 export function TerminalPanel({ session, onActivity, maximized, onToggleMaximize, demoMode }: Props) {
   const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -57,6 +80,18 @@ export function TerminalPanel({ session, onActivity, maximized, onToggleMaximize
   const sessionKey = session ? sessionKeyOf(session) : null;
   const entry = sessionKey ? getTerminal(sessionKey) : null;
   const open = !!entry;
+
+  const [customTitle, setCustomTitle] = useState(() => (sessionKey ? readTitle(sessionKey) : ''));
+  const [renameOpen, setRenameOpen] = useState(false);
+  useEffect(() => {
+    setCustomTitle(sessionKey ? readTitle(sessionKey) : '');
+    setRenameOpen(false);
+  }, [sessionKey]);
+  const applyTitle = (next: string) => {
+    if (!sessionKey) return;
+    saveTitle(sessionKey, next);
+    setCustomTitle(next);
+  };
   // A terminal for this session that main is still running but this renderer
   // has forgotten — which is the state after the renderer reloads, and the
   // renderer does reload on things as ordinary as hiding and showing the
@@ -192,6 +227,10 @@ export function TerminalPanel({ session, onActivity, maximized, onToggleMaximize
   // of wasted vertical space under every transcript.
   if (!open) return null;
 
+  // Before the CLI sets a title, show the command that is actually running —
+  // which is not the same one for both providers.
+  const liveTitle = entry.title || (session.source === 'codex' ? 'codex resume' : 'claude --resume');
+
   return (
     <div
       className={`border-t border-border-soft bg-bg/95 flex flex-col min-w-0 ${
@@ -213,12 +252,23 @@ export function TerminalPanel({ session, onActivity, maximized, onToggleMaximize
           className={`flex-shrink-0 ${entry.busy ? 'text-accent animate-pulse' : 'text-text-muted'}`}
         />
         {/* The CLI reports what it is doing through the OSC title sequence —
-            live status for free, and more useful than a static command line. */}
-        <span className="text-[11px] text-text-muted font-mono truncate" title={entry.title || undefined}>
-          {/* Before the CLI sets a title, show the command that is actually
-              running — which is not the same one for both providers. */}
-          {entry.title || (session.source === 'codex' ? 'codex resume' : 'claude --resume')}
+            live status for free, and more useful than a static command line.
+            A name given by double-clicking takes its place in the header; the
+            live title stays one hover away and still drives the busy pulse. */}
+        <span
+          onDoubleClick={() => setRenameOpen(true)}
+          title={`${customTitle ? `${customTitle}\n${liveTitle}` : liveTitle}\n${t('term.title.hint')}`}
+          className={`text-[11px] font-mono truncate cursor-default select-none ${customTitle ? 'text-text-dim' : 'text-text-muted'}`}
+        >
+          {customTitle || liveTitle}
         </span>
+        <RenameTerminalDialog
+          open={renameOpen}
+          onOpenChange={setRenameOpen}
+          title={customTitle}
+          liveTitle={liveTitle}
+          onSave={applyTitle}
+        />
         {entry.error && <span className="text-[11px] text-text-dim">{t('term.failed')}</span>}
         {entry.exitCode !== null && (
           <span className="text-[11px] text-text-dim">
@@ -316,5 +366,70 @@ export function TerminalPanel({ session, onActivity, maximized, onToggleMaximize
         style={{ background: getTerminalBackground() }}
       />
     </div>
+  );
+}
+
+// Same shape as the session rename dialog, so renaming reads as one gesture
+// wherever it happens.
+function RenameTerminalDialog({ open, onOpenChange, title, liveTitle, onSave }: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  title: string;
+  liveTitle: string;
+  onSave: (title: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState(title);
+  const skinClass = useSkinClass();
+  const inputId = useId();
+
+  useEffect(() => { if (open) setDraft(title); }, [open, title]);
+
+  const save = (value: string) => {
+    onSave(cleanDisplayText(value).trim().slice(0, MAX_TITLE));
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay data-ui="dialog-overlay" className={skinClass('dialog-overlay', 'fixed inset-0 bg-black/30 z-50 animate-fade-in')} />
+        <Dialog.Content data-ui="dialog" className={skinClass('dialog', 'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[440px] max-w-[92vw] bg-surface border border-border rounded-2xl shadow-pop z-50 overflow-hidden animate-modal-in')}>
+          <Surface kind="dialog-header" className="px-5 py-4 border-b border-border-soft">
+            <Dialog.Title data-ui="dialog-title" className={skinClass('dialog-title', 'text-[14px] font-semibold text-text')}>{t('term.rename.title')}</Dialog.Title>
+            <div className="text-[11px] text-text-muted mt-0.5 truncate font-mono">{liveTitle}</div>
+          </Surface>
+          <div className="px-5 py-4">
+            <Label htmlFor={inputId} className="text-[11px] uppercase tracking-wider font-semibold text-text-muted block mb-2">{t('term.title.label')}</Label>
+            <TextInput
+              id={inputId}
+              autoFocus
+              type="text"
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              // Enter that confirms an IME candidate must not save half a word.
+              onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) save(draft); }}
+              placeholder={liveTitle}
+              maxLength={MAX_TITLE}
+              className="w-full px-3 py-2 bg-bg border border-border-soft rounded-lg text-[13px] outline-none focus:border-accent focus:ring-1 focus:ring-accent placeholder:text-text-muted"
+            />
+            <div className="text-[10.5px] text-text-muted mt-1.5">{t('term.rename.hint')}</div>
+          </div>
+          <Surface kind="dialog-footer" className="px-5 py-3 border-t border-border-soft flex items-center justify-between gap-2 bg-muted/30">
+            {title ? (
+              <Button variant="danger" onClick={() => save('')} className="px-2.5 py-1.5 text-[12px] rounded-md text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30">
+                {t('term.rename.clear')}
+              </Button>
+            ) : <span />}
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={() => onOpenChange(false)} className="px-3 py-1.5 text-[12.5px] rounded-md text-text-dim hover:bg-muted">{t('common.cancel')}</Button>
+              <Button variant="primary" onClick={() => save(draft)} className="px-3 py-1.5 text-[12.5px] font-medium rounded-md bg-accent text-on-accent hover:opacity-90">
+                {t('common.save')}
+              </Button>
+            </div>
+          </Surface>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
