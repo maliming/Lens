@@ -19,31 +19,15 @@
       mount, and because the geometry matches what the real skeleton draws,
       there is nothing to see at the handover.
 
-      Everything here is inline on purpose: an external stylesheet is one more
-      round trip during exactly the window this is meant to cover.
+      The styles are inline on purpose: an external stylesheet is one more
+      round trip during exactly the window this is meant to cover. The two
+      scripts are small local files instead, because the packaged app's CSP
+      refuses inline script.
     -->
-    <script>
-      // Theme before first paint. `data-theme` used to be hardcoded to light,
-      // so anyone on the dark theme got a white flash on every launch — this
-      // has to run synchronously in <head>, before the body is painted, which
-      // is why it is not in a module.
-      (function () {
-        var mode = null;
-        try { mode = localStorage.getItem('theme-mode'); } catch (e) {}
-        var dark = mode === 'dark' || (mode !== 'light'
-          && window.matchMedia
-          && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-
-        // Same for the style family. The ids repeat src/themes/families.ts.
-        var family = 'lens';
-        try {
-          var prefs = JSON.parse(localStorage.getItem('display-prefs-v1') || 'null');
-          if (prefs && /^(lens|claude|openai|github)$/.test(prefs.themeFamily)) family = prefs.themeFamily;
-        } catch (e) {}
-        document.documentElement.setAttribute('data-theme-family', family);
-      })();
-    </script>
+    <!-- A file rather than inline: the packaged app's CSP is script-src 'self',
+         which refuses inline script. A classic script still blocks parsing,
+         so it runs before the body is painted. -->
+    <script src="/boot-theme.js"></script>
 
     <style>
       :root { --boot-bg: #f1f1f4; --boot-surface: #fff; --boot-line: #eeeef0; --boot-fill: #e9e9ec; }
@@ -117,42 +101,7 @@
       <div class="boot-detail"></div>
     </div>
 
-    <script>
-      (function () {
-        var boot = document.getElementById('boot');
-
-        // Cold process start only. Two independent signals, because they cover
-        // different things and neither covers both:
-        //
-        //   ?warm=1     main saying this process has already shown a window —
-        //               catches a window that was closed and reopened, which
-        //               arrives as a brand new renderer that would otherwise
-        //               have no way to know.
-        //   sessionStorage  survives a reload of THIS renderer, which is what
-        //               a dev-server reconnect does.
-        //
-        // This script sits directly after the markup and runs while the
-        // document is still parsing, so removing here happens before anything
-        // is painted. Leaving the skeleton visible by default means a thrown
-        // exception costs nothing.
-        if (location.search.indexOf('warm=1') !== -1) { boot.remove(); return; }
-        try {
-          if (sessionStorage.getItem('lens-booted')) { boot.remove(); return; }
-          sessionStorage.setItem('lens-booted', '1');
-        } catch (e) {}
-
-        // Match the widths the user dragged the panes to, so the skeleton lines
-        // up with the app that is about to replace it.
-        try {
-          // Same keys and same clamps as the resizers in the app, so a shell
-          // built here cannot land on a width the app would refuse.
-          var nav = parseInt(localStorage.getItem('sidebar-width'), 10);
-          if (nav >= 180 && nav <= 280) boot.style.setProperty('--boot-nav-w', nav + 'px');
-          var list = parseInt(localStorage.getItem('list-width'), 10);
-          if (list >= 320 && list <= 450) boot.style.setProperty('--boot-list-w', list + 'px');
-        } catch (e) {}
-      })();
-    </script>
+    <script src="/boot-shell.js"></script>
 
     <script type="module" src="/src/main.tsx"></script>
   </body>
