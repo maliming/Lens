@@ -681,21 +681,16 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
       // header doubles in height.
       style={{ minWidth: 640 }}
     >
-      {/* overflow-anchor:none disables Chromium's native scroll anchoring.
-          The scroll-up loader already restores position manually (prepend
-          delta in the useLayoutEffect above); with native anchoring left on,
-          the browser ALSO shifts scrollTop by the same delta, so the two
-          stack and the view jumps back down toward the latest turn. */}
-      <main
-        data-pane="detail"
-        ref={scrollRef}
-        onScroll={onScroll}
-        className={`flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden [overflow-anchor:none] ${
-          hideTranscript ? 'hidden' : ''
-        }`}
-      >
+      {/* The header sits OUTSIDE the scroll container: everything that
+          scrolls is then the same surface, so the scrollbar gutter blends
+          with it the way it does in the session list. Inside, the header
+          painted the gutter beside it a different colour, which read as a
+          band down the pane's right edge. It was `sticky top-0`, so it was
+          already permanently on screen — nothing moves. */}
       {/* Compact Header (~140px) */}
-      <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur border-b border-border-soft px-6 py-3 min-w-0">
+      <div className={`bg-bg/95 border-b border-border-soft px-6 py-3 min-w-0 ${
+        hideTranscript ? 'hidden' : ''
+      }`}>
         <div className="flex items-center gap-2 mb-1.5 min-w-0">
           <h1 className="selectable text-[18px] font-bold text-text flex-1 leading-tight min-w-0 truncate" title={title}>
             {title}
@@ -882,8 +877,22 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
         </div>
       </div>
 
+      {/* overflow-anchor:none disables Chromium's native scroll anchoring.
+          The scroll-up loader already restores position manually (prepend
+          delta in the useLayoutEffect above); with native anchoring left on,
+          the browser ALSO shifts scrollTop by the same delta, so the two
+          stack and the view jumps back down toward the latest turn. */}
+      <main
+        data-pane="detail"
+        data-transcript
+        ref={scrollRef}
+        onScroll={onScroll}
+        className={`flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden [overflow-anchor:none] ${
+          hideTranscript ? 'hidden' : ''
+        }`}
+      >
       {/* Messages */}
-      <div className="px-7 py-5">
+      <div className="pl-7 pr-gutter-7 py-5">
         {pendingLargeLoad && !loading && (() => {
           // Two-tier overlay: SessionsView opens this at LARGE_SESSION_
           // THRESHOLD (~50 MB), and we split the copy at DETAIL_HARD_CAP_

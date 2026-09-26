@@ -221,12 +221,29 @@
     padding-right: calc(0.75rem - var(--scrollbar-w));
   }
 
+  /* Same idea where the padding sits on the children of the scroll container
+     rather than on the container itself (the transcript's header and body):
+     the container reserves the gutter, these pay for it out of the right
+     padding, so both edges of the pane read the same. */
+  .pr-gutter-6 { padding-right: calc(1.5rem - var(--scrollbar-w)); }
+  .pr-gutter-7 { padding-right: calc(1.75rem - var(--scrollbar-w)); }
+
   /* SessionDetail rounded card: paint the scrollbar track / corner with the
      window bg so the gutter blends with the area outside the card instead of
      showing as a hard white strip at the rounded edge. */
   [data-pane="detail"]::-webkit-scrollbar-track,
   [data-pane="detail"]::-webkit-scrollbar-corner {
     background: hsl(var(--bg) / 0.95);
+  }
+
+  /* The transcript scrolls nothing but the messages, so it keeps the default
+     see-through track like every other list: the gutter shows the surface
+     behind it and the messages sit the same distance from both edges of the
+     card. `stable` holds the gutter open on a session too short to scroll. */
+  [data-pane="detail"][data-transcript] { scrollbar-gutter: stable; }
+  [data-pane="detail"][data-transcript]::-webkit-scrollbar-track,
+  [data-pane="detail"][data-transcript]::-webkit-scrollbar-corner {
+    background: transparent;
   }
 
   /* Depleted quota track. A quota bar measures what is LEFT, so the fill is at
