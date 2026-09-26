@@ -1,4 +1,4 @@
-import { Search, Star, GitBranch, X, Play, Copy, FolderOpen, StarOff, Filter, Plus, Pencil, Terminal } from 'lucide-react';
+import { Search, Star, GitBranch, X, Play, Copy, FolderOpen, StarOff, Filter, Plus, Pencil, Terminal, Fingerprint } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
@@ -514,6 +514,15 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
     onStatus(t('status.copied', { cmd }));
     setTimeout(() => onStatus(''), 2500);
   };
+  const handleCopyId = async () => {
+    try {
+      await navigator.clipboard.writeText(s.id);
+      onStatus(t('status.copied', { cmd: s.id }));
+      setTimeout(() => onStatus(''), 2500);
+    } catch (e: any) {
+      onStatus(t('status.copyFailed', { error: e.message }));
+    }
+  };
   const handleResume = async () => {
     const fn = useITerm ? window.api.openInITerm : window.api.openInTerminal;
     const label = useITerm ? 'iTerm' : 'Terminal';
@@ -681,6 +690,7 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
         <ContextMenu.Content data-ui="menu" className={skinClass('menu', 'min-w-[220px] bg-elevated border border-border rounded-lg shadow-pop py-1 z-50 animate-in')}>
           <CtxItem onSelect={handleResume} icon={<Play className="w-3.5 h-3.5" />}>{t('detail.btn.resume')}</CtxItem>
           <CtxItem onSelect={handleCopy} icon={<Copy className="w-3.5 h-3.5" />}>{t('ctx.copyCmd')}</CtxItem>
+          <CtxItem onSelect={handleCopyId} icon={<Fingerprint className="w-3.5 h-3.5" />}>{t('ctx.copySessionId')}</CtxItem>
           <CtxItem onSelect={() => window.api.revealInFinder(s.filePath)} icon={<FolderOpen className="w-3.5 h-3.5" />}>{t('ctx.reveal')}</CtxItem>
           <ContextMenu.Separator data-ui="menu-separator" className={skinClass('menu-separator', 'my-1 h-px bg-border-soft')} />
           <CtxItem onSelect={() => setRenameOpen(true)} icon={<Pencil className="w-3.5 h-3.5" />}>

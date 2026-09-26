@@ -629,9 +629,16 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
   const tCc = session.tokensCacheCreate || 0;
   const totalTok = tIn + tOut + tCr + tCc;
 
-  const handleCopy = async () => {
+  // Shift-click copies the bare session ID instead of the resume command.
+  const handleCopy = async (e: React.MouseEvent) => {
     try {
-      const cmd = await window.api.copyResumeCommand(session.id, session.filePath, session.source);
+      let cmd: string;
+      if (e.shiftKey) {
+        await navigator.clipboard.writeText(session.id);
+        cmd = session.id;
+      } else {
+        cmd = await window.api.copyResumeCommand(session.id, session.filePath, session.source);
+      }
       // Inline button feedback for ~1.5s. Status bar still gets the longer message
       // so users who look at the bottom strip see the exact command.
       setJustCopied(true);
@@ -1036,7 +1043,7 @@ function DisplayMenu({ prefs, onChange }: { prefs: DisplayPrefs; onChange: (patc
   );
 }
 
-function ToolbarBtn({ onClick, icon, label, showLabel, title, active }: { onClick: () => void; icon: React.ReactNode; label: string; showLabel: boolean; title: string; active?: boolean }) {
+function ToolbarBtn({ onClick, icon, label, showLabel, title, active }: { onClick: (e: React.MouseEvent) => void; icon: React.ReactNode; label: string; showLabel: boolean; title: string; active?: boolean }) {
   return (
     <Button
       variant="secondary"
