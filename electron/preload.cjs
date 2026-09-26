@@ -59,4 +59,5 @@ contextBridge.exposeInMainWorld('api', {
   openLogsFolder: () => ipcRenderer.invoke('app:openLogsFolder'),
   openUserDataFolder: () => ipcRenderer.invoke('app:openUserDataFolder'),
   setTitleBarTheme: (theme) => ipcRenderer.invoke('win:setTitleBarTheme', theme),
+  setWindowBackground: (color) => ipcRenderer.invoke('win:setBackgroundColor', color),
 });

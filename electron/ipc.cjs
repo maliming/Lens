@@ -490,6 +490,19 @@ function registerIpc(deps) {
     try { win.setTitleBarOverlay(colors); } catch {}
   });
 
+  // The window's own background is what shows wherever the page hasn't painted
+  // yet — on macOS that's the strip a fast resize uncovers. createWindow can
+  // only guess it from the OS theme at launch, so after macOS switches
+  // appearance, or under a style whose --bg differs, the strip came up in the
+  // wrong colour. The renderer reports its real page background on mount and
+  // on every theme / style change. Strict #rrggbb only: it's renderer input.
+  ipcMain.handle('win:setBackgroundColor', async (_e, color) => {
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) return;
+    if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return;
+    try { win.setBackgroundColor(color); } catch {}
+  });
+
   ipcMain.handle('sessions:openInTerminal', async (_e, payload) => {
     // resolveSessionWithCwd resolves source via containment+cross-check AND
     // sources the cwd from main-side session metadata. The renderer-provided

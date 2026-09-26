@@ -335,6 +335,7 @@ declare global {
       openLogsFolder: () => Promise<string>;
       openUserDataFolder: () => Promise<string>;
       setTitleBarTheme: (theme: 'light' | 'dark') => Promise<void>;
+      setWindowBackground: (color: string) => Promise<void>;
     };
   }
 }

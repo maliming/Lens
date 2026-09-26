@@ -503,7 +503,8 @@ function createWindow({ startHidden = false } = {}) {
   // did here. main cannot read the renderer's stored choice (it lives in
   // localStorage), so the OS setting stands in: right for anyone on the
   // "system" mode, and right for most explicit choices too. The renderer calls
-  // `win:setTitleBarTheme` on mount, so a mismatch lasts a few milliseconds.
+  // `win:setTitleBarTheme` and `win:setBackgroundColor` on mount and on every
+  // theme / style change, so a mismatch lasts a few milliseconds.
   const { nativeTheme } = require('electron');
   const bootDark = nativeTheme.shouldUseDarkColors;
   const initialTitleBar = bootDark ? TITLEBAR_COLORS.dark : TITLEBAR_COLORS.light;

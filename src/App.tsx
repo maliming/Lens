@@ -24,11 +24,23 @@ import { useAppPrefs } from './lib/appPrefs';
 import { useTranslation } from './lib/I18nProvider';
 import type { SessionMeta, SessionsUpdate, View, UsageSummary } from './types';
 import { hasLiveTerminal, subscribeTerminals, terminalCount } from './lib/terminals';
+import { useThemeFamily } from './themes';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
 function getSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+// The page background as #rrggbb, the one form main accepts for the window
+// background. Read off #root: index.html's unlayered boot rule outranks the
+// layered one on html/body, so those stay on the Lens palette under any style.
+function pageBackgroundHex(): string | null {
+  const root = document.getElementById('root');
+  if (!root) return null;
+  const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(root).backgroundColor);
+  if (!m) return null;
+  return '#' + m.slice(1, 4).map(v => Number(v).toString(16).padStart(2, '0')).join('');
 }
 
 // Keeps every nav target mounted so React state, scroll position, deep-search
@@ -115,6 +127,7 @@ export default function App() {
     return saved || 'system';
   });
   const [theme, setTheme] = useState<'light' | 'dark'>(() => themeMode === 'system' ? getSystemTheme() : themeMode);
+  const themeFamily = useThemeFamily();
   const [realSessions, setSessions] = useState<SessionMeta[]>([]);
   const [realFavorites, setFavorites] = useState<Set<string>>(new Set());
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
@@ -294,6 +307,14 @@ export default function App() {
     // No-op on macOS / Linux — the main process ignores the call there.
     window.api.setTitleBarTheme?.(theme).catch(() => {});
   }, [theme]);
+
+  // Keep the native window background on the page's --bg, so a fast resize
+  // uncovers the same colour instead of the one main guessed at launch.
+  // Declared after the effect above so `data-theme` is already applied.
+  useEffect(() => {
+    const color = pageBackgroundHex();
+    if (color) window.api.setWindowBackground?.(color).catch(() => {});
+  }, [theme, themeFamily]);
 
   // Resolve theme based on mode + listen for system changes
   useEffect(() => {
