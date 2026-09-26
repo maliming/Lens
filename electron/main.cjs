@@ -767,6 +767,15 @@ function createWindow({ startHidden = false } = {}) {
 // The first before-quit is intercepted, cleanup is escalated and awaited under
 // a bound, then the quit proceeds. The bound matters as much as the wait — a
 // process that refuses to die must not make Lens unquittable.
+//
+// The retry goes out on a macrotask, never straight from the promise chain.
+// With no terminals open stopAll() settles in microtasks, and Electron drains
+// those before a native-initiated quit (Cmd+Q, Dock → Quit, logout) returns.
+// A nested app.quit() then starts closing windows, the outer quit records this
+// handler's preventDefault as "cancelled", and a window that closes
+// asynchronously (the hidden one after close-to-tray) finishes closing into an
+// app that is no longer quitting. The process stays up with isQuitting stuck
+// at true, so every later close destroys the window instead of hiding it.
 let ptyShutdown = null;
 app.on('before-quit', (e) => {
   isQuitting = true;
@@ -774,7 +783,7 @@ app.on('before-quit', (e) => {
   e.preventDefault();
   ptyShutdown = Promise.resolve(ptyIpc.stopAll(4000))
     .catch(() => {})
-    .then(() => { app.quit(); });
+    .then(() => { setImmediate(() => app.quit()); });
 });
 
 // File watcher on ~/.claude/projects was disabled — recursive fs.watch on macOS
