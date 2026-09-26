@@ -641,6 +641,69 @@ export default function App() {
     };
   }, [silentRefresh]);
 
+  // Showing the window from the tray while another app is frontmost makes
+  // macOS hand focus to the page as if Tab had been pressed into it. Chromium
+  // then drops whatever was focused and gives keyboard focus, ring included,
+  // to the first control: the source switcher. A Dock click activates Lens
+  // before the window shows and never does this, and no ordering of show /
+  // focus / activate in main avoids it. So while the window is coming back, a
+  // keyboard-style focus that no Tab key asked for is handed back to the text
+  // field or keyboard-focused control the user left, or dropped. A real Tab is
+  // let through, including one that wraps past the last control — that also
+  // reaches the page through a window blur and focus.
+  useEffect(() => {
+    const isTextEntry = (el: HTMLElement) =>
+      el.isContentEditable
+      || el instanceof HTMLTextAreaElement
+      || (el instanceof HTMLInputElement && !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(el.type));
+    let returning = !document.hasFocus();
+    let keyboardFocused: HTMLElement | null = null;
+    let restoreTo: HTMLElement | null = null;
+    let lastTabAt = -Infinity;
+    let settleTimer: number | undefined;
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target;
+      if (!(el instanceof HTMLElement)) return;
+      const unasked = returning
+        && el !== restoreTo
+        && performance.now() - lastTabAt > 1000
+        && !isTextEntry(el)
+        && el.matches(':focus-visible');
+      if (unasked) {
+        if (restoreTo?.isConnected) restoreTo.focus({ preventScroll: true });
+        else el.blur();
+        return;
+      }
+      // Read now: by the time the window blurs, :focus-visible no longer matches.
+      keyboardFocused = el.matches(':focus-visible') ? el : null;
+    };
+    const onBlur = () => {
+      window.clearTimeout(settleTimer);
+      returning = true;
+      const el = document.activeElement;
+      restoreTo = el instanceof HTMLElement && (isTextEntry(el) || el === keyboardFocused) ? el : null;
+    };
+    const onFocus = () => {
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => { returning = false; }, 500);
+    };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Tab') lastTabAt = performance.now(); };
+    const onPointerDown = () => { returning = false; };
+    document.addEventListener('focusin', onFocusIn, true);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      window.clearTimeout(settleTimer);
+      document.removeEventListener('focusin', onFocusIn, true);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, []);
+
   // Intercept link clicks → open in default browser (avoid Electron in-app navigation popup)
   useEffect(() => {
     const handler = (e: MouseEvent) => {
