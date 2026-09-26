@@ -139,9 +139,11 @@
 [data-theme-family='openai'] [data-ui='card'][data-msg-role='user'] { background: var(--fx-user-msg); border-color: transparent; border-radius: 22px; padding: 10px 16px; max-width: 70%; }
 [data-theme-family='openai'] [data-ui='card'][data-msg-role='assistant'] { background: hsl(var(--elevated)); border: 1px solid var(--fx-outline-soft); border-radius: 16px; }
 /* chatgpt.com sets both turns at 16px: the user's on a 24px line, the reply's
-   on 26px. Its user bubble rounds to 22px. */
-[data-theme-family='openai'] [data-msg-role='user'] [data-msg-body] { font-size: 16px; line-height: 24px; }
-[data-theme-family='openai'] [data-msg-role='assistant'] [data-msg-body] { font-size: 16px; line-height: 26px; }
+   on 26px. Both drop to 14px here, for the same reason as the Claude style —
+   16px reads as oversized next to a window built on a 14px root — keeping the
+   product's line ratios. Its user bubble rounds to 22px. */
+[data-theme-family='openai'] [data-msg-role='user'] [data-msg-body] { font-size: 14px; line-height: 21px; }
+[data-theme-family='openai'] [data-msg-role='assistant'] [data-msg-body] { font-size: 14px; line-height: 23px; }
 [data-theme-family='openai'] [data-msg-body] .markdown-body { line-height: inherit; }
 [data-theme-family='openai'] [data-ui='card'][data-msg-role='tool'],
 [data-theme-family='openai'] [data-ui='card'][data-msg-role='prompt'] { background: var(--fx-code-block); border-color: transparent; border-radius: 16px; }

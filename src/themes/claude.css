@@ -185,9 +185,11 @@
 [data-theme-family='claude'] [data-ui='card'][data-msg-role='user'] { background: var(--fx-user-msg); border-color: transparent; border-radius: 12px; padding: 12px 16px; max-width: 85%; }
 [data-theme-family='claude'] [data-ui='card'][data-msg-role='assistant'] { background: hsl(var(--elevated)); border: 1px solid hsl(var(--border)); border-radius: 12px; }
 /* claude.ai sets the user's turn at 15px on a 20px line and Claude's reply at
-   16px on 24px. */
-[data-theme-family='claude'] [data-msg-role='user'] [data-msg-body] { font-size: 15px; line-height: 20px; }
-[data-theme-family='claude'] [data-msg-role='assistant'] [data-msg-body] { font-size: 16px; line-height: 24px; }
+   16px on 24px. Both drop to 14px here: a transcript in the product's sizes
+   towers over the rest of the window, which is laid out around Lens's own
+   14px root. The line heights keep the product's ratios. */
+[data-theme-family='claude'] [data-msg-role='user'] [data-msg-body] { font-size: 14px; line-height: 19px; }
+[data-theme-family='claude'] [data-msg-role='assistant'] [data-msg-body] { font-size: 14px; line-height: 21px; }
 [data-theme-family='claude'] [data-msg-body] .markdown-body { line-height: inherit; }
 [data-theme-family='claude'] [data-ui='card'][data-msg-role='tool'],
 [data-theme-family='claude'] [data-ui='card'][data-msg-role='prompt'],
