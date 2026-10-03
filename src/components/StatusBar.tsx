@@ -54,8 +54,10 @@ export function StatusBar({ sessions, message }: Props) {
       <span className="font-mono text-[10.5px] text-text-muted/80 truncate" title={t('status.dataSource')}>{sourceDef.pathHint}</span>
       <span className="flex-1" />
 
-      {/* Middle: transient status messages */}
-      {message && <span className="text-accent flex-shrink-0">{cleanDisplayText(message)}</span>}
+      {/* Middle: transient status messages. Errors go to ErrorToasts instead;
+         what lands here is short confirmation text, and it truncates rather
+         than pushing the build chip out of a fixed-height row. */}
+      {message && <span className="text-accent min-w-0 truncate" title={cleanDisplayText(message)}>{cleanDisplayText(message)}</span>}
 
       {/* Right: build provenance — single chip shows version + commit SHA,
          clicking opens the matching release page on GitHub. */}

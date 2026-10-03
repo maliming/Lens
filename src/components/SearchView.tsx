@@ -12,6 +12,7 @@ import { setDeepSearchInFlight } from '../lib/deepSearchState';
 import { Button, Surface, TextInput } from '../ui';
 import type { SessionMeta } from '../types';
 import type { TKey } from '../lib/i18n';
+import { showError } from '../lib/errorToast';
 
 type TimeFilter = 'all' | 'today' | '7' | '30' | 'year';
 type Sort = 'relevance' | 'recent' | 'oldest' | 'tokens' | 'messages';
@@ -332,7 +333,7 @@ export function SearchView({ sessions, favorites, excluded, loading = false, onS
       }
     } catch (e: any) {
       if (reqSeq !== deepSeqRef.current || reqSource !== currentSourceRef.current) return;
-      onStatus(t('status.searchFailed', { error: e.message }));
+      showError(t('status.searchFailed', { error: e.message }));
     } finally {
       if (reqSeq === deepSeqRef.current && reqSource === currentSourceRef.current) {
         endDeep();
@@ -726,7 +727,7 @@ function useResumeHandler(row: ResultRowData, onStatus: (msg: string) => void) {
       await fn(row.session.id, row.session.filePath, row.session.source);
       onStatus(t('status.openedIn', { target: label }));
       setTimeout(() => onStatus(''), 2500);
-    } catch (err: any) { onStatus(t('status.error', { error: err.message })); }
+    } catch (err: any) { showError(t('status.error', { error: err.message })); }
   };
 }
 

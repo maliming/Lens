@@ -17,6 +17,7 @@ import { useSystemCapabilities } from '../lib/systemCapabilities';
 import { useDisplayPrefs } from '../lib/displayPrefs';
 import type { TKey } from '../lib/i18n';
 import { hasLiveTerminal, subscribeTerminals, terminalCount, terminalsSignature } from '../lib/terminals';
+import { showError } from '../lib/errorToast';
 
 type Props = {
   items: SessionMeta[];
@@ -520,14 +521,14 @@ function SessionListItem({ s, active, isFav, isEx, isManualEx, query, onSelect, 
       onStatus(t('status.copied', { cmd: s.id }));
       setTimeout(() => onStatus(''), 2500);
     } catch (e: any) {
-      onStatus(t('status.copyFailed', { error: e.message }));
+      showError(t('status.copyFailed', { error: e.message }));
     }
   };
   const handleResume = async () => {
     const fn = useITerm ? window.api.openInITerm : window.api.openInTerminal;
     const label = useITerm ? 'iTerm' : 'Terminal';
     try { await fn(s.id, s.filePath, s.source); onStatus(t('status.openedIn', { target: label })); setTimeout(() => onStatus(''), 2500); }
-    catch (e: any) { onStatus(t('status.error', { error: e.message })); }
+    catch (e: any) { showError(t('status.error', { error: e.message })); }
   };
 
   return (

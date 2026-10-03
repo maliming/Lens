@@ -20,6 +20,7 @@ import { linkSubagents, linkedFor, messageHasLinkedSubagent, linkedMatchesQuery,
 import { useDisplayPrefs, type DisplayPrefs } from '../lib/displayPrefs';
 import { useAppPrefs } from '../lib/appPrefs';
 import { useSystemCapabilities } from '../lib/systemCapabilities';
+import { showError } from '../lib/errorToast';
 import { Button, Surface, TextInput, useSkinClass } from '../ui';
 
 // Initial render is sized to comfortably fill a default-sized viewport in
@@ -646,7 +647,7 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
       setTimeout(() => setJustCopied(false), 1500);
       setTimeout(() => onStatus(''), 2500);
     } catch (e: any) {
-      onStatus(t('status.copyFailed', { error: e.message }));
+      showError(t('status.copyFailed', { error: e.message }));
     }
   };
   // iTerm only makes sense on macOS with iTerm actually installed.
@@ -658,12 +659,12 @@ export function SessionDetail({ session, messages, loading, refreshing, favorite
     const fn = effectivePreferred === 'iterm' ? window.api.openInITerm : window.api.openInTerminal;
     const label = effectivePreferred === 'iterm' ? 'iTerm' : 'Terminal';
     try { await fn(session.id, session.filePath, session.source); onStatus(t('status.openedIn', { target: label })); setTimeout(() => onStatus(''), 2500); }
-    catch (e: any) { onStatus(t('status.error', { error: e.message })); }
+    catch (e: any) { showError(t('status.error', { error: e.message })); }
   };
   const handleReveal = () => window.api.revealInFinder(session.filePath);
   const handleVSCode = async () => {
     try { await window.api.openInVSCode(session.id, session.filePath, session.source); onStatus(t('status.openedIn', { target: 'VS Code' })); setTimeout(() => onStatus(''), 2500); }
-    catch (e: any) { onStatus(t('status.error', { error: e.message })); }
+    catch (e: any) { showError(t('status.error', { error: e.message })); }
   };
 
   // Same title resolution as the list rows so the header matches what the user

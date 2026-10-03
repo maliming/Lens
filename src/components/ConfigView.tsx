@@ -11,6 +11,7 @@ import { renderMarkdown } from '../lib/markdown';
 import { Resizer } from './Resizer';
 import { DEMO_CONFIGS } from '../lib/demoData';
 import { useCurrentSource, getSource, type SessionSource, type KindMeta, type ResourceKindKey } from '../lib/sources';
+import { showError } from '../lib/errorToast';
 import type { ConfigItem, ConfigPayload } from '../types';
 import { Button, Surface, TextInput } from '../ui';
 
@@ -51,7 +52,7 @@ function loadCollapsed(source: SessionSource): Set<string> {
   return new Set();
 }
 
-export function ConfigView({ demoMode = false, onStatus, refreshTick = 0, isActive = true }: { demoMode?: boolean; onStatus?: (msg: string) => void; refreshTick?: number; isActive?: boolean }) {
+export function ConfigView({ demoMode = false, refreshTick = 0, isActive = true }: { demoMode?: boolean; refreshTick?: number; isActive?: boolean }) {
   const { t: tConfigRoot } = useTranslationLocal();
   const [config, setConfig] = useState<ConfigPayload | null>(null);
   const [active, setActive] = useState<string | null>(null);
@@ -251,7 +252,6 @@ export function ConfigView({ demoMode = false, onStatus, refreshTick = 0, isActi
             showSource={showSource}
             onToggleSource={() => setShowSource(v => !v)}
             onBack={() => setActive(null)}
-            onStatus={onStatus}
           />
         )}
       </Surface>
@@ -342,14 +342,12 @@ function ResourceDetail({
   showSource,
   onToggleSource,
   onBack,
-  onStatus,
 }: {
   item: ConfigItem;
   meta: Record<ResourceKindKey, FullKindMeta>;
   showSource: boolean;
   onToggleSource: () => void;
   onBack: () => void;
-  onStatus?: (msg: string) => void;
 }) {
   const { t } = useTranslationLocal();
   const itemMeta = meta[item.kind as ResourceKindKey];
@@ -416,7 +414,7 @@ function ResourceDetail({
           variant="secondary"
           onClick={async () => {
             try { await window.api.openConfigFile(item.path); }
-            catch (e: any) { if (onStatus) { onStatus('Open failed: ' + (e?.message || e)); setTimeout(() => onStatus(''), 3000); } }
+            catch (e: any) { showError('Open failed: ' + (e?.message || e)); }
           }}
           className="px-3 py-1.5 bg-surface border border-border rounded-lg text-[11.5px] hover:bg-muted flex items-center gap-1.5">
           <ExternalLink className="w-3 h-3" /> {t('config.openInApp')}
@@ -425,7 +423,7 @@ function ResourceDetail({
           variant="secondary"
           onClick={async () => {
             try { await window.api.revealInFinder(item.path); }
-            catch (e: any) { if (onStatus) { onStatus('Reveal failed: ' + (e?.message || e)); setTimeout(() => onStatus(''), 3000); } }
+            catch (e: any) { showError('Reveal failed: ' + (e?.message || e)); }
           }}
           className="px-3 py-1.5 bg-surface border border-border rounded-lg text-[11.5px] hover:bg-muted flex items-center gap-1.5">
           <FolderOpen className="w-3 h-3" /> {t('config.reveal')}

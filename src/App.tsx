@@ -8,12 +8,14 @@ import { SettingsView } from './components/SettingsView';
 import { AccountModal } from './components/AccountModal';
 import { SessionInfoDrawer } from './components/SessionInfoDrawer';
 import { StatusBar } from './components/StatusBar';
+import { ErrorToasts } from './components/ErrorToasts';
 import { Resizer } from './components/Resizer';
 import { useProfile } from './lib/profile';
 import { useSourceAuth, deriveName } from './lib/sourceAuth';
 import { useExcludeRules, computeEffectiveExcluded } from './lib/excludeRules';
 import { useCurrentSource, srcKey, type SessionSource } from './lib/sources';
 import { sessionTimestamp } from './lib/format';
+import { showError } from './lib/errorToast';
 import { dismissBootShell } from './lib/bootShell';
 import { useDemoMode } from './lib/demoMode';
 import { DEMO_SESSIONS, DEMO_USAGE, DEMO_PROFILE, DEMO_RATE_LIMITS_BY_SOURCE } from './lib/demoData';
@@ -270,9 +272,7 @@ export default function App() {
   const reportUsageError = useCallback((source: SessionSource, error: unknown) => {
     const detail = error instanceof Error ? error.message : String(error);
     setUsageErrorBySource(previous => ({ ...previous, [source]: detail }));
-    const message = t('status.error', { error: detail });
-    setStatusMsg(message);
-    setTimeout(() => setStatusMsg(current => current === message ? '' : current), 4000);
+    showError(t('status.error', { error: detail }));
   }, [t]);
   // Per-source active selection so flipping Claude ↔ Codex restores each
   // tool's last-selected session instead of bleeding state across sources.
@@ -424,7 +424,7 @@ export default function App() {
       // new reload) shouldn't flash a status bar message or kill the loading
       // skeleton of the in-flight successor.
       if (reqSource !== currentSourceRef.current || reqSeq !== reloadSeqRef.current) return;
-      setStatusMsg(t('status.error', { error: err.message }));
+      showError(t('status.error', { error: err.message }));
       setLoading(false);
     }
   }, [currentSource, reportUsageError, storeUsage, t]);
@@ -453,7 +453,7 @@ export default function App() {
       setLoading(false);
     }).catch((err: any) => {
       if (cancelled) return;
-      setStatusMsg(t('status.error', { error: err.message }));
+      showError(t('status.error', { error: err.message }));
       setLoading(false);
     });
     return () => { cancelled = true; };
@@ -492,9 +492,7 @@ export default function App() {
     return window.api.onSessionsUpdated((update) => {
       if (update.error && update.source === currentSourceRef.current) {
         setLoading(false);
-        const message = t('status.error', { error: update.error });
-        setStatusMsg(message);
-        setTimeout(() => setStatusMsg(current => current === message ? '' : current), 4000);
+        showError(t('status.error', { error: update.error }));
       }
       // Before the revision check, and only on the push main marks as the last
       // one: a push whose revision matches what the renderer already has still
@@ -926,7 +924,7 @@ export default function App() {
           <UsageView usage={usage} error={usageErrorBySource[currentSource] || null} demoMode={demoMode} isActive={view === 'usage'} onRetry={retryUsage} />
         </ViewSlot>
         <ViewSlot active={view === 'config'}>
-          <ConfigView demoMode={demoMode} onStatus={setStatusMsg} refreshTick={refreshTick} isActive={view === 'config'} />
+          <ConfigView demoMode={demoMode} refreshTick={refreshTick} isActive={view === 'config'} />
         </ViewSlot>
         <ViewSlot active={view === 'settings'}>
           <SettingsView isActive={view === 'settings'} themeMode={themeMode} resolvedTheme={theme} onThemeChange={setThemeMode} demoMode={demoMode} onDemoModeChange={setDemoMode} rlConsent={rlConsent} onRlConsentChange={setRlConsent} onOpenRlPrompt={() => setRlPromptOpen(true)} onOpenTerminalPrompt={() => setTermPromptOpen(true)} />
@@ -960,6 +958,7 @@ export default function App() {
       />
 
       <StatusBar sessions={sessions} message={statusMsg} />
+      <ErrorToasts />
     </div>
   );
 }

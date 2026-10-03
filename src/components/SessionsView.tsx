@@ -7,6 +7,7 @@ import { DEMO_MESSAGES, DEMO_SUBAGENTS } from '../lib/demoData';
 import { useCurrentSource, srcKey } from '../lib/sources';
 import { hasLiveTerminal, newestLiveTerminal, subscribeTerminals, terminalsSignature } from '../lib/terminals';
 import { useTranslation } from '../lib/I18nProvider';
+import { showError } from '../lib/errorToast';
 import type { MessageItem, SessionMeta, SessionSubagents, UsageSummary, View } from '../types';
 
 // SessionsView (History / Favorites / Excluded) does only a lightweight
@@ -433,7 +434,7 @@ export function SessionsView({ view, sessions, favorites, excluded, manualExclud
       setRefreshingMessages(false);
     }).catch(e => {
       if (cancelled || activeReqRef.current !== reqKey) return;
-      onStatus(t('status.loadError', { error: e.message }));
+      showError(t('status.loadError', { error: e.message }));
       setLoadingMessages(false);
       setRefreshingMessages(false);
     });
