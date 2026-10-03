@@ -20,18 +20,24 @@ export const IS_DEMO_BUILD: boolean = typeof __DEMO_BUILD__ !== 'undefined' && _
 // flag in localStorage is never read, and the fake data never gets mounted.
 export const DEMO_AVAILABLE: boolean = IS_DEV || IS_DEMO_BUILD;
 
+// Non-hook read for code that must agree with the hook at the moment it acts
+// (e.g. skipping a disk write while demo is on). Never read the raw
+// localStorage key elsewhere: packaged builds can carry a stale `1` from an
+// older build, and treating that as demo silently drops real writes.
+export function isDemoModeOn(): boolean {
+  if (IS_DEMO_BUILD) return true;
+  if (!IS_DEV) return false; // packaged prod — demo content never mounts
+  try {
+    const v = localStorage.getItem(KEY);
+    if (v === '1') return true;
+    if (v === '0') return false;
+    // First-run default in dev: ON so `npm run dev` shows demo content immediately.
+    return true;
+  } catch { return false; }
+}
+
 export function useDemoMode(): [boolean, (v: boolean) => void] {
-  const [on, setOn] = useState<boolean>(() => {
-    if (IS_DEMO_BUILD) return true;
-    if (!IS_DEV) return false; // packaged prod — demo content never mounts
-    try {
-      const v = localStorage.getItem(KEY);
-      if (v === '1') return true;
-      if (v === '0') return false;
-      // First-run default in dev: ON so `npm run dev` shows demo content immediately.
-      return true;
-    } catch { return false; }
-  });
+  const [on, setOn] = useState<boolean>(isDemoModeOn);
   useEffect(() => {
     if (!IS_DEV || IS_DEMO_BUILD) return;
     try { localStorage.setItem(KEY, on ? '1' : '0'); } catch {}

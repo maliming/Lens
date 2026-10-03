@@ -18,6 +18,7 @@ import { useDisplayPrefs } from '../lib/displayPrefs';
 import type { TKey } from '../lib/i18n';
 import { hasLiveTerminal, subscribeTerminals, terminalCount, terminalsSignature } from '../lib/terminals';
 import { showError } from '../lib/errorToast';
+import { isDemoModeOn } from '../lib/demoMode';
 
 type Props = {
   items: SessionMeta[];
@@ -962,7 +963,7 @@ function RenameAliasDialog({ open, onOpenChange, session, onSaved }: {
 
   // Demo mode: don't write demo session ids into the user's real aliases.json
   // on disk. App.tsx routes the patchAlias event to an in-memory demo overlay.
-  const isDemoMode = (() => { try { return localStorage.getItem('demo-mode') === '1'; } catch { return false; } })();
+  const isDemoMode = isDemoModeOn();
 
   const save = async () => {
     if (saving) return;
