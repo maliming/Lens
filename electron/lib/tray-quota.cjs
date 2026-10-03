@@ -12,6 +12,21 @@
 
 const POLL_INTERVAL = 5 * 60 * 1000;
 
+// A provider whose probe failed is asked again well before the next regular
+// poll. Nothing else would: the renderer only probes the provider its window is
+// showing, so a Codex probe that failed at launch while the window sat on
+// Claude left N/A in the menu bar for the full interval, and the Usage view's
+// refresh button could not clear it. Bounded because a failure can also be
+// permanent (an API-key account has no plan windows) and each Claude attempt
+// may spawn the CLI; after the last delay the regular interval takes over.
+const RETRY_DELAYS = [30 * 1000, 60 * 1000, 2 * 60 * 1000];
+
+// How long a number survives failed refreshes. The Usage view keeps showing its
+// last numbers when a refresh fails, so a menu bar that dropped to N/A on the
+// first failure contradicted the window sitting right next to it. Bounded, so a
+// source that stays broken still ends up saying so.
+const KEEP_LAST_FOR = 30 * 60 * 1000;
+
 // Declaration order is the fallback order; the user picks the real one in
 // Settings (`menuBarQuotaOrder`), because the title carries no labels and
 // position is the only thing telling the two numbers apart.
@@ -61,17 +76,25 @@ function resetsInLabel(reset) {
 
 function createTrayQuota({ getTray, getPrefs, rateLimits }) {
   const supported = process.platform === 'darwin';
-  // id → { percent, reset } for whatever the last poll could resolve. A source
-  // that failed is deleted rather than kept at a stale number: a menu bar
-  // showing yesterday's percentage is worse than one showing nothing.
+  // id → { percent, reset, at } for the last number a probe resolved. Kept
+  // through failed refreshes for KEEP_LAST_FOR and never past the window's own
+  // reset; after that it is deleted, because a menu bar showing yesterday's
+  // percentage is worse than one showing nothing.
   const snapshot = new Map();
   // id → why its last probe produced no number. Kept separate from `snapshot`
   // so the title can tell "hasn't been probed yet" (stay blank) apart from
   // "probed and came back empty" (say N/A) — without it, a launch flashes a
-  // placeholder for the second it takes the first poll to land.
+  // placeholder for the second it takes the first poll to land. It can sit
+  // beside a kept number, which is how the menu says the number is not fresh.
   const failures = new Map();
+  // id → absorb count, so a poll can tell whether a newer result for that
+  // provider landed while it was still waiting on the other one.
+  const absorbed = new Map();
   let timer = null;
+  let retryTimer = null;
+  let retryAttempt = 0;
   let polling = false;
+  let lastTitle = '';
   // Bumped on every sync so a poll that was in flight when the feature got
   // switched off (or the tray destroyed) can't paint a title afterwards.
   let generation = 0;
@@ -141,36 +164,48 @@ function createTrayQuota({ getTray, getPrefs, rateLimits }) {
 
   // One reading of a probe result, shared by the poll and the subscription, so
   // a number that arrives by push can never mean something different from the
-  // same number arriving by poll. A source that couldn't be read is deleted
-  // rather than left at its last value: a menu bar showing yesterday's
-  // percentage is worse than one showing nothing.
+  // same number arriving by poll.
   function absorb(id, result) {
+    absorbed.set(id, (absorbed.get(id) || 0) + 1);
     const weekly = result && result.ok && result.limits ? result.limits.weekly : null;
     const percent = remainingPercent(weekly);
     if (percent == null) {
-      snapshot.delete(id);
       failures.set(id, reasonFor(result));
+      const last = snapshot.get(id);
+      if (last && !isFresh(last)) snapshot.delete(id);
       return;
     }
     const reset = weekly && typeof weekly.reset === 'number' ? weekly.reset : null;
-    snapshot.set(id, { percent, reset });
+    // A cache hit carries the time the number was actually fetched.
+    const at = typeof result.fetchedAt === 'number' ? result.fetchedAt : Date.now();
+    snapshot.set(id, { percent, reset, at });
     failures.delete(id);
+  }
+
+  function isFresh(entry) {
+    if (Date.now() - entry.at >= KEEP_LAST_FOR) return false;
+    return entry.reset == null || entry.reset * 1000 > Date.now();
   }
 
   function applyTitle() {
     const tray = getTray();
     if (!tray) return;
     if (!enabled()) {
+      lastTitle = '';
       try { tray.setTitle(''); } catch {}
       return;
     }
     const providers = orderedProviders();
-    // Nothing has been probed yet (launch, or the feature was just switched
-    // on): show the bare icon rather than a row of placeholders that resolves
-    // into numbers a second later. Once a probe has answered, an empty result
-    // is real news and gets said out loud — a blank title there is
+    // Wait until every provider has answered once (launch, the feature just
+    // switched on, consent just granted): show the bare icon rather than a
+    // title that resolves into numbers a second later. Probes land at
+    // different times, and a provider that is merely still probing must not
+    // read as N/A beside the other's number — that says it failed while the
+    // Usage view is already showing it. Once each has answered, an empty
+    // result is real news and gets said out loud — a blank title there is
     // indistinguishable from the feature being off.
-    if (!providers.some(p => snapshot.has(p.id) || failures.has(p.id))) {
+    if (!providers.every(p => snapshot.has(p.id) || failures.has(p.id))) {
+      lastTitle = '';
       try { tray.setTitle(''); } catch {}
       return;
     }
@@ -181,7 +216,12 @@ function createTrayQuota({ getTray, getPrefs, rateLimits }) {
     // Two spaces, not a separator glyph: the menu bar already renders in the
     // system font at system tracking, and a "·" between two short numbers
     // reads as noise there.
-    try { tray.setTitle(parts.join('  ')); } catch {}
+    const title = parts.join('  ');
+    if (title !== lastTitle) {
+      console.log(`[tray-quota] title "${title}" (${providers.map(p => `${p.id}=${failures.get(p.id) || (snapshot.has(p.id) ? 'ok' : 'unprobed')}`).join(', ')})`);
+      lastTitle = title;
+    }
+    try { tray.setTitle(title); } catch {}
   }
 
   async function poll() {
@@ -190,20 +230,49 @@ function createTrayQuota({ getTray, getPrefs, rateLimits }) {
     const gen = generation;
     try {
       const results = await Promise.all(activeProviders().map(async p => {
+        const seen = absorbed.get(p.id) || 0;
         try {
-          return [p.id, await rateLimits.get({ source: p.id })];
+          return [p.id, await rateLimits.get({ source: p.id }), seen];
         } catch {
-          return [p.id, null];
+          return [p.id, null, seen];
         }
       }));
       // A sync() during the probe means these numbers answer a question the
       // user has already changed — drop them rather than repaint.
       if (gen !== generation) return;
-      for (const [id, result] of results) absorb(id, result);
+      // Results are applied only after the slowest provider answers. By then
+      // the subscription has usually delivered this same probe — and may have
+      // delivered a newer one, such as a refresh from the Usage view — so a
+      // provider that absorbed anything since this poll started is left alone.
+      // Otherwise a failure from the start of a slow poll would overwrite the
+      // number that just replaced it. Cache hits and thrown calls are never
+      // announced, and those are what still get applied here.
+      for (const [id, result, seen] of results) {
+        if ((absorbed.get(id) || 0) === seen) absorb(id, result);
+      }
       applyTitle();
     } finally {
       polling = false;
     }
+    scheduleRetry();
+  }
+
+  // Armed after every answer, poll or push alike. Healthy providers cost
+  // nothing on the retry — their cached value is still inside the service's
+  // TTL — so only the failed ones reach the network or the CLI.
+  function scheduleRetry() {
+    if (!enabled()) return;
+    if (!activeProviders().some(p => failures.has(p.id))) {
+      retryAttempt = 0;
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+      return;
+    }
+    if (retryTimer || retryAttempt >= RETRY_DELAYS.length) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      poll().catch(() => {});
+    }, RETRY_DELAYS[retryAttempt++]);
+    if (typeof retryTimer.unref === 'function') retryTimer.unref();
   }
 
   // Called on startup and after anything that changes the answer: the pref
@@ -213,6 +282,8 @@ function createTrayQuota({ getTray, getPrefs, rateLimits }) {
     if (!supported) return;
     generation++;
     if (timer) { clearInterval(timer); timer = null; }
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    retryAttempt = 0;
     if (!enabled()) {
       snapshot.clear();
       failures.clear();
@@ -238,12 +309,14 @@ function createTrayQuota({ getTray, getPrefs, rateLimits }) {
     if (!activeProviders().some(p => p.id === source)) return;
     absorb(source, result);
     applyTitle();
+    scheduleRetry();
   });
 
   function stop() {
     generation++;
     unsubscribe();
     if (timer) { clearInterval(timer); timer = null; }
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   }
 
   // Read-only rows for the tray's context menu. Returns [] when the feature is
@@ -255,12 +328,14 @@ function createTrayQuota({ getTray, getPrefs, rateLimits }) {
     // number belongs to whom, so the two must never disagree.
     const rows = orderedProviders().map(p => {
       const entry = snapshot.get(p.id);
+      const why = failures.get(p.id);
       if (!entry) {
-        const why = failures.get(p.id);
         return { label: why ? `${p.name} — ${why}` : `${p.name} — checking…`, enabled: false };
       }
-      const resets = resetsInLabel(entry.reset);
-      const suffix = resets ? ` · resets in ${resets}` : '';
+      // A kept number says so here: the title has no room for it, and this is
+      // where someone who doubts the title goes to look.
+      const resets = why ? null : resetsInLabel(entry.reset);
+      const suffix = why ? ` · refresh failed: ${why}` : resets ? ` · resets in ${resets}` : '';
       return { label: `${p.name} — ${entry.percent}% weekly left${suffix}`, enabled: false };
     });
     // No providers on this host: return nothing rather than a separator with

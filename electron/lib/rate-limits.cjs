@@ -18,6 +18,20 @@ const { detectAiTools } = require('./system-caps.cjs');
 // add up. Keyed by source so claude + codex don't trample each other.
 const RATE_LIMITS_TTL = 5 * 60 * 1000;
 
+// One log line per completed probe. The menu bar and the Usage view can show
+// different answers when they were fed by different probes, and without this
+// the log gives no way to tell which probe failed or why. Never the body or
+// the token — just the route, the status and the reason.
+function describeProbe(result) {
+  const via = result?.debug?.via ? ` via=${result.debug.via}` : '';
+  if (result?.ok) {
+    const w = result.limits?.weekly?.utilization;
+    return `ok${via} weekly=${typeof w === 'number' ? Math.round(w * 100) + '%' : 'none'}`;
+  }
+  const status = result?.status != null ? ` status=${result.status}` : '';
+  return `failed error=${result?.error || 'unknown'}${via}${status}: ${String(result?.message || '').slice(0, 200)}`;
+}
+
 function createRateLimitsService({ probeCodexLimits, getConsent }) {
   const cacheBySource = new Map();
   const inFlightBySource = new Map();
@@ -152,6 +166,7 @@ function createRateLimitsService({ probeCodexLimits, getConsent }) {
     if (!force && inFlight) return inFlight;
     const pending = (async () => {
       let result;
+      const startedAt = Date.now();
       try {
         const res = await provider.probe();
         if (res.ok) {
@@ -164,6 +179,7 @@ function createRateLimitsService({ probeCodexLimits, getConsent }) {
       } catch (e) {
         result = { ok: false, error: 'network', message: String(e?.message || e) };
       }
+      console.log(`[rate-limits] ${source} ${describeProbe(result)} in ${Date.now() - startedAt}ms${force ? ' (forced)' : ''}`);
       // Announced for failures too: "this source could not be read just now"
       // is exactly as much news as a new percentage, and a listener that draws
       // the number needs both to avoid presenting a dead one as current.
